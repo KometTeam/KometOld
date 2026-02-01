@@ -884,16 +884,21 @@ class ApiService {
       }
 
       final payload = response['payload'] as Map<String, dynamic>?;
-      final info = payload?['info'] as List<dynamic>?;
 
-      if (info == null || info.isEmpty) {
-        print('❌ В ответе отсутствует info');
-        return null;
+      // Сервер может вернуть url либо напрямую, либо внутри info
+      String? uploadUrl;
+
+      if (payload != null && payload.containsKey('url')) {
+        uploadUrl = payload['url'] as String?;
+      } else if (payload != null && payload.containsKey('info')) {
+        final info = payload['info'] as List<dynamic>?;
+        if (info != null && info.isNotEmpty) {
+          uploadUrl = info[0]['url'] as String?;
+        }
       }
 
-      final uploadUrl = info[0]['url'] as String?;
       if (uploadUrl == null || uploadUrl.isEmpty) {
-        print('❌ URL для загрузки пуст');
+        print('❌ URL для загрузки пуст или отсутствует');
         return null;
       }
 
@@ -925,8 +930,16 @@ class ApiService {
       }
 
       // Парсим ответ для получения финального URL
-      final responseData = json.decode(httpResponse.body);
-      final finalUrl = responseData['url'] ?? uploadUrl;
+      String? finalUrl;
+      try {
+        final responseData = json.decode(httpResponse.body);
+        if (responseData is Map) {
+          finalUrl = responseData['url'] as String?;
+        }
+      } catch (e) {
+        // Если сервер вернул не JSON, используем исходный URL
+      }
+      finalUrl ??= uploadUrl;
 
       print('Файл успешно загружен: $finalUrl');
       return finalUrl;
