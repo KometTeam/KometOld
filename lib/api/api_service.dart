@@ -840,8 +840,8 @@ class ApiService {
         'info': [
           {
             'url': uploadUrl,
-            '114': durationSeconds,  // Длительность в секундах
-            '100': (fileSize / 1024).round(),  // Размер в KB
+            'count': durationSeconds,  // Длительность в секундах
+            'size': (fileSize / 1024).round(),  // Размер в KB
           }
         ]
       };
