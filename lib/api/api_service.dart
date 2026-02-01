@@ -815,4 +815,126 @@ class ApiService {
       return null;
     }
   }
+  Future<void> sendVoiceMessage(
+      int chatId, {
+        required String localPath,
+        required int durationSeconds,
+        required int fileSize,
+        int? senderId,
+      }) async {
+    try {
+      print('🎤 Начинаем отправку голосового сообщения в чат $chatId');
+
+      //  Загружаем файл на сервер и получаем URL
+      final uploadUrl = await _uploadVoiceFile(localPath, fileSize);
+
+      if (uploadUrl == null || uploadUrl.isEmpty) {
+        throw Exception('Не удалось загрузить голосовое сообщение на сервер');
+      }
+
+      print('✅ Файл загружен: $uploadUrl');
+
+      //  Отправляем сообщение с голосовым вложением (opcode 82)
+      final payload = {
+        'chatId': chatId,
+        'info': [
+          {
+            'url': uploadUrl,
+            '114': durationSeconds,  // Длительность в секундах
+            '100': (fileSize / 1024).round(),  // Размер в KB
+          }
+        ]
+      };
+
+      print('📤 Отправляем payload: $payload');
+
+      await sendRawRequest(82, payload);
+
+      print('✅ Голосовое сообщение успешно отправлено');
+
+    } catch (e, stackTrace) {
+      print('❌ Ошибка отправки голосового сообщения: $e');
+      print(stackTrace);
+      rethrow;
+    }
+  }
+
+  Future<String?> _uploadVoiceFile(String localPath, int fileSize) async {
+    try {
+      // Запрашиваем URL для загрузки голосового файла (opcode 81)
+      final seq = await sendRawRequest(81, {
+        'type': 'VOICE',
+        'size': fileSize,
+      });
+
+      if (seq == -1) {
+        print('❌ Не удалось отправить запрос на получение URL');
+        return null;
+      }
+
+      // Ждем ответ от сервера с URL загрузки
+      final response = await messages.firstWhere(
+            (m) => m['seq'] == seq && (m['opcode'] == 81 || m['opcode'] == 82),
+        orElse: () => <String, dynamic>{},
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.isEmpty || response['payload'] == null) {
+        print('❌ Нет ответа от сервера при получении URL');
+        return null;
+      }
+
+      final payload = response['payload'] as Map<String, dynamic>?;
+      final info = payload?['info'] as List<dynamic>?;
+
+      if (info == null || info.isEmpty) {
+        print('❌ В ответе отсутствует info');
+        return null;
+      }
+
+      final uploadUrl = info[0]['url'] as String?;
+      if (uploadUrl == null || uploadUrl.isEmpty) {
+        print('❌ URL для загрузки пуст');
+        return null;
+      }
+
+      print('📤 Загружаем файл на: $uploadUrl');
+
+      // Читаем файл
+      final file = File(localPath);
+      if (!await file.exists()) {
+        print('❌ Файл не найден: $localPath');
+        return null;
+      }
+
+      final bytes = await file.readAsBytes();
+
+      // Загружаем файл по HTTP POST
+      final httpResponse = await http.post(
+        Uri.parse(uploadUrl),
+        headers: {
+          'Content-Type': 'audio/mp4',
+          'Content-Length': bytes.length.toString(),
+        },
+        body: bytes,
+      );
+
+      if (httpResponse.statusCode != 200) {
+        print('❌ Ошибка загрузки: ${httpResponse.statusCode}');
+        print('Response: ${httpResponse.body}');
+        return null;
+      }
+
+      // Парсим ответ для получения финального URL
+      final responseData = json.decode(httpResponse.body);
+      final finalUrl = responseData['url'] ?? uploadUrl;
+
+      print('Файл успешно загружен: $finalUrl');
+      return finalUrl;
+
+    } catch (e, stackTrace) {
+      print('Ошибка загрузки голосового файла: $e');
+      print(stackTrace);
+      return null;
+    }
+  }
 }

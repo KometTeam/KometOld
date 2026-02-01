@@ -43,6 +43,8 @@ import 'package:gwid/screens/chat/models/chat_item.dart';
 import 'package:gwid/screens/chat/widgets/empty_chat_widget.dart';
 import 'package:gwid/widgets/message_bubble/models/message_read_status.dart';
 import 'package:gwid/screens/chats_screen.dart';
+import 'package:record/record.dart';
+import 'package:path_provider/path_provider.dart';
 
 bool _debugShowExactDate = false;
 
@@ -121,6 +123,7 @@ class _PhotoPickerResult {
 }
 
 class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
+  bool _isDisposed = false;
   final List<Message> _messages = [];
   List<ChatItem> _chatItems = [];
   final Set<String> _deletingMessageIds = {};
@@ -204,6 +207,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   late final AnimationController _sendDragReturnController;
 
   bool _isVoiceRecordingUi = false;
+  final AudioRecorder _audioRecorder = AudioRecorder();
+  String? _currentRecordingPath;
+  bool _isActuallyRecording = false;
   bool _isVoiceRecordingPaused = false;
   Duration _voiceRecordingDuration = Duration.zero;
   Timer? _voiceRecordingTimer;
@@ -2004,7 +2010,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       });
     } catch (e) {
       print("[ChatScreen] Ошибка при загрузке истории сообщений: $e");
-      if (mounted) {
+      if (mounted && !_isDisposed) {
         setState(() {
           _isLoadingHistory = false;
         });
@@ -2981,10 +2987,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
       // Дополнительные проверки валидации
       if (element['entityId'] == null) {
-        print('  ⚠️ ВНИМАНИЕ: entityId равен NULL!');
+        print('ВНИМАНИЕ: entityId равен NULL!');
       }
       if (element['entityId'] == 0) {
-        print('  ⚠️ ВНИМАНИЕ: entityId равен 0, возможно невалидный ID!');
+        print('ВНИМАНИЕ: entityId равен 0, возможно невалидный ID!');
       }
     }
     print('=====================================');
@@ -3274,7 +3280,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   }
 
   void _forwardMessage(Message message) {
-    print('🔄 _forwardMessage вызван для: ${message.id}');
+    print(' _forwardMessage вызван для: ${message.id}');
     _showForwardDialog(message);
   }
 
@@ -3288,22 +3294,22 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       }
       return result;
     } catch (e) {
-      print('❌ Не удалось загрузить список чатов для пересылки: $e');
+      print(' Не удалось загрузить список чатов для пересылки: $e');
       return null;
     }
   }
 
   void _showForwardDialog(Message message) async {
-    print('🔄 _showForwardDialog вызван для сообщения: ${message.id}');
+    print(' _showForwardDialog вызван для сообщения: ${message.id}');
 
     Map<String, dynamic>? chatData = ApiService.instance.lastChatsPayload;
     if (chatData == null || chatData['chats'] == null) {
-      print('🔄 chatData пуст, загружаем...');
+      print(' chatData пуст, загружаем...');
       chatData = await _loadChatsIfNeeded();
     }
 
     if (chatData == null || chatData['chats'] == null) {
-      print('❌ Не удалось загрузить чаты для пересылки');
+      print(' Не удалось загрузить чаты для пересылки');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Список чатов не загружен'),
@@ -3314,11 +3320,11 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     }
 
     if (!mounted) {
-      print('❌ Виджет не смонтирован');
+      print('Виджет не смонтирован');
       return;
     }
 
-    print('🔄 Открываем экран выбора чата для пересылки');
+    print(' Открываем экран выбора чата для пересылки');
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => ChatsScreen(
@@ -3872,7 +3878,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         _contactDetailsCache[contact.id] = contact;
       }
       print(
-        '✅ Загружено ${_contactDetailsCache.length} контактов из кэша чата ${widget.chatId}',
+        ' Загружено ${_contactDetailsCache.length} контактов из кэша чата ${widget.chatId}',
       );
       return;
     }
@@ -3887,15 +3893,15 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
           _actualMyId = int.parse(prefs.getString('userId')!);
           print(
-            '✅ [_loadCachedContacts] Собственный ID восстановлен из глобального кэша: $_actualMyId (${contact.name})',
+            ' [_loadCachedContacts] Собственный ID восстановлен из глобального кэша: $_actualMyId (${contact.name})',
           );
         }
       }
       print(
-        '✅ Загружено ${_contactDetailsCache.length} контактов из глобального кэша',
+        ' Загружено ${_contactDetailsCache.length} контактов из глобального кэша',
       );
     } else {
-      print('⚠️ Кэш контактов пуст, будет загружено с сервера');
+      print(' Кэш контактов пуст, будет загружено с сервера');
     }
   }
 
@@ -4056,6 +4062,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    _isDisposed = true;
     MessageQueueService().clearTemporaryQueue(chatId: widget.chatId);
 
     _sendDragReturnController.dispose();
@@ -4078,6 +4085,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     _searchFocusNode.dispose();
     _pinnedMessageNotifier.dispose();
     _showScrollToBottomNotifier.dispose();
+    _audioRecorder.dispose();
     super.dispose();
   }
 
@@ -4088,8 +4096,38 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     return '$minutes:$seconds';
   }
 
-  void _startVoiceRecordingUi() {
+  Future<void> _startVoiceRecordingUi() async {
     _voiceRecordingTimer?.cancel();
+
+    final hasPermission = await _audioRecorder.hasPermission();
+    if (!hasPermission) {
+      _showErrorSnackBar('Нет разрешения на запись аудио');
+      return;
+    }
+
+    final directory = await getTemporaryDirectory();
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    _currentRecordingPath = '${directory.path}/voice_$timestamp.m4a';
+
+    print('Начинаем запись в: $_currentRecordingPath');
+
+    try {
+      await _audioRecorder.start(
+        RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          bitRate: 128000,
+          sampleRate: 44100,
+        ),
+        path: _currentRecordingPath!,
+      );
+      _isActuallyRecording = true;
+      print(' Запись голосового сообщения начата: $_currentRecordingPath');
+    } catch (e) {
+      print(' Ошибка начала записи: $e');
+      _showErrorSnackBar('Не удалось начать запись');
+      return;
+    }
+
     setState(() {
       _isVoiceRecordingUi = true;
       _isVoiceRecordingPaused = false;
@@ -4110,24 +4148,149 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     });
   }
 
-  void _cancelVoiceRecordingUi() {
+
+  Future<void> _cancelVoiceRecordingUi() async {
     _voiceRecordingTimer?.cancel();
+
+    if (_isActuallyRecording) {
+      await _audioRecorder.stop();
+      _isActuallyRecording = false;
+
+      if (_currentRecordingPath != null) {
+        final file = File(_currentRecordingPath!);
+        if (await file.exists()) {
+          await file.delete();
+          print('🗑Запись удалена: $_currentRecordingPath');
+        }
+      }
+    }
+
     if (!mounted) return;
     setState(() {
       _isVoiceRecordingUi = false;
       _isVoiceRecordingPaused = false;
       _voiceRecordingDuration = Duration.zero;
       _recordCancelDragDx = 0.0;
+      _currentRecordingPath = null;
     });
   }
 
-  void _toggleVoiceRecordingPause() {
+
+  Future<void> _toggleVoiceRecordingPause() async {
+    if (_isActuallyRecording) {
+      if (_isVoiceRecordingPaused) {
+        await _audioRecorder.resume();
+        print('Запись возобновлена');
+      } else {
+        await _audioRecorder.pause();
+        print('Запись на паузе');
+      }
+    }
+
     if (!mounted) return;
     setState(() {
       _isVoiceRecordingPaused = !_isVoiceRecordingPaused;
       _recordCancelDragDx = 0.0;
     });
   }
+
+
+  Future<void> _sendVoiceMessage() async {
+    if (!_isActuallyRecording || _currentRecordingPath == null) {
+      print('Нет активной записи для отправки');
+      return;
+    }
+
+    _voiceRecordingTimer?.cancel();
+
+    // Останавливаем запись
+    String? path;
+    try {
+      path = await _audioRecorder.stop();
+      print('Recorder stopped, returned path: $path');
+    } catch (e) {
+      print('Error stopping recorder: $e');
+    }
+
+    _isActuallyRecording = false;
+
+    // Критично для Windows: даем время на освобождение файла и запись метаданных
+    await Future.delayed(const Duration(milliseconds: 200));
+
+    // Проверяем файл по пути, а не по возвращаемому значению из stop()
+    final filePath = _currentRecordingPath!;
+    final file = File(filePath);
+    var fileExists = await file.exists();
+    var fileSize = fileExists ? await file.length() : 0;
+
+    // Дополнительная попытка если файл еще не готов (Windows)
+    if (!fileExists || fileSize == 0) {
+      await Future.delayed(const Duration(milliseconds: 300));
+      fileExists = await file.exists();
+      fileSize = fileExists ? await file.length() : 0;
+    }
+
+    if (!fileExists || fileSize == 0) {
+      print('Файл не создан или пуст: $filePath');
+      if (mounted) {
+        _showErrorSnackBar('Не удалось сохранить запись');
+      }
+      await _cancelVoiceRecordingUi();
+      return;
+    }
+
+    print('Файл записан: $filePath (${fileSize} bytes)');
+
+    final duration = _voiceRecordingDuration;
+
+    // Единый setState с проверкой mounted
+    if (mounted) {
+      setState(() {
+        _isVoiceRecordingUi = false;
+        _isVoiceRecordingPaused = false;
+        _voiceRecordingDuration = Duration.zero;
+        _recordCancelDragDx = 0.0;
+        _currentRecordingPath = null;
+      });
+    }
+
+    print('Отправка голосового сообщения: $filePath, длительность: ${duration.inSeconds}s');
+
+    try {
+      await ApiService.instance.sendVoiceMessage(
+        widget.chatId,
+        localPath: filePath,
+        durationSeconds: duration.inSeconds,
+        fileSize: fileSize,
+        senderId: _actualMyId,
+      );
+
+      print('Голосовое сообщение успешно отправлено');
+
+      // Удаляем временный файл после успешной отправки
+      try {
+        if (await file.exists()) {
+          await file.delete();
+        }
+      } catch (e) {
+        print('Не удалось удалить временный файл: $e');
+      }
+    } catch (e, stackTrace) {
+      print('Ошибка отправки голосового сообщения: $e');
+      print(stackTrace);
+      if (mounted) {
+        _showErrorSnackBar('Не удалось отправить голосовое сообщение');
+      }
+
+      // Удаляем временный файл при ошибке отправки
+      try {
+        if (await file.exists()) {
+          await file.delete();
+        }
+      } catch (_) {}
+    }
+  }
+
 
   void _handleRecordCancelDragStart() {
     _recordCancelReturnController.stop();
@@ -5616,10 +5779,11 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       builder: (context, value, child) {
         if (_isVoiceRecordingUi) {
           final padding = EdgeInsets.all(isSmall ? 10 : 6);
-          return Container(
-            decoration: BoxDecoration(color: colors.primary, shape: BoxShape.circle),
-            child: Material(
-              color: Colors.transparent,
+          return InkWell(
+            borderRadius: BorderRadius.circular(24),
+            onTap: _sendVoiceMessage,
+            child: Container(
+              decoration: BoxDecoration(color: colors.primary, shape: BoxShape.circle),
               child: Padding(
                 padding: padding,
                 child: Icon(
@@ -8902,7 +9066,7 @@ Future<void> openUserProfileById(BuildContext context, int userId) async {
 
   if (contact == null) {
     print(
-      '⚠️ [openUserProfileById] Контакт $userId не найден в кэше, загружаем с сервера...',
+      ' [openUserProfileById] Контакт $userId не найден в кэше, загружаем с сервера...',
     );
 
     try {
@@ -8910,15 +9074,15 @@ Future<void> openUserProfileById(BuildContext context, int userId) async {
       if (contacts.isNotEmpty) {
         contact = contacts.first;
         print(
-          '✅ [openUserProfileById] Контакт $userId загружен: ${contact.name}',
+          ' [openUserProfileById] Контакт $userId загружен: ${contact.name}',
         );
       } else {
         print(
-          '❌ [openUserProfileById] Сервер не вернул данные для контакта $userId',
+          ' [openUserProfileById] Сервер не вернул данные для контакта $userId',
         );
       }
     } catch (e) {
-      print('❌ [openUserProfileById] Ошибка загрузки контакта $userId: $e');
+      print('[openUserProfileById] Ошибка загрузки контакта $userId: $e');
     }
   }
 
