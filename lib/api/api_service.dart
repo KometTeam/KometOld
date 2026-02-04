@@ -821,133 +821,113 @@ class ApiService {
         required int durationSeconds,
         required int fileSize,
         int? senderId,
+        int maxNotReadyRetries = 6,
+        Function(double)? onProgress,
       }) async {
+    await waitUntilOnline();
+
+    final int cid = DateTime.now().millisecondsSinceEpoch;
+
+    final int seq82 = await _sendMessage(82, {'type': 2, 'count': 1});
+    if (seq82 == -1) {
+      throw Exception('Не удалось отправить запрос на загрузку аудио (opcode 82)');
+    }
+
+    final resp82 = await messages.firstWhere((m) => m['seq'] == seq82);
+    final infoList = resp82['payload']?['info'];
+    if (infoList is! List || infoList.isEmpty) {
+      throw Exception('Неверный ответ на opcode 82: отсутствует info');
+    }
+
+    final uploadInfo = infoList.first;
+    final String uploadUrl = uploadInfo['url'];
+    final dynamic idCandidate =
+        uploadInfo['id'] ?? uploadInfo['audioId'] ?? uploadInfo['videoId'];
+    if (idCandidate == null || idCandidate is! num) {
+      throw Exception('Неверный ответ на opcode 82: отсутствует id/audioId/videoId');
+    }
+
+    final request = http.MultipartRequest('POST', Uri.parse(uploadUrl));
+    request.files.add(await http.MultipartFile.fromPath('file', localPath));
+    final streamed = await request.send();
+    onProgress?.call(0.0);
+    final httpResp = await http.Response.fromStream(streamed);
+    onProgress?.call(1.0);
+    if (httpResp.statusCode != 200) {
+      throw Exception(
+        'Ошибка загрузки аудио: ${httpResp.statusCode} ${httpResp.body}',
+      );
+    }
+
+    String? token;
     try {
-      print('🎤 Начинаем отправку голосового сообщения в чат $chatId');
-
-      //  Загружаем файл на сервер и получаем URL
-      final uploadUrl = await _uploadVoiceFile(localPath, fileSize);
-
-      if (uploadUrl == null || uploadUrl.isEmpty) {
-        throw Exception('Не удалось загрузить голосовое сообщение на сервер');
+      final decoded = jsonDecode(httpResp.body);
+      if (decoded is Map) {
+        token = decoded['token']?.toString();
       }
+    } catch (_) {}
 
-      print('✅ Файл загружен: $uploadUrl');
+    token ??= uploadInfo['token']?.toString();
 
-      //  Отправляем сообщение с голосовым вложением (opcode 82)
+    if (token == null || token.isEmpty) {
+      throw Exception('Не получен token после загрузки аудио');
+    }
+
+    Future<void> trySendWithToken() async {
       final payload = {
         'chatId': chatId,
-        'info': [
-          {
-            'url': uploadUrl,
-            'count': durationSeconds,  // Длительность в секундах
-            'size': (fileSize / 1024).round(),  // Размер в KB
-          }
-        ]
-      };
-
-      print('📤 Отправляем payload: $payload');
-
-      await sendRawRequest(82, payload);
-
-      print('✅ Голосовое сообщение успешно отправлено');
-
-    } catch (e, stackTrace) {
-      print('❌ Ошибка отправки голосового сообщения: $e');
-      print(stackTrace);
-      rethrow;
-    }
-  }
-
-  Future<String?> _uploadVoiceFile(String localPath, int fileSize) async {
-    try {
-      // Запрашиваем URL для загрузки голосового файла (opcode 81)
-      final seq = await sendRawRequest(81, {
-        'type': 'VOICE',
-        'size': fileSize,
-      });
-
-      if (seq == -1) {
-        print('❌ Не удалось отправить запрос на получение URL');
-        return null;
-      }
-
-      // Ждем ответ от сервера с URL загрузки
-      final response = await messages.firstWhere(
-            (m) => m['seq'] == seq && (m['opcode'] == 81 || m['opcode'] == 82),
-        orElse: () => <String, dynamic>{},
-      ).timeout(const Duration(seconds: 10));
-
-      if (response.isEmpty || response['payload'] == null) {
-        print('❌ Нет ответа от сервера при получении URL');
-        return null;
-      }
-
-      final payload = response['payload'] as Map<String, dynamic>?;
-
-      // Сервер может вернуть url либо напрямую, либо внутри info
-      String? uploadUrl;
-
-      if (payload != null && payload.containsKey('url')) {
-        uploadUrl = payload['url'] as String?;
-      } else if (payload != null && payload.containsKey('info')) {
-        final info = payload['info'] as List<dynamic>?;
-        if (info != null && info.isNotEmpty) {
-          uploadUrl = info[0]['url'] as String?;
-        }
-      }
-
-      if (uploadUrl == null || uploadUrl.isEmpty) {
-        print('❌ URL для загрузки пуст или отсутствует');
-        return null;
-      }
-
-      print('📤 Загружаем файл на: $uploadUrl');
-
-      // Читаем файл
-      final file = File(localPath);
-      if (!await file.exists()) {
-        print('❌ Файл не найден: $localPath');
-        return null;
-      }
-
-      final bytes = await file.readAsBytes();
-
-      // Загружаем файл по HTTP POST
-      final httpResponse = await http.post(
-        Uri.parse(uploadUrl),
-        headers: {
-          'Content-Type': 'audio/mp4',
-          'Content-Length': bytes.length.toString(),
+        'message': {
+          'isLive': false,
+          'detectShare': false,
+          'elements': [],
+          'cid': cid,
+          'attaches': [
+            {
+              '_type': 'AUDIO',
+              'token': token,
+              'count': durationSeconds,
+              'size': fileSize,
+              'sender': senderId ?? 0,
+            },
+          ],
         },
-        body: bytes,
-      );
+        'notify': true,
+      };
+      clearChatsCache();
 
-      if (httpResponse.statusCode != 200) {
-        print('❌ Ошибка загрузки: ${httpResponse.statusCode}');
-        print('Response: ${httpResponse.body}');
-        return null;
+      final int seq64 = await _sendMessage(64, payload);
+      if (seq64 == -1) {
+        throw Exception('Не удалось отправить сообщение (opcode 64)');
       }
 
-      // Парсим ответ для получения финального URL
-      String? finalUrl;
-      try {
-        final responseData = json.decode(httpResponse.body);
-        if (responseData is Map) {
-          finalUrl = responseData['url'] as String?;
+      final resp64 = await messages.firstWhere((m) => m['seq'] == seq64);
+      final cmd = resp64['cmd'] as int?;
+      if (cmd == 0x300 || cmd == 768) {
+        final err = resp64['payload'];
+        if (err is Map && err['error'] == 'attachment.not.ready') {
+          throw err;
         }
-      } catch (e) {
-        // Если сервер вернул не JSON, используем исходный URL
+        throw Exception(err?.toString() ?? 'Ошибка отправки аудио');
       }
-      finalUrl ??= uploadUrl;
+    }
 
-      print('Файл успешно загружен: $finalUrl');
-      return finalUrl;
-
-    } catch (e, stackTrace) {
-      print('Ошибка загрузки голосового файла: $e');
-      print(stackTrace);
-      return null;
+    int attempt = 0;
+    while (true) {
+      try {
+        await trySendWithToken();
+        return;
+      } catch (e) {
+        if (e is Map && e['error'] == 'attachment.not.ready') {
+          if (attempt >= maxNotReadyRetries) {
+            throw Exception('attachment.not.ready (max retries exceeded)');
+          }
+          final backoffMs = 250 * (attempt + 1);
+          await Future.delayed(Duration(milliseconds: backoffMs));
+          attempt += 1;
+          continue;
+        }
+        rethrow;
+      }
     }
   }
 }

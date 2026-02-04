@@ -122,6 +122,20 @@ class _PhotoPickerResult {
   _PhotoPickerResult({required this.paths, this.caption});
 }
 
+class VoicePreviewItem extends ChatItem {
+  final bool isUploading;
+  final double progress;
+  final bool isFailed;
+  final VoidCallback? onRetry;
+
+  VoicePreviewItem({
+    required this.isUploading,
+    required this.progress,
+    required this.isFailed,
+    this.onRetry,
+  });
+}
+
 class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   bool _isDisposed = false;
   final List<Message> _messages = [];
@@ -213,6 +227,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   bool _isVoiceRecordingPaused = false;
   Duration _voiceRecordingDuration = Duration.zero;
   Timer? _voiceRecordingTimer;
+  bool _isVoiceUploading = false;
+  double _voiceUploadProgress = 0.0;
+  String? _cachedVoicePath;
+  bool _isVoiceUploadFailed = false;
 
   static const double _recordCancelThreshold = 92.0;
   double _recordCancelDragDx = 0.0;
@@ -2183,6 +2201,18 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       );
     }
     _chatItems = items;
+    
+    if (_isVoiceUploading || _isVoiceUploadFailed) {
+      _chatItems.add(VoicePreviewItem(
+        isUploading: _isVoiceUploading,
+        progress: _voiceUploadProgress,
+        isFailed: _isVoiceUploadFailed,
+        onRetry: _isVoiceUploadFailed && _cachedVoicePath != null ? () {
+          _retrySendVoiceMessage();
+        } : null,
+      ));
+    }
+    
     _updateCachedPhotos();
   }
 
@@ -4195,6 +4225,143 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   }
 
 
+  Widget _buildVoicePreviewBubble(VoicePreviewItem item) {
+    final colors = Theme.of(context).colorScheme;
+    
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          Container(
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.75,
+            ),
+            decoration: BoxDecoration(
+              color: colors.primary,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      item.isUploading ? Icons.mic : Icons.error_outline,
+                      color: colors.onPrimary,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      item.isUploading ? 'Голосовое сообщение' : 'Ошибка отправки',
+                      style: TextStyle(
+                        color: colors.onPrimary,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ],
+                ),
+                if (item.isUploading) ...[
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: 200,
+                    child: LinearProgressIndicator(
+                      value: item.progress,
+                      backgroundColor: colors.onPrimary.withValues(alpha: 0.3),
+                      valueColor: AlwaysStoppedAnimation<Color>(colors.onPrimary),
+                    ),
+                  ),
+                ],
+                if (item.isFailed && item.onRetry != null) ...[
+                  const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: item.onRetry,
+                    child: Text(
+                      'Повторить',
+                      style: TextStyle(
+                        color: colors.onPrimary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _retrySendVoiceMessage() async {
+    if (_cachedVoicePath == null) return;
+    
+    final file = File(_cachedVoicePath!);
+    if (!await file.exists()) {
+      _showErrorSnackBar('Файл голосового сообщения не найден');
+      return;
+    }
+    
+    final fileSize = await file.length();
+    final duration = _voiceRecordingDuration;
+    
+    if (mounted) {
+      setState(() {
+        _isVoiceUploadFailed = false;
+        _isVoiceUploading = true;
+        _voiceUploadProgress = 0.0;
+      });
+    }
+    
+    try {
+      await ApiService.instance.sendVoiceMessage(
+        widget.chatId,
+        localPath: _cachedVoicePath!,
+        durationSeconds: duration.inSeconds,
+        fileSize: fileSize,
+        senderId: _actualMyId,
+        onProgress: (progress) {
+          if (mounted) {
+            setState(() {
+              _isVoiceUploading = progress < 1.0;
+              _voiceUploadProgress = progress;
+            });
+          }
+        },
+      );
+      
+      if (mounted) {
+        setState(() {
+          _isVoiceUploading = false;
+          _voiceUploadProgress = 0.0;
+          _isVoiceUploadFailed = false;
+          _cachedVoicePath = null;
+        });
+      }
+      
+      try {
+        if (await file.exists()) {
+          await file.delete();
+        }
+      } catch (e) {
+        print('Не удалось удалить временный файл: $e');
+      }
+    } catch (e) {
+      print('Ошибка повторной отправки голосового сообщения: $e');
+      if (mounted) {
+        setState(() {
+          _isVoiceUploading = false;
+          _voiceUploadProgress = 0.0;
+          _isVoiceUploadFailed = true;
+        });
+        _showErrorSnackBar('Не удалось отправить голосовое сообщение');
+      }
+    }
+  }
+
   Future<void> _sendVoiceMessage() async {
     if (!_isActuallyRecording || _currentRecordingPath == null) {
       print('Нет активной записи для отправки');
@@ -4251,6 +4418,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         _voiceRecordingDuration = Duration.zero;
         _recordCancelDragDx = 0.0;
         _currentRecordingPath = null;
+        _isVoiceUploading = true;
+        _voiceUploadProgress = 0.0;
+        _isVoiceUploadFailed = false;
       });
     }
 
@@ -4263,9 +4433,25 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         durationSeconds: duration.inSeconds,
         fileSize: fileSize,
         senderId: _actualMyId,
+        onProgress: (progress) {
+          if (mounted) {
+            setState(() {
+              _isVoiceUploading = progress < 1.0;
+              _voiceUploadProgress = progress;
+            });
+          }
+        },
       );
 
       print('Голосовое сообщение успешно отправлено');
+      if (mounted) {
+        setState(() {
+          _isVoiceUploading = false;
+          _voiceUploadProgress = 0.0;
+          _isVoiceUploadFailed = false;
+          _cachedVoicePath = null;
+        });
+      }
 
       // Удаляем временный файл после успешной отправки
       try {
@@ -4279,15 +4465,14 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       print('Ошибка отправки голосового сообщения: $e');
       print(stackTrace);
       if (mounted) {
+        setState(() {
+          _isVoiceUploading = false;
+          _voiceUploadProgress = 0.0;
+          _isVoiceUploadFailed = true;
+          _cachedVoicePath = filePath;
+        });
         _showErrorSnackBar('Не удалось отправить голосовое сообщение');
       }
-
-      // Удаляем временный файл при ошибке отправки
-      try {
-        if (await file.exists()) {
-          await file.delete();
-        }
-      } catch (_) {}
     }
   }
 
@@ -5107,6 +5292,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                                 }
 
                                 return wrapWithTopPadding(finalMessageWidget);
+                              } else if (item is VoicePreviewItem) {
+                                return wrapWithTopPadding(_buildVoicePreviewBubble(item));
                               } else if (item is DateSeparatorItem) {
                                 return wrapWithTopPadding(_DateSeparatorChip(
                                   date: item.date,
