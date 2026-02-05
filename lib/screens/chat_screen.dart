@@ -5386,7 +5386,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             right: 8,
             bottom:
             MediaQuery.of(context).viewInsets.bottom +
-                MediaQuery.of(context).padding.bottom +
                 0,
             child: _buildTextInput(),
           ),

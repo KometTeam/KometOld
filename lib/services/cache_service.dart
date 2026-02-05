@@ -312,20 +312,36 @@ class CacheService {
     try {
       final uri = Uri.parse(url);
       final path = uri.path;
-      final extension = path.substring(path.lastIndexOf('.'));
-      if (extension.isNotEmpty && extension.length < 10) {
-        return extension;
+      final dotIndex = path.lastIndexOf('.');
+      if (dotIndex != -1 && dotIndex > path.lastIndexOf('/')) {
+        final extension = path.substring(dotIndex);
+        if (extension.isNotEmpty && extension.length < 10) {
+          return extension;
+        }
       }
-      if (url.contains('audio') ||
-          url.contains('voice') ||
-          url.contains('.mp3') ||
-          url.contains('.ogg') ||
-          url.contains('.m4a')) {
+
+      final lowerUrl = url.toLowerCase();
+      if (lowerUrl.contains('audio') ||
+          lowerUrl.contains('voice') ||
+          lowerUrl.contains('.mp3') ||
+          lowerUrl.contains('.ogg') ||
+          lowerUrl.contains('.m4a') ||
+          (lowerUrl.contains('okcdn.ru') && lowerUrl.contains('type=2')) ||
+          lowerUrl.contains('srcag=unknown_android')) {
         return '.mp3';
       }
-      return '.jpg';
+
+      return '.bin';
     } catch (e) {
-      return '.jpg';
+      final lowerUrl = url.toLowerCase();
+      if (lowerUrl.contains('.mp3') ||
+          lowerUrl.contains('.ogg') ||
+          lowerUrl.contains('.m4a') ||
+          (lowerUrl.contains('okcdn.ru') && lowerUrl.contains('type=2')) ||
+          lowerUrl.contains('srcag=unknown_android')) {
+        return '.mp3';
+      }
+      return '.bin';
     }
   }
 
@@ -447,10 +463,6 @@ class CacheService {
       final response = await http
           .get(
             Uri.parse(url),
-            headers: {
-              'User-Agent':
-                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            },
           )
           .timeout(
             const Duration(seconds: 30),

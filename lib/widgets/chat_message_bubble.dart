@@ -39,6 +39,7 @@ import 'package:gwid/widgets/message_bubble/services/file_download_service.dart'
 import 'package:gwid/widgets/message_bubble/widgets/komet_animated_texts.dart';
 import 'package:gwid/widgets/message_bubble/utils/user_color_helper.dart';
 import 'package:gwid/widgets/message_bubble/widgets/dialogs/custom_emoji_dialog.dart';
+import 'package:gwid/widgets/message_bubble/widgets/media/audio_player_widget.dart';
 
 class DomainLinkifier extends Linkifier {
   const DomainLinkifier();
@@ -1174,7 +1175,7 @@ class ChatMessageBubble extends StatelessWidget {
   bool _hasUnsupportedMessageTypes() {
     final hasUnsupportedAttachments = message.attaches.any((attach) {
       final type = attach['_type']?.toString().toUpperCase();
-      return type == 'VOICE' || type == 'AUDIO' || type == 'GIF' || type == 'LOCATION';
+      return type == 'VOICE' || type == 'GIF' || type == 'LOCATION';
     });
 
     return hasUnsupportedAttachments;
@@ -3440,7 +3441,45 @@ class ChatMessageBubble extends StatelessWidget {
     bool isUltraOptimized,
     double messageTextOpacity,
   ) {
-    return const <Widget>[];
+    final List<Widget> widgets = [];
+    final audioAttaches = attaches
+        .whereType<Map>()
+        .map((e) => e.cast<String, dynamic>())
+        .where((a) => a['_type']?.toString().toUpperCase() == 'AUDIO')
+        .toList();
+
+    for (final audio in audioAttaches) {
+      final url = (audio['url'] ?? audio['baseUrl'] ?? '').toString();
+      final durationSeconds = (audio['count'] is num)
+          ? (audio['count'] as num).toInt()
+          : int.tryParse(audio['count']?.toString() ?? '') ?? 0;
+      final audioId = (audio['audioId'] is num)
+          ? (audio['audioId'] as num).toInt()
+          : (audio['id'] is num)
+              ? (audio['id'] as num).toInt()
+              : null;
+
+      widgets.add(
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: AudioPlayerWidget(
+            url: url,
+            duration: durationSeconds * 1000,
+            durationText: durationSeconds > 0
+                ? '${durationSeconds ~/ 60}:${(durationSeconds % 60).toString().padLeft(2, '0')}'
+                : '0:00',
+            wave: audio['wave']?.toString(),
+            waveBytes: null,
+            audioId: audioId,
+            textColor: textColor,
+            borderRadius: BorderRadius.circular(14),
+            messageTextOpacity: messageTextOpacity,
+          ),
+        ),
+      );
+    }
+
+    return widgets;
   }
 
   Future<void> _handleFileDownload(
@@ -4382,6 +4421,13 @@ class ChatMessageBubble extends StatelessWidget {
         ],
         if (attachesToShow.isNotEmpty) ...[
           ..._buildCallsWithCaption(
+            context,
+            attachesToShow,
+            textColor,
+            isUltraOptimized,
+            messageTextOpacity,
+          ),
+          ..._buildAudioAttachments(
             context,
             attachesToShow,
             textColor,
