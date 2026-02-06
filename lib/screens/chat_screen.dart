@@ -20,6 +20,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:gwid/services/chat_cache_service.dart';
 import 'package:gwid/services/chat_read_settings_service.dart';
 import 'package:gwid/services/contact_local_names_service.dart';
+import 'package:gwid/services/cache_service.dart';
 import 'package:gwid/services/notification_service.dart';
 import 'package:gwid/services/message_queue_service.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
@@ -50,6 +51,258 @@ bool _debugShowExactDate = false;
 
 void toggleDebugExactDate() {
   _debugShowExactDate = !_debugShowExactDate;
+}
+
+class _StickerPanel extends StatelessWidget {
+  final bool isLoading;
+  final Object? error;
+  final List<Map<String, dynamic>> stickerSets;
+  final Map<int, Map<String, dynamic>> stickersById;
+  final int? selectedSetId;
+  final ValueChanged<int> onSetSelected;
+
+  const _StickerPanel({
+    required this.isLoading,
+    required this.error,
+    required this.stickerSets,
+    required this.stickersById,
+    required this.selectedSetId,
+    required this.onSetSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
+    final effectiveSelectedSetId =
+        selectedSetId ??
+        ((stickerSets.isNotEmpty && stickerSets.first['id'] is num)
+            ? (stickerSets.first['id'] as num).toInt()
+            : null);
+
+    final Map<String, dynamic>? selectedSet = effectiveSelectedSetId == null
+        ? null
+        : stickerSets.firstWhere(
+            (s) =>
+                (s['id'] is num) &&
+                (s['id'] as num).toInt() == effectiveSelectedSetId,
+            orElse: () => <String, dynamic>{},
+          );
+
+    final selectedStickerIds = (selectedSet != null && selectedSet.isNotEmpty)
+        ? (selectedSet['stickers'] as List?)
+                  ?.whereType<num>()
+                  .map((e) => e.toInt())
+                  .toList() ??
+              const <int>[]
+        : const <int>[];
+
+    return SizedBox(
+      width: 320,
+      height: 450,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colors.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: colors.outlineVariant),
+          boxShadow: [
+            BoxShadow(
+              color: colors.shadow.withAlpha(40),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                height: 72,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 10,
+                  ),
+                  child: _buildSetsRow(context, colors, effectiveSelectedSetId),
+                ),
+              ),
+              Divider(
+                height: 1,
+                color: colors.outlineVariant.withValues(alpha: 0.6),
+              ),
+              Expanded(child: _buildBody(context, colors, selectedStickerIds)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSetsRow(
+    BuildContext context,
+    ColorScheme colors,
+    int? effectiveSelectedSetId,
+  ) {
+    if (isLoading && stickerSets.isEmpty) {
+      return Center(
+        child: SizedBox(
+          width: 18,
+          height: 18,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: colors.primary,
+          ),
+        ),
+      );
+    }
+
+    if (stickerSets.isEmpty) {
+      return Center(
+        child: Text(
+          error != null ? 'Ошибка загрузки' : 'Нет стикеров',
+          style: TextStyle(color: colors.onSurfaceVariant, fontSize: 13),
+        ),
+      );
+    }
+
+    return ListView.separated(
+      scrollDirection: Axis.horizontal,
+      itemCount: stickerSets.length,
+      separatorBuilder: (_, __) => const SizedBox(width: 8),
+      itemBuilder: (context, index) {
+        final set = stickerSets[index];
+        final id = (set['id'] is num) ? (set['id'] as num).toInt() : null;
+        final iconUrl = set['iconUrl']?.toString();
+
+        final isSelected = id != null && id == effectiveSelectedSetId;
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: id == null ? null : () => onSetSelected(id),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              width: 52,
+              height: 52,
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? colors.primary.withValues(alpha: 0.12)
+                    : colors.surfaceContainerHighest.withValues(alpha: 0.25),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: isSelected ? colors.primary : colors.outlineVariant,
+                  width: 1,
+                ),
+              ),
+              child: iconUrl != null && iconUrl.isNotEmpty
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: Image.network(
+                        iconUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) {
+                          return Icon(
+                            Icons.sticky_note_2_outlined,
+                            color: colors.onSurfaceVariant,
+                          );
+                        },
+                      ),
+                    )
+                  : Icon(
+                      Icons.sticky_note_2_outlined,
+                      color: colors.onSurfaceVariant,
+                    ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildBody(
+    BuildContext context,
+    ColorScheme colors,
+    List<int> selectedStickerIds,
+  ) {
+    if (isLoading && stickersById.isEmpty) {
+      return Center(
+        child: SizedBox(
+          width: 18,
+          height: 18,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: colors.primary,
+          ),
+        ),
+      );
+    }
+
+    if (error != null && stickerSets.isEmpty) {
+      return Center(
+        child: Text(
+          'Ошибка загрузки: ${error.toString()}',
+          style: TextStyle(color: colors.onSurfaceVariant, fontSize: 13),
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
+        ),
+      );
+    }
+
+    if (selectedStickerIds.isEmpty) {
+      return Center(
+        child: Text(
+          'Пустой набор',
+          style: TextStyle(color: colors.onSurfaceVariant, fontSize: 13),
+        ),
+      );
+    }
+
+    return GridView.builder(
+      padding: const EdgeInsets.all(10),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 4,
+        mainAxisSpacing: 8,
+        crossAxisSpacing: 8,
+      ),
+      itemCount: selectedStickerIds.length,
+      itemBuilder: (context, index) {
+        final id = selectedStickerIds[index];
+        final sticker = stickersById[id];
+        final url = sticker?['url']?.toString();
+
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            color: colors.surfaceContainerHighest.withValues(alpha: 0.15),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: colors.outlineVariant.withValues(alpha: 0.6),
+            ),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: url != null && url.isNotEmpty
+                ? Image.network(
+                    url,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) {
+                      return Icon(
+                        Icons.sticky_note_2_outlined,
+                        color: colors.onSurfaceVariant,
+                      );
+                    },
+                  )
+                : Icon(
+                    Icons.sticky_note_2_outlined,
+                    color: colors.onSurfaceVariant,
+                  ),
+          ),
+        );
+      },
+    );
+  }
 }
 
 class ChatScreen extends StatefulWidget {
@@ -103,7 +356,6 @@ class Mention {
     this.type = 'USER_MENTION', // Влияет на пинги не трогать короч.
   });
 
-
   Map<String, dynamic> toJson() {
     return {
       'from': from,
@@ -136,7 +388,8 @@ class VoicePreviewItem extends ChatItem {
   });
 }
 
-class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
+class _ChatScreenState extends State<ChatScreen>
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   bool _isDisposed = false;
   final List<Message> _messages = [];
   List<ChatItem> _chatItems = [];
@@ -153,7 +406,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   StreamSubscription? _apiSubscription;
   final ItemScrollController _itemScrollController = ItemScrollController();
   final ItemPositionsListener _itemPositionsListener =
-  ItemPositionsListener.create();
+      ItemPositionsListener.create();
   final ValueNotifier<bool> _showScrollToBottomNotifier = ValueNotifier(false);
   final ValueNotifier<Message?> _pinnedMessageNotifier = ValueNotifier(null);
 
@@ -183,6 +436,17 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   int? _botCommandsForBotId;
   List<BotCommand> _botCommands = const [];
 
+  bool _showStickerPanel = false;
+
+  bool _isStickerCatalogLoading = false;
+  Object? _stickerCatalogLoadError;
+  List<Map<String, dynamic>> _stickerSets = const [];
+  Map<int, Map<String, dynamic>> _stickersById = const {};
+  StreamSubscription<Map<String, dynamic>>? _stickerCatalogSub;
+  int? _selectedStickerSetId;
+  final Set<int> _requestedStickerIds = {};
+  bool _isStickerBatchLoading = false;
+  final Set<int> _requestedStickerSetIds = {};
 
   bool _showMentionDropdown = false;
   List<Contact> _mentionableUsers = [];
@@ -190,7 +454,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   String _mentionQuery = '';
   int? _mentionStartPosition;
   final LayerLink _mentionLayerLink = LayerLink();
-
 
   static const int _pageSize = 50;
   static const int _loadMoreThreshold = 20;
@@ -272,6 +535,54 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     }
   }
 
+  List<int> _extractStickerSetIdsFromSectionPayload(Map payload) {
+    try {
+      final sections = payload['sections'];
+      if (sections is! List) return const <int>[];
+
+      final ids = <int>{};
+      for (final sec in sections.whereType<Map>()) {
+        final section = sec.cast<String, dynamic>();
+        final items = section['items'];
+        if (items is! List) continue;
+
+        for (final it in items.whereType<Map>()) {
+          final item = it.cast<String, dynamic>();
+          final candidates = [item['id'], item['setId'], item['stickerSetId']];
+          for (final c in candidates) {
+            if (c is num) {
+              ids.add(c.toInt());
+              break;
+            }
+          }
+        }
+      }
+
+      return ids.toList();
+    } catch (_) {
+      return const <int>[];
+    }
+  }
+
+  Future<void> _requestStickerSetsByIds(List<int> ids) async {
+    final toRequest = <int>[];
+    for (final id in ids) {
+      if (_requestedStickerSetIds.contains(id)) continue;
+      toRequest.add(id);
+      if (toRequest.length >= 120) break;
+    }
+    if (toRequest.isEmpty) return;
+
+    _requestedStickerSetIds.addAll(toRequest);
+    try {
+      await ApiService.instance.sendRawRequest(28, {
+        'type': 'STICKER_SET',
+        'ids': toRequest,
+      });
+    } catch (_) {
+      _requestedStickerSetIds.removeAll(toRequest);
+    }
+  }
 
   bool get _optimize => context.read<ThemeProvider>().optimizeChats;
   bool get _ultraOptimize => context.read<ThemeProvider>().ultraOptimizeChats;
@@ -315,7 +626,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         });
         _saveInputState();
 
-
         if (_showMentionDropdown) {
           setState(() {
             _showMentionDropdown = false;
@@ -325,15 +635,15 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     });
 
     _connectionStatus =
-    ApiService.instance.isOnline &&
-        ApiService.instance.isSessionReady &&
-        ApiService.instance.isActuallyConnected
+        ApiService.instance.isOnline &&
+            ApiService.instance.isSessionReady &&
+            ApiService.instance.isActuallyConnected
         ? 'connected'
         : 'connecting';
 
     _connectionStatusSub = ApiService.instance.connectionStatus.listen((
-        status,
-        ) {
+      status,
+    ) {
       if (!mounted) return;
       setState(() {
         _connectionStatus = status;
@@ -342,7 +652,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
     _loadInputState();
   }
-
 
   Widget _wrapInputWithPanels(Widget inputBar) {
     if (_showBotCommandsPanel) {
@@ -369,6 +678,35 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       }
     }
 
+    if (_showStickerPanel) {
+      inputBar = Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: _StickerPanel(
+                isLoading: _isStickerCatalogLoading,
+                error: _stickerCatalogLoadError,
+                stickerSets: _stickerSets,
+                stickersById: _stickersById,
+                selectedSetId: _selectedStickerSetId,
+                onSetSelected: (id) {
+                  setState(() {
+                    _selectedStickerSetId = id;
+                  });
+
+                  // unawaited(_ensureStickerDetailsLoadedForSet(id));
+                },
+              ),
+            ),
+          ),
+          inputBar,
+        ],
+      );
+    }
+
     if (_showMentionDropdown && _filteredMentionableUsers.isNotEmpty) {
       return CompositedTransformTarget(
         link: _mentionLayerLink,
@@ -388,6 +726,270 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     return inputBar;
   }
 
+  void _toggleStickerPanel() {
+    final shouldShow = !_showStickerPanel;
+    setState(() {
+      _showStickerPanel = shouldShow;
+    });
+
+    // if (shouldShow) {
+    //   unawaited(_ensureStickerCatalogLoaded());
+    // }
+  }
+
+  void _handleStickerCatalogMessage(Map<String, dynamic> msg) {
+    return;
+
+    /*
+    try {
+      if (!_showStickerPanel) return;
+
+      final opcode = msg['opcode'] as int?;
+      if (opcode != 26 && opcode != 28) return;
+
+      final payload = msg['payload'];
+      if (payload is! Map) return;
+
+      if (opcode == 26) {
+        final ids = _extractStickerSetIdsFromSectionPayload(payload);
+        if (ids.isNotEmpty) {
+          unawaited(_requestStickerSetsByIds(ids));
+        }
+        return;
+      }
+
+      final stickerSetsRaw = payload['stickerSets'];
+      final stickersRaw = payload['stickers'];
+
+      bool changed = false;
+
+      if (stickerSetsRaw is List) {
+        final sets = stickerSetsRaw
+            .whereType<Map>()
+            .map((e) => e.cast<String, dynamic>())
+            .toList();
+        if (sets.isNotEmpty) {
+          _stickerSets = sets;
+          changed = true;
+        }
+      }
+
+      if (stickersRaw is List) {
+        final next = Map<int, Map<String, dynamic>>.from(_stickersById);
+        for (final s in stickersRaw.whereType<Map>()) {
+          final sticker = s.cast<String, dynamic>();
+          final id = sticker['id'];
+          if (id is num) {
+            next[id.toInt()] = sticker;
+          }
+        }
+        if (next.length != _stickersById.length) {
+          _stickersById = next;
+          changed = true;
+        }
+      }
+
+      if (changed && mounted) {
+        setState(() {});
+        unawaited(_cacheStickerCatalog());
+
+        final selectedSetId = _selectedStickerSetId;
+        if (selectedSetId != null) {
+          unawaited(_ensureStickerDetailsLoadedForSet(selectedSetId));
+        } else if (_stickerSets.isNotEmpty) {
+          final firstId = (_stickerSets.first['id'] is num)
+              ? (_stickerSets.first['id'] as num).toInt()
+              : null;
+          if (firstId != null) {
+            unawaited(_ensureStickerDetailsLoadedForSet(firstId));
+          }
+        }
+      }
+    } catch (_) {
+      return;
+    }
+    */
+  }
+
+  Future<void> _ensureStickerDetailsLoadedForSet(int setId) async {
+    return;
+
+    /*
+    if (_isStickerBatchLoading) return;
+
+    final set = _stickerSets.firstWhere(
+      (s) => (s['id'] is num) && (s['id'] as num).toInt() == setId,
+      orElse: () => <String, dynamic>{},
+    );
+    if (set.isEmpty) return;
+
+    final ids = (set['stickers'] as List?)
+            ?.whereType<num>()
+            .map((e) => e.toInt())
+            .toList() ??
+        const <int>[];
+    if (ids.isEmpty) return;
+
+    final missing = <int>[];
+    for (final id in ids) {
+      if (_stickersById.containsKey(id)) continue;
+      if (_requestedStickerIds.contains(id)) continue;
+      missing.add(id);
+      if (missing.length >= 120) break;
+    }
+    if (missing.isEmpty) return;
+
+    _requestedStickerIds.addAll(missing);
+    _isStickerBatchLoading = true;
+    try {
+      await ApiService.instance.sendRawRequest(28, {
+        'type': 'STICKER',
+        'ids': missing,
+      });
+    } catch (_) {
+      _requestedStickerIds.removeAll(missing);
+    } finally {
+      _isStickerBatchLoading = false;
+    }
+    */
+  }
+
+  Future<void> _ensureStickerCatalogLoaded() async {
+    return;
+
+    /*
+    if (_stickerSets.isNotEmpty) return;
+
+    if (_isStickerCatalogLoading) return;
+    setState(() {
+      _isStickerCatalogLoading = true;
+      _stickerCatalogLoadError = null;
+    });
+
+    try {
+      final cached = await _loadStickerCatalogFromCache();
+      if (cached != null) {
+        final setsRaw = cached['stickerSets'];
+        final stickersRaw = cached['stickersById'];
+
+        final sets = (setsRaw is List)
+            ? setsRaw
+                .whereType<Map>()
+                .map((e) => e.cast<String, dynamic>())
+                .toList()
+            : <Map<String, dynamic>>[];
+
+        final stickerMap = <int, Map<String, dynamic>>{};
+        if (stickersRaw is Map) {
+          for (final entry in stickersRaw.entries) {
+            final id = int.tryParse(entry.key.toString());
+            final value = entry.value;
+            if (id != null && value is Map) {
+              stickerMap[id] = value.cast<String, dynamic>();
+            }
+          }
+        }
+
+        if (mounted) {
+          setState(() {
+            _stickerSets = sets;
+            _stickersById = stickerMap;
+            _selectedStickerSetId ??= (sets.isNotEmpty && sets.first['id'] is num)
+                ? (sets.first['id'] as num).toInt()
+                : null;
+            _isStickerCatalogLoading = false;
+          });
+        }
+
+        final selected = _selectedStickerSetId;
+        if (selected != null) {
+          unawaited(_ensureStickerDetailsLoadedForSet(selected));
+        }
+        return;
+      }
+
+      await ApiService.instance.waitUntilOnline();
+
+      const sync = 0;
+      await ApiService.instance.sendRawRequest(27, {
+        'sync': sync,
+        'type': 'STICKER',
+      });
+      await ApiService.instance.sendRawRequest(27, {
+        'sync': sync,
+        'type': 'FAVORITE_STICKER',
+      });
+      await ApiService.instance.sendRawRequest(27, {
+        'sync': sync,
+        'type': 'REACTION',
+      });
+      await ApiService.instance.sendRawRequest(27, {
+        'sync': sync,
+        'type': 'ANIMOJI_SET',
+      });
+      await ApiService.instance.sendRawRequest(65, {
+        'chatId': widget.chatId,
+        'type': 'STICKER',
+      });
+
+      await ApiService.instance.sendRawRequest(26, {
+        'sectionId': 'NEW_STICKER_SETS',
+        'from': 0,
+        'count': 100,
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _stickerCatalogLoadError = e;
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isStickerCatalogLoading = false;
+        });
+      }
+    }
+    */
+  }
+
+  Future<Map<String, dynamic>?> _loadStickerCatalogFromCache() async {
+    return null;
+
+    // try {
+    //   final cache = CacheService();
+    //   await cache.initialize();
+    //   final file = await cache.getCachedStickerCatalogFile();
+    //   if (file == null) return null;
+    //   final bytes = await file.readAsBytes();
+    //   if (bytes.isEmpty) return null;
+    //   final decoded = cache.decodeStickerCatalogBytes(bytes);
+    //   if (decoded is Map) {
+    //     return decoded.cast<String, dynamic>();
+    //   }
+    //   return null;
+    // } catch (_) {
+    //   return null;
+    // }
+  }
+
+  Future<void> _cacheStickerCatalog() async {
+    return;
+
+    // try {
+    //   if (_stickerSets.isEmpty) return;
+    //   final cache = CacheService();
+    //   await cache.initialize();
+    //   await cache.saveStickerCatalogToFile({
+    //     'stickerSets': _stickerSets,
+    //     'stickersById': _stickersById.map((k, v) => MapEntry(k.toString(), v)),
+    //     'cachedAt': DateTime.now().millisecondsSinceEpoch,
+    //   });
+    // } catch (_) {
+    //   return;
+    // }
+  }
+
   Future<void> _loadMentionableUsers() async {
     if (!widget.isGroupChat && !widget.isChannel) {
       if (_currentContact.id != null) {
@@ -405,7 +1007,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     if (chatData != null) {
       final chats = chatData['chats'] as List<dynamic>?;
       final currentChat = chats?.firstWhere(
-            (chat) => chat['id'] == widget.chatId,
+        (chat) => chat['id'] == widget.chatId,
         orElse: () => null,
       );
 
@@ -447,7 +1049,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
     if (idsToFetch.isNotEmpty) {
       try {
-        final contacts = await ApiService.instance.fetchContactsByIds(idsToFetch);
+        final contacts = await ApiService.instance.fetchContactsByIds(
+          idsToFetch,
+        );
         for (final contact in contacts) {
           if (contact.id != null) {
             _contactDetailsCache[contact.id] = contact;
@@ -462,7 +1066,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       _mentionableUsers = participantIds
           .where((id) => _contactDetailsCache.containsKey(id))
           .map((id) => _contactDetailsCache[id]!)
-          .where((contact) => contact.id != null && contact.id != 0)  // Доп. проверка
+          .where(
+            (contact) => contact.id != null && contact.id != 0,
+          ) // Доп. проверка
           .toList();
     });
 
@@ -480,13 +1086,14 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           break;
         } else if (text[i] == ' ' || text[i] == '\n') {
           break;
-
         }
       }
 
       if (atPosition != -1) {
         // выбираем пользователей после ввода символа @
-        _mentionQuery = text.substring(atPosition + 1, cursorPosition).toLowerCase();
+        _mentionQuery = text
+            .substring(atPosition + 1, cursorPosition)
+            .toLowerCase();
         _mentionStartPosition = atPosition;
 
         _filteredMentionableUsers = _mentionableUsers.where((user) {
@@ -518,8 +1125,12 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             originalLastName: b.lastName,
           ).toLowerCase();
 
-          final aStartsWith = aName.startsWith(_mentionQuery) || aDisplay.startsWith(_mentionQuery);
-          final bStartsWith = bName.startsWith(_mentionQuery) || bDisplay.startsWith(_mentionQuery);
+          final aStartsWith =
+              aName.startsWith(_mentionQuery) ||
+              aDisplay.startsWith(_mentionQuery);
+          final bStartsWith =
+              bName.startsWith(_mentionQuery) ||
+              bDisplay.startsWith(_mentionQuery);
 
           if (aStartsWith && !bStartsWith) return -1;
           if (!aStartsWith && bStartsWith) return 1;
@@ -534,7 +1145,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           setState(() {});
         }
       } else {
-
         if (_showMentionDropdown) {
           setState(() {
             _showMentionDropdown = false;
@@ -542,7 +1152,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         }
       }
     } else {
-
       if (_showMentionDropdown) {
         setState(() {
           _showMentionDropdown = false;
@@ -561,7 +1170,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     if (user.id == null || user.id == 0) {
       print('ERROR: Cannot mention user with null ID: ${user.name}');
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ошибка: не удалось получить ID пользователя')),
+        const SnackBar(
+          content: Text('Ошибка: не удалось получить ID пользователя'),
+        ),
       );
       return;
     }
@@ -584,15 +1195,19 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     );
 
     // Добавляем упоминание с правильным entityId
-    _mentions.add(Mention(
-      from: _mentionStartPosition!,  // Позиция, где был @
-      length: mentionText.length,    // Длина имени
-      entityId: user.id,             // Обязательно числовой ID
-      entityName: user.name,
-    ));
+    _mentions.add(
+      Mention(
+        from: _mentionStartPosition!, // Позиция, где был @
+        length: mentionText.length, // Длина имени
+        entityId: user.id, // Обязательно числовой ID
+        entityName: user.name,
+      ),
+    );
 
-    print('DEBUG: Added mention - entityId: ${user.id}, name: ${user.name}, '
-        'pos: $_mentionStartPosition, length: ${mentionText.length}');
+    print(
+      'DEBUG: Added mention - entityId: ${user.id}, name: ${user.name}, '
+      'pos: $_mentionStartPosition, length: ${mentionText.length}',
+    );
 
     setState(() {
       _showMentionDropdown = false;
@@ -651,7 +1266,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     });
 
     try {
-      final seq = await ApiService.instance.sendRawRequest(145, {'botId': botId});
+      final seq = await ApiService.instance.sendRawRequest(145, {
+        'botId': botId,
+      });
       if (seq == -1) {
         throw Exception('Не удалось отправить запрос команд бота');
       }
@@ -832,10 +1449,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                           onPressed: () async {
                             final isEncryptionActive =
                                 _encryptionConfigForCurrentChat != null &&
-                                    _encryptionConfigForCurrentChat!
-                                        .password
-                                        .isNotEmpty &&
-                                    _sendEncryptedForCurrentChat;
+                                _encryptionConfigForCurrentChat!
+                                    .password
+                                    .isNotEmpty &&
+                                _sendEncryptedForCurrentChat;
                             if (isEncryptionActive) {
                               if (mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
@@ -886,10 +1503,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                           onPressed: () async {
                             final isEncryptionActive =
                                 _encryptionConfigForCurrentChat != null &&
-                                    _encryptionConfigForCurrentChat!
-                                        .password
-                                        .isNotEmpty &&
-                                    _sendEncryptedForCurrentChat;
+                                _encryptionConfigForCurrentChat!
+                                    .password
+                                    .isNotEmpty &&
+                                _sendEncryptedForCurrentChat;
                             if (isEncryptionActive) {
                               if (mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
@@ -935,11 +1552,11 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                             Navigator.of(ctx).pop();
                             final selectedContact = await Navigator.of(context)
                                 .push(
-                              MaterialPageRoute(
-                                builder: (context) =>
-                                const ContactSelectionScreen(),
-                              ),
-                            );
+                                  MaterialPageRoute(
+                                    builder: (context) =>
+                                        const ContactSelectionScreen(),
+                                  ),
+                                );
                             if (selectedContact != null && mounted) {
                               await ApiService.instance.sendContactMessage(
                                 widget.chatId,
@@ -972,8 +1589,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     } else {
       final isEncryptionActive =
           _encryptionConfigForCurrentChat != null &&
-              _encryptionConfigForCurrentChat!.password.isNotEmpty &&
-              _sendEncryptedForCurrentChat;
+          _encryptionConfigForCurrentChat!.password.isNotEmpty &&
+          _sendEncryptedForCurrentChat;
       if (isEncryptionActive) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1093,7 +1710,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         final positions = _itemPositionsListener.itemPositions.value;
         if (positions.isNotEmpty) {
           final bottomItemPosition = positions.firstWhere(
-                (p) => p.index == 0,
+            (p) => p.index == 0,
             orElse: () => positions.first,
           );
           final isBottomItemVisible = bottomItemPosition.index == 0;
@@ -1172,7 +1789,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       }
 
       final currentChat = chats.firstWhere(
-            (chat) => chat['id'] == widget.chatId,
+        (chat) => chat['id'] == widget.chatId,
         orElse: () => null,
       );
 
@@ -1230,9 +1847,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             (state['elements'] as List<dynamic>?)
                 ?.map((e) => e as Map<String, dynamic>)
                 .toList() ??
-                [];
+            [];
         final replyingToMessageData =
-        state['replyingToMessage'] as Map<String, dynamic>?;
+            state['replyingToMessage'] as Map<String, dynamic>?;
 
         _textController.text = text;
         _mentions.clear();
@@ -1273,11 +1890,11 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
       final draftData = text.trim().isNotEmpty
           ? {
-        'text': text,
-        'elements': elements,
-        'replyingToMessage': replyingToMessageData,
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-      }
+              'text': text,
+              'elements': elements,
+              'replyingToMessage': replyingToMessageData,
+              'timestamp': DateTime.now().millisecondsSinceEpoch,
+            }
           : null;
 
       await ChatCacheService().saveChatInputState(
@@ -1337,8 +1954,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                   final template = "komet.color_#";
                   final newText =
                       currentText.substring(0, cursorPos) +
-                          template +
-                          currentText.substring(cursorPos);
+                      template +
+                      currentText.substring(cursorPos);
                   _textController.value = TextEditingValue(
                     text: newText,
                     selection: TextSelection.collapsed(
@@ -1365,8 +1982,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                   final template = "komet.cosmetic.galaxy' ваш текст '";
                   final newText =
                       currentText.substring(0, cursorPos) +
-                          template +
-                          currentText.substring(cursorPos);
+                      template +
+                      currentText.substring(cursorPos);
                   _textController.value = TextEditingValue(
                     text: newText,
                     selection: TextSelection.collapsed(
@@ -1393,8 +2010,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                   final template = "komet.cosmetic.pulse#";
                   final newText =
                       currentText.substring(0, cursorPos) +
-                          template +
-                          currentText.substring(cursorPos);
+                      template +
+                      currentText.substring(cursorPos);
                   _textController.value = TextEditingValue(
                     text: newText,
                     selection: TextSelection.collapsed(
@@ -1412,7 +2029,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   Future<void> _loadEncryptionConfig() async {
     try {
-      final config = await ChatEncryptionService.getConfigForChat(widget.chatId);
+      final config = await ChatEncryptionService.getConfigForChat(
+        widget.chatId,
+      );
       if (mounted) {
         setState(() {
           _encryptionConfigForCurrentChat = config;
@@ -1425,7 +2044,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       print('Ошибка загрузки конфигурации шифрования: $e');
     }
   }
-
 
   Future<void> _initializeChat() async {
     await _loadCachedContacts();
@@ -1481,22 +2099,28 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       if (_mentionableUsers.isEmpty) {
         var retryCount = 0;
         _mentionableUsersRetryTimer?.cancel();
-        _mentionableUsersRetryTimer =
-            Timer.periodic(const Duration(milliseconds: 600), (timer) async {
-          if (!mounted || _mentionableUsers.isNotEmpty || retryCount >= 10) {
-            timer.cancel();
-            return;
-          }
-          retryCount++;
-          print('DEBUG: Retrying mentionable users load, attempt $retryCount');
-          await _loadGroupParticipants();
-          await _loadMentionableUsers();
-          if (_mentionableUsers.isNotEmpty && mounted) {
-            setState(() {});
-            print('DEBUG: Mentionable users loaded after retry: ${_mentionableUsers.length} users');
-            timer.cancel();
-          }
-        });
+        _mentionableUsersRetryTimer = Timer.periodic(
+          const Duration(milliseconds: 600),
+          (timer) async {
+            if (!mounted || _mentionableUsers.isNotEmpty || retryCount >= 10) {
+              timer.cancel();
+              return;
+            }
+            retryCount++;
+            print(
+              'DEBUG: Retrying mentionable users load, attempt $retryCount',
+            );
+            await _loadGroupParticipants();
+            await _loadMentionableUsers();
+            if (_mentionableUsers.isNotEmpty && mounted) {
+              setState(() {});
+              print(
+                'DEBUG: Mentionable users loaded after retry: ${_mentionableUsers.length} users',
+              );
+              timer.cancel();
+            }
+          },
+        );
       }
     } else {
       await _loadMentionableUsers();
@@ -1506,12 +2130,14 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     _groupMentionsMessagesSub?.cancel();
     _groupMentionsMessagesSub = ApiService.instance.messages.listen((msg) {
       final payload = msg['payload'];
-      if (payload != null && payload['chatId'] == widget.chatId &&
+      if (payload != null &&
+          payload['chatId'] == widget.chatId &&
           (widget.isGroupChat || widget.isChannel) &&
           (msg['opcode'] == 64 || msg['opcode'] == 128)) {
         // Если пришло сообщение о новом участнике или обновление чата
         if (payload['participants'] != null ||
-            (payload['chat'] != null && payload['chat']['participants'] != null)) {
+            (payload['chat'] != null &&
+                payload['chat']['participants'] != null)) {
           _loadMentionableUsers().then((_) {
             if (mounted) setState(() {});
           });
@@ -1549,7 +2175,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       final positions = _itemPositionsListener.itemPositions.value;
       if (positions.isNotEmpty) {
         final bottomItemPosition = positions.firstWhere(
-              (p) => p.index == 0,
+          (p) => p.index == 0,
           orElse: () => positions.first,
         );
 
@@ -1571,12 +2197,12 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
               .map((p) => p.index)
               .reduce((a, b) => a > b ? a : b);
 
-
           if (maxIndex > _maxViewedIndex) {
             _maxViewedIndex = maxIndex;
           }
 
-          final shouldLoadByViewedCount = maxIndex >= _loadMoreThreshold &&
+          final shouldLoadByViewedCount =
+              maxIndex >= _loadMoreThreshold &&
               (maxIndex - _lastLoadedAtViewedIndex) >= _loadMoreThreshold;
 
           final threshold = _chatItems.length > 5 ? 3 : 1;
@@ -1600,13 +2226,19 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     _searchController.addListener(_onSearchControllerChanged);
 
     _loadHistoryAndListen();
+
+    // _stickerCatalogSub = ApiService.instance.messages.listen(
+    //   _handleStickerCatalogMessage,
+    // );
   }
 
   void _loadHistoryAndListen() {
     _paginateInitialLoad();
 
     _reconnectionCompleteSub?.cancel();
-    _reconnectionCompleteSub = ApiService.instance.reconnectionComplete.listen((_) {
+    _reconnectionCompleteSub = ApiService.instance.reconnectionComplete.listen((
+      _,
+    ) {
       if (mounted && ApiService.instance.currentActiveChatId == widget.chatId) {
         print('Переподключение: перезагружаем чат ${widget.chatId}');
         _paginateInitialLoad();
@@ -1676,7 +2308,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             final hasSameId = _messages.any((m) => m.id == newMessage.id);
             final hasSameCid =
                 newMessage.cid != null &&
-                    _messages.any((m) => m.cid != null && m.cid == newMessage.cid);
+                _messages.any((m) => m.cid != null && m.cid == newMessage.cid);
             if (hasSameId || hasSameCid) {
               _updateMessage(newMessage);
             } else {
@@ -1775,9 +2407,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
           final readerId =
               payload['userId'] ??
-                  payload['contactId'] ??
-                  payload['uid'] ??
-                  payload['sender'];
+              payload['contactId'] ??
+              payload['uid'] ??
+              payload['sender'];
           final int? readerIdInt = _parseMessageId(readerId);
 
           if (readerIdInt != null &&
@@ -1878,12 +2510,12 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       allMessages = await ApiService.instance
           .getMessageHistory(widget.chatId, force: true)
           .timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          print('Таймаут загрузки истории, используем кеш');
-          return <Message>[];
-        },
-      );
+            const Duration(seconds: 10),
+            onTimeout: () {
+              print('Таймаут загрузки истории, используем кеш');
+              return <Message>[];
+            },
+          );
       if (allMessages.isNotEmpty) {
         MessageQueueService().removeFromQueue('load_chat_${widget.chatId}');
       }
@@ -2078,10 +2710,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     try {
       final olderMessages = await ApiService.instance
           .loadOlderMessagesByTimestamp(
-        widget.chatId,
-        _oldestLoadedTime!,
-        backward: 30,
-      );
+            widget.chatId,
+            _oldestLoadedTime!,
+            backward: 30,
+          );
 
       if (!mounted) return;
 
@@ -2124,7 +2756,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       _isLoadingMore = false;
 
       if (mounted) {
-
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -2169,7 +2800,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   }
 
   void _buildChatItems() {
-    if (SchedulerBinding.instance.schedulerPhase == SchedulerPhase.persistentCallbacks) {
+    if (SchedulerBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _buildChatItems();
       });
@@ -2198,11 +2830,11 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
       final isFirstInGroup =
           previousMessage == null ||
-              !_isMessageGrouped(currentMessage, previousMessage);
+          !_isMessageGrouped(currentMessage, previousMessage);
 
       final isLastInGroup =
           i == source.length - 1 ||
-              !_isMessageGrouped(source[i + 1], currentMessage);
+          !_isMessageGrouped(source[i + 1], currentMessage);
 
       items.add(
         MessageItem(
@@ -2214,18 +2846,22 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       );
     }
     _chatItems = items;
-    
+
     if (_isVoiceUploading || _isVoiceUploadFailed) {
-      _chatItems.add(VoicePreviewItem(
-        isUploading: _isVoiceUploading,
-        progress: _voiceUploadProgress,
-        isFailed: _isVoiceUploadFailed,
-        onRetry: _isVoiceUploadFailed && _cachedVoicePath != null ? () {
-          _retrySendVoiceMessage();
-        } : null,
-      ));
+      _chatItems.add(
+        VoicePreviewItem(
+          isUploading: _isVoiceUploading,
+          progress: _voiceUploadProgress,
+          isFailed: _isVoiceUploadFailed,
+          onRetry: _isVoiceUploadFailed && _cachedVoicePath != null
+              ? () {
+                  _retrySendVoiceMessage();
+                }
+              : null,
+        ),
+      );
     }
-    
+
     _updateCachedPhotos();
   }
 
@@ -2263,14 +2899,14 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       final response = await ApiService.instance.messages
           .firstWhere(
             (msg) => msg['seq'] == seq && msg['opcode'] == 28,
-        orElse: () => <String, dynamic>{},
-      )
+            orElse: () => <String, dynamic>{},
+          )
           .timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => throw TimeoutException(
-          'Превышено время ожидания ответа от сервера',
-        ),
-      );
+            const Duration(seconds: 10),
+            onTimeout: () => throw TimeoutException(
+              'Превышено время ожидания ответа от сервера',
+            ),
+          );
 
       if (response.isEmpty || response['payload'] == null) {
         print('[ChatScreen] Не получен ответ от сервера для стикера');
@@ -2300,7 +2936,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     for (int i = _messages.length - 1; i >= 0; i--) {
       final message = _messages[i];
       final controlAttach = message.attaches.firstWhere(
-            (a) => a['_type'] == 'CONTROL',
+        (a) => a['_type'] == 'CONTROL',
         orElse: () => const {},
       );
       if (controlAttach.isNotEmpty && controlAttach['event'] == 'pin') {
@@ -2381,7 +3017,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     _messagesToAnimate.add(normalizedMessage.id);
 
     final hasPhoto = normalizedMessage.attaches.any(
-          (a) => a['_type'] == 'PHOTO',
+      (a) => a['_type'] == 'PHOTO',
     );
     if (hasPhoto) {
       _updateCachedPhotos();
@@ -2400,7 +3036,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     }
 
     final lastMessageItem =
-    _chatItems.isNotEmpty && _chatItems.last is MessageItem
+        _chatItems.isNotEmpty && _chatItems.last is MessageItem
         ? _chatItems.last as MessageItem
         : null;
 
@@ -2445,9 +3081,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   }
 
   void _updateMessageReaction(
-      String messageId,
-      Map<String, dynamic> reactionInfo,
-      ) {
+    String messageId,
+    Map<String, dynamic> reactionInfo,
+  ) {
     final messageIndex = _messages.indexWhere((m) => m.id == messageId);
     if (messageIndex != -1) {
       final message = _messages[messageIndex];
@@ -2476,7 +3112,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       );
 
       final existingCounterIndex = currentCounters.indexWhere(
-            (counter) => counter['reaction'] == emoji,
+        (counter) => counter['reaction'] == emoji,
       );
 
       if (existingCounterIndex != -1) {
@@ -2492,7 +3128,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         'yourReaction': emoji,
         'totalCount': currentCounters.fold<int>(
           0,
-              (sum, counter) => sum + (counter['count'] as int),
+          (sum, counter) => sum + (counter['count'] as int),
         ),
       };
 
@@ -2524,7 +3160,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         );
 
         final counterIndex = currentCounters.indexWhere(
-              (counter) => counter['reaction'] == yourReaction,
+          (counter) => counter['reaction'] == yourReaction,
         );
 
         if (counterIndex != -1) {
@@ -2542,7 +3178,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           'yourReaction': null,
           'totalCount': currentCounters.fold<int>(
             0,
-                (sum, counter) => sum + (counter['count'] as int),
+            (sum, counter) => sum + (counter['count'] as int),
           ),
         };
 
@@ -2566,7 +3202,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     int? index = _messages.indexWhere((m) => m.id == updatedMessage.id);
     if (index == -1 && updatedMessage.cid != null) {
       index = _messages.indexWhere(
-            (m) => m.cid != null && m.cid == updatedMessage.cid,
+        (m) => m.cid != null && m.cid == updatedMessage.cid,
       );
     }
 
@@ -2595,7 +3231,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
       final oldHasPhoto = oldMessage.attaches.any((a) => a['_type'] == 'PHOTO');
       final newHasPhoto = finalMessageWithOriginalText.attaches.any(
-            (a) => a['_type'] == 'PHOTO',
+        (a) => a['_type'] == 'PHOTO',
       );
 
       _messages[index] = finalMessageWithOriginalText;
@@ -2612,8 +3248,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       }
 
       final chatItemIndex = _chatItems.indexWhere(
-            (item) =>
-        item is MessageItem &&
+        (item) =>
+            item is MessageItem &&
             (item.message.id == oldMessage.id ||
                 item.message.id == updatedMessage.id ||
                 (updatedMessage.cid != null &&
@@ -2643,18 +3279,18 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       ApiService.instance
           .getMessageHistory(widget.chatId, force: true)
           .then((fresh) {
-        if (!mounted) return;
-        _messages
-          ..clear()
-          ..addAll(fresh);
-        _buildChatItems();
+            if (!mounted) return;
+            _messages
+              ..clear()
+              ..addAll(fresh);
+            _buildChatItems();
 
-        Future.microtask(() {
-          if (mounted) {
-            setState(() {});
-          }
-        });
-      })
+            Future.microtask(() {
+              if (mounted) {
+                setState(() {});
+              }
+            });
+          })
           .catchError((_) {});
     }
   }
@@ -2758,8 +3394,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   void _applyTextFormat(String type) {
     final isEncryptionActive =
         _encryptionConfigForCurrentChat != null &&
-            _encryptionConfigForCurrentChat!.password.isNotEmpty &&
-            _sendEncryptedForCurrentChat;
+        _encryptionConfigForCurrentChat!.password.isNotEmpty &&
+        _sendEncryptedForCurrentChat;
     if (isEncryptionActive) {
       return;
     }
@@ -2783,8 +3419,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     final selection = _textController.selection;
     final hasSelection =
         selection.isValid &&
-            !selection.isCollapsed &&
-            selection.end > selection.start;
+        !selection.isCollapsed &&
+        selection.end > selection.start;
     if (_hasTextSelection != hasSelection) {
       setState(() {
         _hasTextSelection = hasSelection;
@@ -2795,8 +3431,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   void _startSelectionCheck() {
     _stopSelectionCheck();
     _selectionCheckTimer = Timer.periodic(const Duration(milliseconds: 100), (
-        timer,
-        ) {
+      timer,
+    ) {
       if (!_textFocusNode.hasFocus) {
         _stopSelectionCheck();
         return;
@@ -2844,9 +3480,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   }
 
   Message _hydrateLinkFromKnown(
-      Message message,
-      Map<String, Message> knownMessages,
-      ) {
+    Message message,
+    Map<String, Message> knownMessages,
+  ) {
     final link = message.link;
     if (link == null || link['message'] != null) return message;
 
@@ -2863,9 +3499,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   }
 
   List<Message> _hydrateLinksSequentially(
-      List<Message> messages, {
-        Map<String, Message>? initialKnown,
-      }) {
+    List<Message> messages, {
+    Map<String, Message>? initialKnown,
+  }) {
     final known = initialKnown != null
         ? Map<String, Message>.from(initialKnown)
         : <String, Message>{};
@@ -2888,7 +3524,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   Future<void> _sendMessage() async {
     final originalText = _textController.text.trim();
 
-
     if (originalText.isEmpty) {
       print('ОТЛАДКА: Попытка отправки пустого сообщения');
       return;
@@ -2899,7 +3534,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
       // Проверка блокировки пользователя
       if (_currentContact.isBlockedByMe && !theme.blockBypass) {
-        _showErrorSnackBar('Нельзя отправить сообщение заблокированному пользователю');
+        _showErrorSnackBar(
+          'Нельзя отправить сообщение заблокированному пользователю',
+        );
         return;
       }
 
@@ -2937,22 +3574,19 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
       // Немедленное добавление в UI
       _addMessage(tempMessage);
-      print('ОТЛАДКА: Создано временное сообщение с cid: $tempCid, элементов: ${elements.length}');
+      print(
+        'ОТЛАДКА: Создано временное сообщение с cid: $tempCid, элементов: ${elements.length}',
+      );
 
       // Очистка поля ввода сразу для лучшего UX
       _clearInputState();
 
       // Отправка на сервер асинхронно (не блокирует UI)
       // если sendMessage возвращает Future, попробуйте await добавить но у меня вроде норм.
-      _sendToServer(
-        text: textToSend,
-        cid: tempCid,
-        elements: elements,
-      );
+      _sendToServer(text: textToSend, cid: tempCid, elements: elements);
 
       // Обработка статусов прочтения (не блокирует отправку)
       _handleReadReceipts();
-
     } catch (e, stackTrace) {
       print('ОШИБКА в _sendMessage: $e');
       print(stackTrace);
@@ -2960,7 +3594,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     }
   }
 
-// Вспомогательные методы:
+  // Вспомогательные методы:
 
   /// Проверка активности ограничения на шифрование
   bool _isEncryptionRestrictionActive(String text) {
@@ -2976,7 +3610,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         _encryptionConfigForCurrentChat!.password.isNotEmpty &&
         _sendEncryptedForCurrentChat &&
         !ChatEncryptionService.isEncryptedMessage(original)) {
-
       final encrypted = ChatEncryptionService.encryptWithPassword(
         _encryptionConfigForCurrentChat!.password,
         original,
@@ -3004,7 +3637,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     print('Всего упоминаний: ${captured.length}');
     for (int i = 0; i < captured.length; i++) {
       final element = captured[i];
-      print('Упоминание #$i: entityId=${element['entityId']}, type=${element['type']}, length=${element['length']}');
+      print(
+        'Упоминание #$i: entityId=${element['entityId']}, type=${element['type']}, length=${element['length']}',
+      );
     }
     print('=====================================');
     return captured;
@@ -3023,7 +3658,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     for (int i = 0; i < elements.length; i++) {
       final element = elements[i];
       print('Упоминание #$i:');
-      print('  - ID сущности: ${element['entityId']} (тип: ${element['entityId']?.runtimeType})');
+      print(
+        '  - ID сущности: ${element['entityId']} (тип: ${element['entityId']?.runtimeType})',
+      );
       print('  - Имя: ${element['entityName']}');
       print('  - Позиция от: ${element['from']}, длина: ${element['length']}');
       print('  - Тип: ${element['type']}');
@@ -3051,7 +3688,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         }
 
         if (entityId is! int) {
-          print('ОШИБКА: entityId не является целым числом: $entityId (${entityId.runtimeType})');
+          print(
+            'ОШИБКА: entityId не является целым числом: $entityId (${entityId.runtimeType})',
+          );
           return false;
         }
 
@@ -3087,7 +3726,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   Map<String, dynamic>? _buildReplyLink() {
     if (_replyingToMessage == null) return null;
 
-    final replyId = int.tryParse(_replyingToMessage!.id) ?? _replyingToMessage!.id;
+    final replyId =
+        int.tryParse(_replyingToMessage!.id) ?? _replyingToMessage!.id;
 
     return {
       'type': 'REPLY',
@@ -3141,17 +3781,17 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
       print('ОТЛАДКА: Сообщение отправлено на сервер с cid: $cid');
       if (elements.isNotEmpty) {
-        print('ОТЛАДКА: Отправлены элементы (пинги): ${elements.map((e) => e['entityId']).toList()}');
+        print(
+          'ОТЛАДКА: Отправлены элементы (пинги): ${elements.map((e) => e['entityId']).toList()}',
+        );
       }
 
       // Если нужна обработка ошибок для Future:
       // ApiService.instance.sendMessage(...).catchError((e) {
       //   print('ОШИБКА отправки: $e');
       // });
-
     } catch (e) {
       print('ОШИБКА: Не удалось отправить сообщение на сервер: $e');
-
     }
   }
 
@@ -3160,21 +3800,26 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   void _handleReadReceipts() {
     try {
       // Получаем настройки синхронно если возможно, или игнорируем
-      ChatReadSettingsService.instance.getSettings(widget.chatId).then((readSettings) {
-        final shouldReadOnAction = readSettings != null
-            ? (!readSettings.disabled && readSettings.readOnAction)
-            : context.read<ThemeProvider>().debugReadOnAction;
+      ChatReadSettingsService.instance
+          .getSettings(widget.chatId)
+          .then((readSettings) {
+            final shouldReadOnAction = readSettings != null
+                ? (!readSettings.disabled && readSettings.readOnAction)
+                : context.read<ThemeProvider>().debugReadOnAction;
 
-        if (shouldReadOnAction && _messages.isNotEmpty) {
-          final lastMessageId = _messages.last.id;
+            if (shouldReadOnAction && _messages.isNotEmpty) {
+              final lastMessageId = _messages.last.id;
 
-          ApiService.instance.markMessageAsRead(widget.chatId, lastMessageId);
-          print('ОТЛАДКА: Сообщения помечены как прочитанные');
-        }
-      }).catchError((e) {
-        print('ОШИБКА получения настроек чтения: $e');
-      });
-
+              ApiService.instance.markMessageAsRead(
+                widget.chatId,
+                lastMessageId,
+              );
+              print('ОТЛАДКА: Сообщения помечены как прочитанные');
+            }
+          })
+          .catchError((e) {
+            print('ОШИБКА получения настроек чтения: $e');
+          });
     } catch (e) {
       print('ОШИБКА: Не удалось обновить статус прочтения: $e');
     }
@@ -3216,8 +3861,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     _removeMessages([message.id]);
     unawaited(
       ApiService.instance.updateChatLastMessage(widget.chatId).then((
-          newLastMessage,
-          ) {
+        newLastMessage,
+      ) {
         widget.onLastMessageChanged?.call(newLastMessage);
       }),
     );
@@ -3746,7 +4391,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       final chats = ApiService.instance.lastChatsPayload?['chats'] as List?;
       if (chats != null) {
         final chat = chats.firstWhere(
-              (c) => c['id'] == widget.chatId,
+          (c) => c['id'] == widget.chatId,
           orElse: () => null,
         );
         chatName = chat?['title'] ?? chat?['displayTitle'] ?? 'Чат';
@@ -3842,7 +4487,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     final chats = chatData['chats'] as List<dynamic>;
     try {
       _cachedCurrentGroupChat = chats.firstWhere(
-            (chat) => chat['id'] == widget.chatId,
+        (chat) => chat['id'] == widget.chatId,
         orElse: () => null,
       );
       return _cachedCurrentGroupChat;
@@ -3952,8 +4597,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     final colors = Theme.of(context).colorScheme;
     final bool isConnected =
         ApiService.instance.isOnline &&
-            ApiService.instance.isSessionReady &&
-            ApiService.instance.isActuallyConnected;
+        ApiService.instance.isSessionReady &&
+        ApiService.instance.isActuallyConnected;
 
     if (isConnected) {
       return const SizedBox.shrink();
@@ -4112,6 +4757,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     _recordCancelReturnController.dispose();
     _voiceRecordingTimer?.cancel();
     _mentionableUsersRetryTimer?.cancel();
+
+    // _stickerCatalogSub?.cancel();
     if (ApiService.instance.currentActiveChatId == widget.chatId) {
       ApiService.instance.currentActiveChatId = null;
     }
@@ -4194,7 +4841,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     });
   }
 
-
   Future<void> _cancelVoiceRecordingUi() async {
     _voiceRecordingTimer?.cancel();
 
@@ -4221,7 +4867,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     });
   }
 
-
   Future<void> _toggleVoiceRecordingPause() async {
     if (_isActuallyRecording) {
       if (_isVoiceRecordingPaused) {
@@ -4240,10 +4885,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     });
   }
 
-
   Widget _buildVoicePreviewBubble(VoicePreviewItem item) {
     final colors = Theme.of(context).colorScheme;
-    
+
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: Row(
@@ -4272,11 +4916,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      item.isUploading ? 'Голосовое сообщение' : 'Ошибка отправки',
-                      style: TextStyle(
-                        color: colors.onPrimary,
-                        fontSize: 14,
-                      ),
+                      item.isUploading
+                          ? 'Голосовое сообщение'
+                          : 'Ошибка отправки',
+                      style: TextStyle(color: colors.onPrimary, fontSize: 14),
                     ),
                   ],
                 ),
@@ -4287,7 +4930,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                     child: LinearProgressIndicator(
                       value: item.progress,
                       backgroundColor: colors.onPrimary.withValues(alpha: 0.3),
-                      valueColor: AlwaysStoppedAnimation<Color>(colors.onPrimary),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        colors.onPrimary,
+                      ),
                     ),
                   ),
                 ],
@@ -4297,10 +4942,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                     onPressed: item.onRetry,
                     child: Text(
                       'Повторить',
-                      style: TextStyle(
-                        color: colors.onPrimary,
-                        fontSize: 12,
-                      ),
+                      style: TextStyle(color: colors.onPrimary, fontSize: 12),
                     ),
                   ),
                 ],
@@ -4314,16 +4956,16 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   Future<void> _retrySendVoiceMessage() async {
     if (_cachedVoicePath == null) return;
-    
+
     final file = File(_cachedVoicePath!);
     if (!await file.exists()) {
       _showErrorSnackBar('Файл голосового сообщения не найден');
       return;
     }
-    
+
     final fileSize = await file.length();
     final duration = _voiceRecordingDuration;
-    
+
     if (mounted) {
       setState(() {
         _isVoiceUploadFailed = false;
@@ -4331,7 +4973,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         _voiceUploadProgress = 0.0;
       });
     }
-    
+
     try {
       await ApiService.instance.sendVoiceMessage(
         widget.chatId,
@@ -4348,7 +4990,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           }
         },
       );
-      
+
       if (mounted) {
         setState(() {
           _isVoiceUploading = false;
@@ -4357,7 +4999,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           _cachedVoicePath = null;
         });
       }
-      
+
       try {
         if (await file.exists()) {
           await file.delete();
@@ -4440,7 +5082,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       });
     }
 
-    print('Отправка голосового сообщения: $filePath, длительность: ${duration.inSeconds}s');
+    print(
+      'Отправка голосового сообщения: $filePath, длительность: ${duration.inSeconds}s',
+    );
 
     try {
       await ApiService.instance.sendVoiceMessage(
@@ -4492,13 +5136,15 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     }
   }
 
-
   void _handleRecordCancelDragStart() {
     _recordCancelReturnController.stop();
   }
 
   void _handleRecordCancelDragUpdate(DragUpdateDetails details) {
-    final next = (_recordCancelDragDx + details.delta.dx).clamp(-_recordCancelThreshold * 1.25, 0.0);
+    final next = (_recordCancelDragDx + details.delta.dx).clamp(
+      -_recordCancelThreshold * 1.25,
+      0.0,
+    );
     if (next == _recordCancelDragDx) return;
     setState(() {
       _recordCancelDragDx = next;
@@ -4513,7 +5159,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     }
 
     final tween = Tween<double>(begin: _recordCancelDragDx, end: 0.0).animate(
-      CurvedAnimation(parent: _recordCancelReturnController, curve: Curves.easeOutCubic),
+      CurvedAnimation(
+        parent: _recordCancelReturnController,
+        curve: Curves.easeOutCubic,
+      ),
     );
     void listener() {
       setState(() {
@@ -4536,7 +5185,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   }) {
     final colors = Theme.of(context).colorScheme;
 
-    final cancelProgress = (_recordCancelDragDx.abs() / _recordCancelThreshold).clamp(0.0, 1.0);
+    final cancelProgress = (_recordCancelDragDx.abs() / _recordCancelThreshold)
+        .clamp(0.0, 1.0);
     final cancelColor = Color.lerp(
       colors.onSurface.withValues(alpha: 0.7),
       colors.error,
@@ -4552,11 +5202,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         onTap: (!isBlocked) ? _cancelVoiceRecordingUi : null,
         child: Padding(
           padding: const EdgeInsets.all(6.0),
-          child: Icon(
-            Icons.delete_rounded,
-            size: 20,
-            color: colors.error,
-          ),
+          child: Icon(Icons.delete_rounded, size: 20, color: colors.error),
         ),
       ),
     );
@@ -4576,15 +5222,25 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           switchInCurve: Curves.easeOutCubic,
           switchOutCurve: Curves.easeInCubic,
           transitionBuilder: (child, animation) {
-            final offset = Tween<Offset>(begin: const Offset(-0.15, 0), end: Offset.zero).animate(animation);
+            final offset = Tween<Offset>(
+              begin: const Offset(-0.15, 0),
+              end: Offset.zero,
+            ).animate(animation);
             return FadeTransition(
               opacity: animation,
               child: SlideTransition(position: offset, child: child),
             );
           },
           child: _isVoiceRecordingPaused
-              ? SizedBox(key: const ValueKey<String>('trash'), child: trashButton)
-              : const SizedBox(key: ValueKey<String>('trashSpacer'), width: 32, height: 32),
+              ? SizedBox(
+                  key: const ValueKey<String>('trash'),
+                  child: trashButton,
+                )
+              : const SizedBox(
+                  key: ValueKey<String>('trashSpacer'),
+                  width: 32,
+                  height: 32,
+                ),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -4622,7 +5278,12 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           ),
         ),
         const SizedBox(width: 12),
-        const SizedBox(width: _recordSendButtonSpace + _recordButtonGap + _recordPauseButtonSpace),
+        const SizedBox(
+          width:
+              _recordSendButtonSpace +
+              _recordButtonGap +
+              _recordPauseButtonSpace,
+        ),
       ],
     );
 
@@ -4702,7 +5363,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     setState(() {
       _currentResultIndex =
           (_currentResultIndex - 1 + _searchResults.length) %
-              _searchResults.length;
+          _searchResults.length;
     });
     _scrollToResult();
   }
@@ -4715,7 +5376,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     final targetMessage = _searchResults[_currentResultIndex];
 
     final itemIndex = _chatItems.indexWhere(
-          (item) => item is MessageItem && item.message.id == targetMessage.id,
+      (item) => item is MessageItem && item.message.id == targetMessage.id,
     );
 
     if (itemIndex != -1) {
@@ -4739,7 +5400,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       if (!mounted) return;
 
       final itemIndex = _chatItems.indexWhere(
-            (item) => item is MessageItem && item.message.id == messageId,
+        (item) => item is MessageItem && item.message.id == messageId,
       );
 
       if (itemIndex != -1) {
@@ -4819,21 +5480,21 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                     builder: (context, pinnedMessage, _) {
                       return pinnedMessage != null
                           ? SafeArea(
-                        key: ValueKey(pinnedMessage.id),
-                        child: InkWell(
-                          onTap: _scrollToPinnedMessage,
-                          child: PinnedMessageWidget(
-                            pinnedMessage: pinnedMessage,
-                            contacts: _contactDetailsCache,
-                            myId: _actualMyId ?? 0,
-                            onTap: _scrollToPinnedMessage,
-                            onClose: () {
-                              _pinnedMessage = null;
-                              _pinnedMessageNotifier.value = null;
-                            },
-                          ),
-                        ),
-                      )
+                              key: ValueKey(pinnedMessage.id),
+                              child: InkWell(
+                                onTap: _scrollToPinnedMessage,
+                                child: PinnedMessageWidget(
+                                  pinnedMessage: pinnedMessage,
+                                  contacts: _contactDetailsCache,
+                                  myId: _actualMyId ?? 0,
+                                  onTap: _scrollToPinnedMessage,
+                                  onClose: () {
+                                    _pinnedMessage = null;
+                                    _pinnedMessageNotifier.value = null;
+                                  },
+                                ),
+                              ),
+                            )
                           : const SizedBox.shrink(key: ValueKey('empty'));
                     },
                   ),
@@ -4852,502 +5513,517 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                             child: ScaleTransition(
                               scale: Tween<double>(begin: 0.8, end: 1.0)
                                   .animate(
-                                CurvedAnimation(
-                                  parent: animation,
-                                  curve: Curves.easeOutCubic,
-                                ),
-                              ),
+                                    CurvedAnimation(
+                                      parent: animation,
+                                      curve: Curves.easeOutCubic,
+                                    ),
+                                  ),
                               child: child,
                             ),
                           );
                         },
                         child: (!_isIdReady || _isLoadingHistory)
                             ? const Center(
-                          key: ValueKey('loading'),
-                          child: CircularProgressIndicator(),
-                        )
+                                key: ValueKey('loading'),
+                                child: CircularProgressIndicator(),
+                              )
                             : _messages.isEmpty && !widget.isChannel
                             ? EmptyChatWidget(
-                          key: const ValueKey('empty'),
-                          sticker: _emptyChatSticker,
-                          onStickerTap: _sendEmptyChatSticker,
-                        )
+                                key: const ValueKey('empty'),
+                                sticker: _emptyChatSticker,
+                                onStickerTap: _sendEmptyChatSticker,
+                              )
                             : AnimatedPadding(
-                          key: const ValueKey('chat_list'),
-                          duration: const Duration(milliseconds: 300),
-                          curve: Curves.easeInOutCubic,
-                          padding: EdgeInsets.only(
-                            bottom: MediaQuery.of(
-                              context,
-                            ).viewInsets.bottom,
-                          ),
-                          child: ScrollablePositionedList.builder(
-                            key: const ValueKey('scroll_list'),
-                            itemScrollController: _itemScrollController,
-                            itemPositionsListener: _itemPositionsListener,
-                            reverse: true,
-                            padding: EdgeInsets.fromLTRB(
-                              8.0,
-                              8.0,
-                              8.0,
-                              widget.isChannel ? 16.0 : 100.0,
-                            ),
-                            itemCount: _chatItems.length,
-                            itemBuilder: (context, index) {
-                              if (index < 0 ||
-                                  index >= _chatItems.length) {
-                                return const SizedBox.shrink();
-                              }
-                              final mappedIndex =
-                                  _chatItems.length - 1 - index;
-                              if (mappedIndex < 0 ||
-                                  mappedIndex >= _chatItems.length) {
-                                return const SizedBox.shrink();
-                              }
-                              final item = _chatItems[mappedIndex];
-                              final isLastVisual =
-                                  index == _chatItems.length - 1;
+                                key: const ValueKey('chat_list'),
+                                duration: const Duration(milliseconds: 300),
+                                curve: Curves.easeInOutCubic,
+                                padding: EdgeInsets.only(
+                                  bottom: MediaQuery.of(
+                                    context,
+                                  ).viewInsets.bottom,
+                                ),
+                                child: ScrollablePositionedList.builder(
+                                  key: const ValueKey('scroll_list'),
+                                  itemScrollController: _itemScrollController,
+                                  itemPositionsListener: _itemPositionsListener,
+                                  reverse: true,
+                                  padding: EdgeInsets.fromLTRB(
+                                    8.0,
+                                    8.0,
+                                    8.0,
+                                    widget.isChannel ? 16.0 : 100.0,
+                                  ),
+                                  itemCount: _chatItems.length,
+                                  itemBuilder: (context, index) {
+                                    if (index < 0 ||
+                                        index >= _chatItems.length) {
+                                      return const SizedBox.shrink();
+                                    }
+                                    final mappedIndex =
+                                        _chatItems.length - 1 - index;
+                                    if (mappedIndex < 0 ||
+                                        mappedIndex >= _chatItems.length) {
+                                      return const SizedBox.shrink();
+                                    }
+                                    final item = _chatItems[mappedIndex];
+                                    final isLastVisual =
+                                        index == _chatItems.length - 1;
 
+                                    final needsTopPadding =
+                                        isLastVisual && !_hasMore;
 
-                              final needsTopPadding = isLastVisual && !_hasMore;
+                                    Widget wrapWithTopPadding(Widget child) {
+                                      if (needsTopPadding) {
+                                        return Padding(
+                                          padding: const EdgeInsets.only(
+                                            top: 100.0,
+                                          ),
+                                          child: child,
+                                        );
+                                      }
+                                      return child;
+                                    }
 
-                              Widget wrapWithTopPadding(Widget child) {
-                                if (needsTopPadding) {
-                                  return Padding(
-                                    padding: const EdgeInsets.only(top: 100.0),
-                                    child: child,
-                                  );
-                                }
-                                return child;
-                              }
+                                    if (item is MessageItem) {
+                                      final message = item.message;
+                                      final bool isSearchHighlighted =
+                                          _isSearching &&
+                                          _searchResults.isNotEmpty &&
+                                          _currentResultIndex != -1 &&
+                                          message.id ==
+                                              _searchResults[_currentResultIndex]
+                                                  .id;
+                                      final bool isHighlighted =
+                                          isSearchHighlighted ||
+                                          message.id == _highlightedMessageId;
 
-                              if (item is MessageItem) {
-                                final message = item.message;
-                                final bool isSearchHighlighted =
-                                    _isSearching &&
-                                        _searchResults.isNotEmpty &&
-                                        _currentResultIndex != -1 &&
-                                        message.id ==
-                                            _searchResults[_currentResultIndex]
-                                                .id;
-                                final bool isHighlighted =
-                                    isSearchHighlighted ||
-                                        message.id == _highlightedMessageId;
+                                      final isControlMessage = message.attaches
+                                          .any((a) => a['_type'] == 'CONTROL');
+                                      if (isControlMessage) {
+                                        return wrapWithTopPadding(
+                                          _ControlMessageChip(
+                                            message: message,
+                                            contacts: _contactDetailsCache,
+                                            myId: _actualMyId ?? widget.myId,
+                                          ),
+                                        );
+                                      }
 
-                                final isControlMessage = message.attaches
-                                    .any((a) => a['_type'] == 'CONTROL');
-                                if (isControlMessage) {
-                                  return wrapWithTopPadding(_ControlMessageChip(
-                                    message: message,
-                                    contacts: _contactDetailsCache,
-                                    myId: _actualMyId ?? widget.myId,
-                                  ));
-                                }
+                                      final bool isMe =
+                                          item.message.senderId == _actualMyId;
 
-                                final bool isMe =
-                                    item.message.senderId == _actualMyId;
+                                      final bool canDeleteForAll =
+                                          isMe ||
+                                          (widget.isGroupChat &&
+                                              _isCurrentUserAdmin());
 
-                                final bool canDeleteForAll =
-                                    isMe ||
-                                        (widget.isGroupChat &&
-                                            _isCurrentUserAdmin());
-
-                                MessageReadStatus? readStatus;
-                                if (isMe) {
-                                  final messageId = item.message.id;
-                                  if (messageId.startsWith('local_')) {
-                                    readStatus =
-                                        MessageReadStatus.sending;
-                                  } else {
-                                    readStatus = MessageReadStatus.sent;
-                                  }
-
-                                  final int? numericMessageId =
-                                  _parseMessageId(messageId);
-                                  if (numericMessageId != null &&
-                                      _lastPeerReadMessageId != null &&
-                                      numericMessageId <=
-                                          _lastPeerReadMessageId!) {
-                                    readStatus = MessageReadStatus.read;
-                                  } else if (numericMessageId == null &&
-                                      _lastPeerReadMessageIdStr != null &&
-                                      messageId ==
-                                          _lastPeerReadMessageIdStr) {
-                                    readStatus = MessageReadStatus.read;
-                                  }
-                                }
-
-                                String? forwardedFrom;
-                                String? forwardedFromAvatarUrl;
-                                if (message.isForwarded) {
-                                  final link = message.link;
-                                  if (link is Map<String, dynamic>) {
-                                    final chatName =
-                                    link['chatName'] as String?;
-                                    final chatIconUrl =
-                                    link['chatIconUrl'] as String?;
-
-                                    if (chatName != null) {
-                                      forwardedFrom = chatName;
-                                      forwardedFromAvatarUrl =
-                                          chatIconUrl;
-                                    } else {
-                                      final forwardedMessage =
-                                      link['message']
-                                      as Map<String, dynamic>?;
-                                      final originalSenderId =
-                                      forwardedMessage?['sender']
-                                      as int?;
-                                      if (originalSenderId != null) {
-                                        final originalSenderContact =
-                                        _contactDetailsCache[originalSenderId];
-                                        if (originalSenderContact ==
-                                            null) {
-                                          _loadContactIfNeeded(
-                                            originalSenderId,
-                                          );
-                                          forwardedFrom =
-                                          'Участник $originalSenderId';
-                                          forwardedFromAvatarUrl = null;
+                                      MessageReadStatus? readStatus;
+                                      if (isMe) {
+                                        final messageId = item.message.id;
+                                        if (messageId.startsWith('local_')) {
+                                          readStatus =
+                                              MessageReadStatus.sending;
                                         } else {
-                                          forwardedFrom =
-                                              originalSenderContact.name;
-                                          forwardedFromAvatarUrl =
-                                              originalSenderContact
-                                                  .photoBaseUrl;
+                                          readStatus = MessageReadStatus.sent;
                                         }
-                                      }
-                                    }
-                                  }
-                                }
-                                String? senderName;
-                                if (widget.isGroupChat && !isMe) {
-                                  bool shouldShowName = true;
-                                  if (mappedIndex > 0) {
-                                    final previousItem =
-                                    _chatItems[mappedIndex - 1];
-                                    if (previousItem is MessageItem) {
-                                      final previousMessage =
-                                          previousItem.message;
-                                      if (previousMessage.senderId ==
-                                          message.senderId) {
-                                        final timeDifferenceInMinutes =
-                                            (message.time -
-                                                previousMessage.time) /
-                                                (1000 * 60);
-                                        if (timeDifferenceInMinutes < 5) {
-                                          shouldShowName = false;
-                                        }
-                                      }
-                                    }
-                                  }
-                                  if (shouldShowName) {
-                                    final senderContact =
-                                    _contactDetailsCache[message
-                                        .senderId];
-                                    if (senderContact != null) {
-                                      senderName = getContactDisplayName(
-                                        contactId: senderContact.id,
-                                        originalName: senderContact.name,
-                                        originalFirstName:
-                                        senderContact.firstName,
-                                        originalLastName:
-                                        senderContact.lastName,
-                                      );
-                                    } else {
-                                      senderName =
-                                      'ID ${message.senderId}';
-                                      _loadContactIfNeeded(
-                                        message.senderId,
-                                      );
-                                    }
-                                  }
-                                }
-                                final stableKey =
-                                    '${item.message.id}_${item.message.updateTime ?? item.message.time}_${item.message.originalText ?? ''}_${DateTime.now().millisecondsSinceEpoch}';
 
-                                final hasPhoto = item.message.attaches
-                                    .any((a) => a['_type'] == 'PHOTO');
-                                final shouldAnimateNew =
-                                _messagesToAnimate.contains(
-                                  item.message.id,
-                                );
-                                if (shouldAnimateNew) {
-                                  _messagesToAnimate.remove(
-                                    item.message.id,
-                                  );
-                                }
-                                final deferImageLoading =
-                                    hasPhoto &&
-                                        shouldAnimateNew &&
-                                        !_anyOptimize &&
-                                        !context
+                                        final int? numericMessageId =
+                                            _parseMessageId(messageId);
+                                        if (numericMessageId != null &&
+                                            _lastPeerReadMessageId != null &&
+                                            numericMessageId <=
+                                                _lastPeerReadMessageId!) {
+                                          readStatus = MessageReadStatus.read;
+                                        } else if (numericMessageId == null &&
+                                            _lastPeerReadMessageIdStr != null &&
+                                            messageId ==
+                                                _lastPeerReadMessageIdStr) {
+                                          readStatus = MessageReadStatus.read;
+                                        }
+                                      }
+
+                                      String? forwardedFrom;
+                                      String? forwardedFromAvatarUrl;
+                                      if (message.isForwarded) {
+                                        final link = message.link;
+                                        if (link is Map<String, dynamic>) {
+                                          final chatName =
+                                              link['chatName'] as String?;
+                                          final chatIconUrl =
+                                              link['chatIconUrl'] as String?;
+
+                                          if (chatName != null) {
+                                            forwardedFrom = chatName;
+                                            forwardedFromAvatarUrl =
+                                                chatIconUrl;
+                                          } else {
+                                            final forwardedMessage =
+                                                link['message']
+                                                    as Map<String, dynamic>?;
+                                            final originalSenderId =
+                                                forwardedMessage?['sender']
+                                                    as int?;
+                                            if (originalSenderId != null) {
+                                              final originalSenderContact =
+                                                  _contactDetailsCache[originalSenderId];
+                                              if (originalSenderContact ==
+                                                  null) {
+                                                _loadContactIfNeeded(
+                                                  originalSenderId,
+                                                );
+                                                forwardedFrom =
+                                                    'Участник $originalSenderId';
+                                                forwardedFromAvatarUrl = null;
+                                              } else {
+                                                forwardedFrom =
+                                                    originalSenderContact.name;
+                                                forwardedFromAvatarUrl =
+                                                    originalSenderContact
+                                                        .photoBaseUrl;
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                      String? senderName;
+                                      if (widget.isGroupChat && !isMe) {
+                                        bool shouldShowName = true;
+                                        if (mappedIndex > 0) {
+                                          final previousItem =
+                                              _chatItems[mappedIndex - 1];
+                                          if (previousItem is MessageItem) {
+                                            final previousMessage =
+                                                previousItem.message;
+                                            if (previousMessage.senderId ==
+                                                message.senderId) {
+                                              final timeDifferenceInMinutes =
+                                                  (message.time -
+                                                      previousMessage.time) /
+                                                  (1000 * 60);
+                                              if (timeDifferenceInMinutes < 5) {
+                                                shouldShowName = false;
+                                              }
+                                            }
+                                          }
+                                        }
+                                        if (shouldShowName) {
+                                          final senderContact =
+                                              _contactDetailsCache[message
+                                                  .senderId];
+                                          if (senderContact != null) {
+                                            senderName = getContactDisplayName(
+                                              contactId: senderContact.id,
+                                              originalName: senderContact.name,
+                                              originalFirstName:
+                                                  senderContact.firstName,
+                                              originalLastName:
+                                                  senderContact.lastName,
+                                            );
+                                          } else {
+                                            senderName =
+                                                'ID ${message.senderId}';
+                                            _loadContactIfNeeded(
+                                              message.senderId,
+                                            );
+                                          }
+                                        }
+                                      }
+                                      final stableKey =
+                                          '${item.message.id}_${item.message.updateTime ?? item.message.time}_${item.message.originalText ?? ''}_${DateTime.now().millisecondsSinceEpoch}';
+
+                                      final hasPhoto = item.message.attaches
+                                          .any((a) => a['_type'] == 'PHOTO');
+                                      final shouldAnimateNew =
+                                          _messagesToAnimate.contains(
+                                            item.message.id,
+                                          );
+                                      if (shouldAnimateNew) {
+                                        _messagesToAnimate.remove(
+                                          item.message.id,
+                                        );
+                                      }
+                                      final deferImageLoading =
+                                          hasPhoto &&
+                                          shouldAnimateNew &&
+                                          !_anyOptimize &&
+                                          !context
+                                              .read<ThemeProvider>()
+                                              .animatePhotoMessages;
+
+                                      String? decryptedText;
+                                      if (_isEncryptionPasswordSetForCurrentChat &&
+                                          _encryptionConfigForCurrentChat !=
+                                              null &&
+                                          _encryptionConfigForCurrentChat!
+                                              .password
+                                              .isNotEmpty &&
+                                          ChatEncryptionService.isEncryptedMessage(
+                                            item.message.text,
+                                          )) {
+                                        decryptedText =
+                                            ChatEncryptionService.decryptWithPassword(
+                                              _encryptionConfigForCurrentChat!
+                                                  .password,
+                                              item.message.text,
+                                            );
+                                      }
+
+                                      final bubbleKey = ValueKey(
+                                        'msg_${item.message.id}_${item.message.time}',
+                                      );
+                                      final bubble = ChatMessageBubble(
+                                        key: bubbleKey,
+                                        message: item.message,
+                                        isMe: isMe,
+                                        readStatus: readStatus,
+                                        isReactionSending: _sendingReactions
+                                            .contains(item.message.id),
+                                        deferImageLoading: deferImageLoading,
+                                        myUserId: _actualMyId,
+                                        chatId: widget.chatId,
+                                        isEncryptionPasswordSet:
+                                            _isEncryptionPasswordSetForCurrentChat,
+                                        decryptedText: decryptedText,
+                                        onReply: widget.isChannel
+                                            ? null
+                                            : () =>
+                                                  _replyToMessage(item.message),
+                                        onForward: () =>
+                                            _forwardMessage(item.message),
+                                        onEdit: isMe
+                                            ? () => _editMessage(item.message)
+                                            : null,
+                                        canEditMessage: isMe
+                                            ? item.message.canEdit(_actualMyId!)
+                                            : null,
+                                        onDeleteForMe: isMe
+                                            ? () async {
+                                                _removeMessages([
+                                                  item.message.id,
+                                                ]);
+
+                                                await ApiService.instance
+                                                    .deleteMessage(
+                                                      widget.chatId,
+                                                      item.message.id,
+                                                      forMe: true,
+                                                    );
+                                                final newLastMessage =
+                                                    await ApiService.instance
+                                                        .updateChatLastMessage(
+                                                          widget.chatId,
+                                                        );
+                                                widget.onLastMessageChanged
+                                                    ?.call(newLastMessage);
+                                              }
+                                            : null,
+                                        onDeleteForAll: canDeleteForAll
+                                            ? () async {
+                                                _removeMessages([
+                                                  item.message.id,
+                                                ]);
+                                                await ApiService.instance
+                                                    .deleteMessage(
+                                                      widget.chatId,
+                                                      item.message.id,
+                                                      forMe: false,
+                                                    );
+                                                final newLastMessage =
+                                                    await ApiService.instance
+                                                        .updateChatLastMessage(
+                                                          widget.chatId,
+                                                        );
+                                                widget.onLastMessageChanged
+                                                    ?.call(newLastMessage);
+                                              }
+                                            : null,
+                                        onReaction: (emoji) async {
+                                          _updateReactionOptimistically(
+                                            item.message.id,
+                                            emoji,
+                                          );
+                                          final seq = await ApiService.instance
+                                              .sendReaction(
+                                                widget.chatId,
+                                                item.message.id,
+                                                emoji,
+                                              );
+                                          _pendingReactionSeqs[seq] =
+                                              item.message.id;
+                                          widget.onChatUpdated?.call();
+                                        },
+                                        onRemoveReaction: () async {
+                                          _removeReactionOptimistically(
+                                            item.message.id,
+                                          );
+                                          final seq = await ApiService.instance
+                                              .removeReaction(
+                                                widget.chatId,
+                                                item.message.id,
+                                              );
+                                          _pendingReactionSeqs[seq] =
+                                              item.message.id;
+                                          widget.onChatUpdated?.call();
+                                        },
+                                        isGroupChat: widget.isGroupChat,
+                                        isChannel: widget.isChannel,
+                                        senderName: senderName,
+                                        forwardedFrom: forwardedFrom,
+                                        forwardedFromAvatarUrl:
+                                            forwardedFromAvatarUrl,
+                                        contactDetailsCache:
+                                            _contactDetailsCache,
+                                        onReplyTap: _scrollToMessage,
+                                        useAutoReplyColor: context
                                             .read<ThemeProvider>()
-                                            .animatePhotoMessages;
-
-                                String? decryptedText;
-                                if (_isEncryptionPasswordSetForCurrentChat &&
-                                    _encryptionConfigForCurrentChat !=
-                                        null &&
-                                    _encryptionConfigForCurrentChat!
-                                        .password
-                                        .isNotEmpty &&
-                                    ChatEncryptionService.isEncryptedMessage(
-                                      item.message.text,
-                                    )) {
-                                  decryptedText =
-                                      ChatEncryptionService.decryptWithPassword(
-                                        _encryptionConfigForCurrentChat!
-                                            .password,
-                                        item.message.text,
+                                            .useAutoReplyColor,
+                                        customReplyColor: context
+                                            .read<ThemeProvider>()
+                                            .customReplyColor,
+                                        isFirstInGroup: item.isFirstInGroup,
+                                        isLastInGroup: item.isLastInGroup,
+                                        isGrouped: item.isGrouped,
+                                        avatarVerticalOffset: -8.0,
+                                        onComplain: () => _showComplaintDialog(
+                                          item.message.id,
+                                        ),
+                                        onCancelSend:
+                                            isMe &&
+                                                readStatus ==
+                                                    MessageReadStatus.sending
+                                            ? () => _cancelPendingMessage(
+                                                item.message,
+                                              )
+                                            : null,
+                                        onRetrySend:
+                                            isMe &&
+                                                readStatus ==
+                                                    MessageReadStatus.sending
+                                            ? () => _retryPendingMessage(
+                                                item.message,
+                                              )
+                                            : null,
+                                        allPhotos: _cachedAllPhotos,
+                                        onGoToMessage: _scrollToMessage,
+                                        canDeleteForAll: canDeleteForAll,
                                       );
-                                }
 
-                                final bubbleKey = ValueKey('msg_${item.message.id}_${item.message.time}');
-                                final bubble = ChatMessageBubble(
-                                  key: bubbleKey,
-                                  message: item.message,
-                                  isMe: isMe,
-                                  readStatus: readStatus,
-                                  isReactionSending: _sendingReactions
-                                      .contains(item.message.id),
-                                  deferImageLoading: deferImageLoading,
-                                  myUserId: _actualMyId,
-                                  chatId: widget.chatId,
-                                  isEncryptionPasswordSet:
-                                  _isEncryptionPasswordSetForCurrentChat,
-                                  decryptedText: decryptedText,
-                                  onReply: widget.isChannel
-                                      ? null
-                                      : () =>
-                                      _replyToMessage(item.message),
-                                  onForward: () =>
-                                      _forwardMessage(item.message),
-                                  onEdit: isMe
-                                      ? () => _editMessage(item.message)
-                                      : null,
-                                  canEditMessage: isMe
-                                      ? item.message.canEdit(_actualMyId!)
-                                      : null,
-                                  onDeleteForMe: isMe
-                                      ? () async {
-                                    _removeMessages([
-                                      item.message.id,
-                                    ]);
+                                      Widget finalMessageWidget =
+                                          RepaintBoundary(
+                                            child: SelectionContainer.disabled(
+                                              child: bubble,
+                                            ),
+                                          );
 
-                                    await ApiService.instance
-                                        .deleteMessage(
-                                      widget.chatId,
-                                      item.message.id,
-                                      forMe: true,
-                                    );
-                                    final newLastMessage =
-                                    await ApiService.instance
-                                        .updateChatLastMessage(
-                                      widget.chatId,
-                                    );
-                                    widget.onLastMessageChanged
-                                        ?.call(newLastMessage);
-                                  }
-                                      : null,
-                                  onDeleteForAll: canDeleteForAll
-                                      ? () async {
-                                    _removeMessages([
-                                      item.message.id,
-                                    ]);
-                                    await ApiService.instance
-                                        .deleteMessage(
-                                      widget.chatId,
-                                      item.message.id,
-                                      forMe: false,
-                                    );
-                                    final newLastMessage =
-                                    await ApiService.instance
-                                        .updateChatLastMessage(
-                                      widget.chatId,
-                                    );
-                                    widget.onLastMessageChanged
-                                        ?.call(newLastMessage);
-                                  }
-                                      : null,
-                                  onReaction: (emoji) async {
-                                    _updateReactionOptimistically(
-                                      item.message.id,
-                                      emoji,
-                                    );
-                                    final seq = await ApiService.instance
-                                        .sendReaction(
-                                      widget.chatId,
-                                      item.message.id,
-                                      emoji,
-                                    );
-                                    _pendingReactionSeqs[seq] =
-                                        item.message.id;
-                                    widget.onChatUpdated?.call();
-                                  },
-                                  onRemoveReaction: () async {
-                                    _removeReactionOptimistically(
-                                      item.message.id,
-                                    );
-                                    final seq = await ApiService.instance
-                                        .removeReaction(
-                                      widget.chatId,
-                                      item.message.id,
-                                    );
-                                    _pendingReactionSeqs[seq] =
-                                        item.message.id;
-                                    widget.onChatUpdated?.call();
-                                  },
-                                  isGroupChat: widget.isGroupChat,
-                                  isChannel: widget.isChannel,
-                                  senderName: senderName,
-                                  forwardedFrom: forwardedFrom,
-                                  forwardedFromAvatarUrl:
-                                  forwardedFromAvatarUrl,
-                                  contactDetailsCache:
-                                  _contactDetailsCache,
-                                  onReplyTap: _scrollToMessage,
-                                  useAutoReplyColor: context
-                                      .read<ThemeProvider>()
-                                      .useAutoReplyColor,
-                                  customReplyColor: context
-                                      .read<ThemeProvider>()
-                                      .customReplyColor,
-                                  isFirstInGroup: item.isFirstInGroup,
-                                  isLastInGroup: item.isLastInGroup,
-                                  isGrouped: item.isGrouped,
-                                  avatarVerticalOffset: -8.0,
-                                  onComplain: () => _showComplaintDialog(
-                                    item.message.id,
-                                  ),
-                                  onCancelSend:
-                                  isMe &&
-                                      readStatus ==
-                                          MessageReadStatus.sending
-                                      ? () => _cancelPendingMessage(
-                                    item.message,
-                                  )
-                                      : null,
-                                  onRetrySend:
-                                  isMe &&
-                                      readStatus ==
-                                          MessageReadStatus.sending
-                                      ? () => _retryPendingMessage(
-                                    item.message,
-                                  )
-                                      : null,
-                                  allPhotos: _cachedAllPhotos,
-                                  onGoToMessage: _scrollToMessage,
-                                  canDeleteForAll: canDeleteForAll,
-                                );
-
-                                Widget finalMessageWidget =
-                                RepaintBoundary(
-                                  child: SelectionContainer.disabled(
-                                    child: bubble,
-                                  ),
-                                );
-
-                                final isDeleting = _deletingMessageIds
-                                    .contains(message.id);
-                                if (isDeleting) {
-                                  return wrapWithTopPadding(TweenAnimationBuilder<double>(
-                                    duration: const Duration(
-                                      milliseconds: 300,
-                                    ),
-                                    tween: Tween<double>(
-                                      begin: 1.0,
-                                      end: 0.0,
-                                    ),
-                                    curve: Curves.easeIn,
-                                    builder: (context, value, child) {
-                                      return Transform.scale(
-                                        scale: value,
-                                        child: Transform.rotate(
-                                          angle: (1.0 - value) * 0.3,
-                                          child: Opacity(
-                                            opacity: value,
+                                      final isDeleting = _deletingMessageIds
+                                          .contains(message.id);
+                                      if (isDeleting) {
+                                        return wrapWithTopPadding(
+                                          TweenAnimationBuilder<double>(
+                                            duration: const Duration(
+                                              milliseconds: 300,
+                                            ),
+                                            tween: Tween<double>(
+                                              begin: 1.0,
+                                              end: 0.0,
+                                            ),
+                                            curve: Curves.easeIn,
+                                            builder: (context, value, child) {
+                                              return Transform.scale(
+                                                scale: value,
+                                                child: Transform.rotate(
+                                                  angle: (1.0 - value) * 0.3,
+                                                  child: Opacity(
+                                                    opacity: value,
+                                                    child: finalMessageWidget,
+                                                  ),
+                                                ),
+                                              );
+                                            },
                                             child: finalMessageWidget,
+                                          ),
+                                        );
+                                      }
+
+                                      if (isHighlighted) {
+                                        return wrapWithTopPadding(
+                                          Container(
+                                            margin: const EdgeInsets.symmetric(
+                                              vertical: 1,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .primaryContainer
+                                                  .withValues(alpha: 0.5),
+                                              borderRadius:
+                                                  BorderRadius.circular(16),
+                                              border: Border.all(
+                                                color: Theme.of(
+                                                  context,
+                                                ).colorScheme.primary,
+                                                width: 1.5,
+                                              ),
+                                            ),
+                                            child: finalMessageWidget,
+                                          ),
+                                        );
+                                      }
+
+                                      if (shouldAnimateNew) {
+                                        return wrapWithTopPadding(
+                                          _NewMessageAnimation(
+                                            key: ValueKey('anim_$stableKey'),
+                                            child: finalMessageWidget,
+                                          ),
+                                        );
+                                      }
+
+                                      return wrapWithTopPadding(
+                                        finalMessageWidget,
+                                      );
+                                    } else if (item is VoicePreviewItem) {
+                                      return wrapWithTopPadding(
+                                        _buildVoicePreviewBubble(item),
+                                      );
+                                    } else if (item is DateSeparatorItem) {
+                                      return wrapWithTopPadding(
+                                        _DateSeparatorChip(date: item.date),
+                                      );
+                                    }
+                                    if (isLastVisual && _isLoadingMore) {
+                                      return TweenAnimationBuilder<double>(
+                                        duration: const Duration(
+                                          milliseconds: 300,
+                                        ),
+                                        tween: Tween<double>(
+                                          begin: 0.0,
+                                          end: 1.0,
+                                        ),
+                                        curve: Curves.easeOut,
+                                        builder: (context, value, child) {
+                                          return Opacity(
+                                            opacity: value,
+                                            child: Transform.scale(
+                                              scale: 0.7 + (0.3 * value),
+                                              child: child,
+                                            ),
+                                          );
+                                        },
+                                        child: const Padding(
+                                          padding: EdgeInsets.symmetric(
+                                            vertical: 12,
+                                          ),
+                                          child: Center(
+                                            child: CircularProgressIndicator(),
                                           ),
                                         ),
                                       );
-                                    },
-                                    child: finalMessageWidget,
-                                  ));
-                                }
-
-                                if (isHighlighted) {
-                                  return wrapWithTopPadding(Container(
-                                    margin: const EdgeInsets.symmetric(
-                                      vertical: 1,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .primaryContainer
-                                          .withValues(alpha: 0.5),
-                                      borderRadius: BorderRadius.circular(
-                                        16,
-                                      ),
-                                      border: Border.all(
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.primary,
-                                        width: 1.5,
-                                      ),
-                                    ),
-                                    child: finalMessageWidget,
-                                  ));
-                                }
-
-                                if (shouldAnimateNew) {
-                                  return wrapWithTopPadding(_NewMessageAnimation(
-                                    key: ValueKey('anim_$stableKey'),
-                                    child: finalMessageWidget,
-                                  ));
-                                }
-
-                                return wrapWithTopPadding(finalMessageWidget);
-                              } else if (item is VoicePreviewItem) {
-                                return wrapWithTopPadding(_buildVoicePreviewBubble(item));
-                              } else if (item is DateSeparatorItem) {
-                                return wrapWithTopPadding(_DateSeparatorChip(
-                                  date: item.date,
-                                ));
-                              }
-                              if (isLastVisual && _isLoadingMore) {
-                                return TweenAnimationBuilder<double>(
-                                  duration: const Duration(
-                                    milliseconds: 300,
-                                  ),
-                                  tween: Tween<double>(
-                                    begin: 0.0,
-                                    end: 1.0,
-                                  ),
-                                  curve: Curves.easeOut,
-                                  builder: (context, value, child) {
-                                    return Opacity(
-                                      opacity: value,
-                                      child: Transform.scale(
-                                        scale: 0.7 + (0.3 * value),
-                                        child: child,
-                                      ),
-                                    );
+                                    }
+                                    return const SizedBox.shrink();
                                   },
-                                  child: const Padding(
-                                    padding: EdgeInsets.symmetric(
-                                      vertical: 12,
-                                    ),
-                                    child: Center(
-                                      child: CircularProgressIndicator(),
-                                    ),
-                                  ),
-                                );
-                              }
-                              return const SizedBox.shrink();
-                            },
-                          ),
-                        ),
+                                ),
+                              ),
                       ),
                       ValueListenableBuilder<bool>(
                         valueListenable: _showScrollToBottomNotifier,
@@ -5357,7 +6033,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                             curve: Curves.easeOutQuad,
                             right: 16,
                             bottom:
-                            MediaQuery.of(context).viewInsets.bottom +
+                                MediaQuery.of(context).viewInsets.bottom +
                                 MediaQuery.of(context).padding.bottom +
                                 80,
                             child: AnimatedScale(
@@ -5400,9 +6076,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             curve: Curves.easeOutQuad,
             left: 8,
             right: 8,
-            bottom:
-            MediaQuery.of(context).viewInsets.bottom +
-                0,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 0,
             child: _buildTextInput(),
           ),
         ],
@@ -5494,25 +6168,25 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       elevation: theme.useGlassPanels ? 0 : null,
       flexibleSpace: theme.useGlassPanels
           ? ClipRect(
-        child: BackdropFilter(
-          filter: ImageFilter.blur(
-            sigmaX: theme.topBarBlur,
-            sigmaY: theme.topBarBlur,
-          ),
-          child: Container(
-            color: Theme.of(
-              context,
-            ).colorScheme.surface.withValues(alpha: theme.topBarOpacity),
-          ),
-        ),
-      )
+              child: BackdropFilter(
+                filter: ImageFilter.blur(
+                  sigmaX: theme.topBarBlur,
+                  sigmaY: theme.topBarBlur,
+                ),
+                child: Container(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.surface.withValues(alpha: theme.topBarOpacity),
+                ),
+              ),
+            )
           : null,
       leading: widget.isDesktopMode
           ? null
           : IconButton(
-        icon: const Icon(Icons.arrow_back),
-        onPressed: () => Navigator.of(context).pop(),
-      ),
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
       actions: [
         if (widget.isGroupChat)
           IconButton(
@@ -5529,26 +6203,26 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                       ),
                   transitionsBuilder:
                       (context, animation, secondaryAnimation, child) {
-                    return SlideTransition(
-                      position:
-                      Tween<Offset>(
-                        begin: const Offset(1.0, 0.0),
-                        end: Offset.zero,
-                      ).animate(
-                        CurvedAnimation(
-                          parent: animation,
-                          curve: Curves.easeOutCubic,
-                        ),
-                      ),
-                      child: FadeTransition(
-                        opacity: CurvedAnimation(
-                          parent: animation,
-                          curve: Curves.easeOut,
-                        ),
-                        child: child,
-                      ),
-                    );
-                  },
+                        return SlideTransition(
+                          position:
+                              Tween<Offset>(
+                                begin: const Offset(1.0, 0.0),
+                                end: Offset.zero,
+                              ).animate(
+                                CurvedAnimation(
+                                  parent: animation,
+                                  curve: Curves.easeOutCubic,
+                                ),
+                              ),
+                          child: FadeTransition(
+                            opacity: CurvedAnimation(
+                              parent: animation,
+                              curve: Curves.easeOut,
+                            ),
+                            child: child,
+                          ),
+                        );
+                      },
                   transitionDuration: const Duration(milliseconds: 350),
                 ),
               );
@@ -5580,13 +6254,13 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             } else if (value == 'encryption_password') {
               Navigator.of(context)
                   .push(
-                MaterialPageRoute(
-                  builder: (context) => ChatEncryptionSettingsScreen(
-                    chatId: widget.chatId,
-                    isPasswordSet: _isEncryptionPasswordSetForCurrentChat,
-                  ),
-                ),
-              )
+                    MaterialPageRoute(
+                      builder: (context) => ChatEncryptionSettingsScreen(
+                        chatId: widget.chatId,
+                        isPasswordSet: _isEncryptionPasswordSetForCurrentChat,
+                      ),
+                    ),
+                  )
                   .then((_) => _loadEncryptionConfig());
             } else if (value == 'media') {
               Navigator.of(context).push(
@@ -5768,24 +6442,24 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
               tag: 'contact_avatar_${widget.contact.id}',
               child: widget.chatId == 0
                   ? CircleAvatar(
-                radius: 18,
-                backgroundColor: Theme.of(
-                  context,
-                ).colorScheme.primaryContainer,
-                child: Icon(
-                  Icons.bookmark,
-                  size: 20,
-                  color: Theme.of(context).colorScheme.onPrimaryContainer,
-                ),
-              )
+                      radius: 18,
+                      backgroundColor: Theme.of(
+                        context,
+                      ).colorScheme.primaryContainer,
+                      child: Icon(
+                        Icons.bookmark,
+                        size: 20,
+                        color: Theme.of(context).colorScheme.onPrimaryContainer,
+                      ),
+                    )
                   : ContactAvatarWidget(
-                contactId: widget.contact.id,
-                originalAvatarUrl: widget.contact.photoBaseUrl,
-                radius: 18,
-                fallbackText: widget.contact.name.isNotEmpty
-                    ? widget.contact.name[0].toUpperCase()
-                    : '?',
-              ),
+                      contactId: widget.contact.id,
+                      originalAvatarUrl: widget.contact.photoBaseUrl,
+                      radius: 18,
+                      fallbackText: widget.contact.name.isNotEmpty
+                          ? widget.contact.name[0].toUpperCase()
+                          : '?',
+                    ),
             ),
           ),
           const SizedBox(width: 8),
@@ -5985,7 +6659,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             borderRadius: BorderRadius.circular(24),
             onTap: _sendVoiceMessage,
             child: Container(
-              decoration: BoxDecoration(color: colors.primary, shape: BoxShape.circle),
+              decoration: BoxDecoration(
+                color: colors.primary,
+                shape: BoxShape.circle,
+              ),
               child: Padding(
                 padding: padding,
                 child: Icon(
@@ -6018,19 +6695,30 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         Widget icon;
         VoidCallback? onTap;
 
-        final dragProgress = (_sendDragPullDy.abs() / _sendDragVisualThreshold).clamp(0.0, 1.0);
+        final dragProgress = (_sendDragPullDy.abs() / _sendDragVisualThreshold)
+            .clamp(0.0, 1.0);
 
-        final sendColor = showSend ? iconColor : iconColor.withValues(alpha: 0.4);
+        final sendColor = showSend
+            ? iconColor
+            : iconColor.withValues(alpha: 0.4);
         icon = Stack(
           alignment: Alignment.center,
           children: [
             Opacity(
               opacity: 1.0 - dragProgress,
-              child: Icon(Icons.send_rounded, color: sendColor, size: isSmall ? 20 : 24),
+              child: Icon(
+                Icons.send_rounded,
+                color: sendColor,
+                size: isSmall ? 20 : 24,
+              ),
             ),
             Opacity(
               opacity: dragProgress,
-              child: Icon(Icons.mic_rounded, color: iconColor, size: isSmall ? 20 : 24),
+              child: Icon(
+                Icons.mic_rounded,
+                color: iconColor,
+                size: isSmall ? 20 : 24,
+              ),
             ),
           ],
         );
@@ -6044,7 +6732,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
         final button = Container(
           key: ValueKey<String>(showSend ? 'send' : 'mic'),
-          decoration: BoxDecoration(color: backgroundColor, shape: BoxShape.circle),
+          decoration: BoxDecoration(
+            color: backgroundColor,
+            shape: BoxShape.circle,
+          ),
           child: Material(
             color: Colors.transparent,
             child: InkWell(
@@ -6069,10 +6760,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           ),
         );
 
-        final scaled = Transform.scale(
-          scale: scale,
-          child: button,
-        );
+        final scaled = Transform.scale(scale: scale, child: button);
 
         final dragEnabled = !isBlocked;
 
@@ -6088,9 +6776,13 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
               : null,
           onPanUpdate: dragEnabled
               ? (details) {
-                  final nextPull = (_sendDragPullDy + details.delta.dy).clamp(-_sendDragVisualThreshold, 0.0);
+                  final nextPull = (_sendDragPullDy + details.delta.dy).clamp(
+                    -_sendDragVisualThreshold,
+                    0.0,
+                  );
                   final nextPos = nextPull.clamp(-_sendDragThreshold, 0.0);
-                  if (nextPull == _sendDragPullDy && nextPos == _sendDragDy) return;
+                  if (nextPull == _sendDragPullDy && nextPos == _sendDragDy)
+                    return;
                   setState(() {
                     _sendDragPullDy = nextPull;
                     _sendDragDy = nextPos;
@@ -6101,13 +6793,20 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
               ? (_) {
                   final reached = _sendDragDy <= -_sendDragThreshold;
                   if (!reached) {
-                    final tween = Tween<double>(begin: _sendDragPullDy, end: 0.0).animate(
-                      CurvedAnimation(parent: _sendDragReturnController, curve: Curves.easeOutCubic),
-                    );
+                    final tween =
+                        Tween<double>(begin: _sendDragPullDy, end: 0.0).animate(
+                          CurvedAnimation(
+                            parent: _sendDragReturnController,
+                            curve: Curves.easeOutCubic,
+                          ),
+                        );
                     void listener() {
                       setState(() {
                         _sendDragPullDy = tween.value;
-                        _sendDragDy = tween.value.clamp(-_sendDragThreshold, 0.0);
+                        _sendDragDy = tween.value.clamp(
+                          -_sendDragThreshold,
+                          0.0,
+                        );
                       });
                     }
 
@@ -6125,10 +6824,16 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                       });
                     });
                   } else {
-                    _sendDragReturnController.duration = const Duration(milliseconds: 320);
-                    final tween = Tween<double>(begin: _sendDragDy, end: 0.0).animate(
-                      CurvedAnimation(parent: _sendDragReturnController, curve: Curves.easeOutCubic),
+                    _sendDragReturnController.duration = const Duration(
+                      milliseconds: 320,
                     );
+                    final tween = Tween<double>(begin: _sendDragDy, end: 0.0)
+                        .animate(
+                          CurvedAnimation(
+                            parent: _sendDragReturnController,
+                            curve: Curves.easeOutCubic,
+                          ),
+                        );
 
                     void listener() {
                       setState(() {
@@ -6144,7 +6849,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                     _sendDragReturnController.forward().whenComplete(() {
                       _sendDragReturnController.removeListener(listener);
                       if (!mounted) return;
-                      _sendDragReturnController.duration = const Duration(milliseconds: 180);
+                      _sendDragReturnController.duration = const Duration(
+                        milliseconds: 180,
+                      );
                       _startVoiceRecordingUi();
                     });
                   }
@@ -6158,17 +6865,17 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
               switchOutCurve: Curves.easeInCubic,
               transitionBuilder: (child, animation) {
                 return ScaleTransition(
-                  scale: Tween<double>(begin: 0.85, end: 1.0).animate(animation),
+                  scale: Tween<double>(
+                    begin: 0.85,
+                    end: 1.0,
+                  ).animate(animation),
                   child: FadeTransition(opacity: animation, child: child),
                 );
               },
               child: Stack(
                 alignment: Alignment.center,
                 clipBehavior: Clip.none,
-                children: [
-                  if (dragProgress > 0.0) ring,
-                  scaled,
-                ],
+                children: [if (dragProgress > 0.0) ring, scaled],
               ),
             ),
           ),
@@ -6190,7 +6897,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     }
 
     if (theme.useGlassPanels) {
-      final sendButton = _buildSendOrMicButton(isBlocked: isBlocked, isSmall: false);
+      final sendButton = _buildSendOrMicButton(
+        isBlocked: isBlocked,
+        isSmall: false,
+      );
 
       if (_isVoiceRecordingUi) {
         final inputBar = Stack(
@@ -6205,9 +6915,14 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                   sigmaY: theme.bottomBarBlur,
                 ),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12.0,
+                    vertical: 10.0,
+                  ),
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.surface.withValues(alpha: theme.bottomBarOpacity),
+                    color: Theme.of(context).colorScheme.surface.withValues(
+                      alpha: theme.bottomBarOpacity,
+                    ),
                     borderRadius: BorderRadius.circular(16),
                     boxShadow: [
                       BoxShadow(
@@ -6220,500 +6935,11 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                   child: SafeArea(
                     top: false,
                     bottom: false,
-                    child: _buildVoiceRecordingBar(isBlocked: isBlocked, isGlass: true),
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              right: 12,
-              top: 0,
-              bottom: 0,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onHorizontalDragStart: (!isBlocked && !_isVoiceRecordingPaused)
-                    ? (_) => _handleRecordCancelDragStart()
-                    : null,
-                onHorizontalDragUpdate: (!isBlocked && !_isVoiceRecordingPaused)
-                    ? (details) => _handleRecordCancelDragUpdate(details)
-                    : null,
-                onHorizontalDragEnd: (!isBlocked && !_isVoiceRecordingPaused)
-                    ? (_) => _handleRecordCancelDragEnd()
-                    : null,
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: sendButton,
-                ),
-              ),
-            ),
-            Positioned(
-              right: 12 + _recordSendButtonSpace + _recordButtonGap,
-              top: 0,
-              bottom: 0,
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: (!isBlocked) ? _toggleVoiceRecordingPause : null,
-                  child: Container(
-                    decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary, shape: BoxShape.circle),
-                    child: Padding(
-                      padding: const EdgeInsets.all(6),
-                      child: Icon(
-                        _isVoiceRecordingPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
-                        color: Theme.of(context).colorScheme.onPrimary,
-                        size: 16,
-                      ),
+                    child: _buildVoiceRecordingBar(
+                      isBlocked: isBlocked,
+                      isGlass: true,
                     ),
                   ),
-                ),
-              ),
-            ),
-          ],
-        );
-
-        final wrapped = Stack(
-          clipBehavior: Clip.none,
-          children: [
-            CompositedTransformTarget(
-              link: _mentionLayerLink,
-              child: inputBar,
-            ),
-          ],
-        );
-
-        return _wrapInputWithPanels(wrapped);
-      }
-
-      final inputBar = Stack(
-        clipBehavior: Clip.none,
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            clipBehavior: Clip.antiAlias,
-            child: BackdropFilter(
-              filter: ImageFilter.blur(
-                sigmaX: theme.bottomBarBlur,
-                sigmaY: theme.bottomBarBlur,
-              ),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12.0,
-                  vertical: 8.0,
-                ),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surface.withValues(alpha: theme.bottomBarOpacity),
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.1),
-                      blurRadius: 10,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: SafeArea(
-                  top: false,
-                  bottom: false,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                  if (_replyingToMessage != null) ...[
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(10),
-                      margin: const EdgeInsets.only(bottom: 8),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.4),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border(
-                          left: BorderSide(
-                            color: Theme.of(context).colorScheme.primary,
-                            width: 3,
-                          ),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.reply_rounded,
-                            size: 18,
-                            color: Theme.of(context).colorScheme.primary,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Ответ на сообщение',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: Theme.of(context).colorScheme.primary,
-                                  ),
-                                ),
-                                const SizedBox(height: 3),
-                                Text(
-                                  _replyingToMessage!.text.isNotEmpty
-                                      ? _replyingToMessage!.text
-                                      : (_replyingToMessage!.hasFileAttach ? 'Файл' : 'Фото'),
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                          ),
-                          Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(20),
-                              onTap: _cancelReply,
-                              child: Padding(
-                                padding: const EdgeInsets.all(6.0),
-                                child: Icon(
-                                  Icons.close_rounded,
-                                  size: 18,
-                                  color: Theme.of(context).colorScheme.primary,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                  if (isBlocked) ...[
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      margin: const EdgeInsets.only(bottom: 8),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.errorContainer.withValues(alpha: 0.4),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border(
-                          left: BorderSide(
-                            color: Theme.of(context).colorScheme.error,
-                            width: 3,
-                          ),
-                        ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.block_rounded,
-                                color: Theme.of(context).colorScheme.error,
-                                size: 20,
-                              ),
-                              const SizedBox(width: 10),
-                              Text(
-                                'Пользователь заблокирован',
-                                style: TextStyle(
-                                  color: Theme.of(context).colorScheme.error,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'Разблокируйте пользователя для отправки сообщений',
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.onErrorContainer,
-                              fontSize: 13,
-                            ),
-                          ),
-                          const SizedBox(height: 3),
-                          Text(
-                            'или включите block_bypass',
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.onErrorContainer.withValues(alpha: 0.7),
-                              fontSize: 11,
-                              fontStyle: FontStyle.italic,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          if (_specialMessagesEnabled)
-                            Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(24),
-                                onTap: isBlocked ? null : _showSpecialMessagesPanel,
-                                child: Padding(
-                                  padding: const EdgeInsets.all(6.0),
-                                  child: Icon(
-                                    Icons.auto_fix_high,
-                                    color: isBlocked
-                                        ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3)
-                                        : Theme.of(context).colorScheme.primary,
-                                    size: 24,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          if (_specialMessagesEnabled) const SizedBox(width: 4),
-                          Expanded(
-                            child: Stack(
-                              children: [
-                                Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    if (_showKometColorPicker)
-                                      _KometColorPickerBar(
-                                        onColorSelected: (color) {
-                                          if (_currentKometColorPrefix == null) return;
-                                          final hex = color
-                                              .toARGB32()
-                                              .toRadixString(16)
-                                              .padLeft(8, '0')
-                                              .substring(2)
-                                              .toUpperCase();
-
-                                          String newText;
-                                          int cursorOffset;
-
-                                          if (_currentKometColorPrefix == 'komet.color_#') {
-                                            newText = '$_currentKometColorPrefix$hex\'ваш текст\'';
-                                            final textLength = newText.length;
-                                            cursorOffset = textLength - 12;
-                                          } else if (_currentKometColorPrefix == 'komet.cosmetic.pulse#') {
-                                            newText = '$_currentKometColorPrefix$hex\'ваш текст\'';
-                                            final textLength = newText.length;
-                                            cursorOffset = textLength - 12;
-                                          } else {
-                                            return;
-                                          }
-
-                                          _textController.text = newText;
-                                          _textController.selection = TextSelection(
-                                            baseOffset: cursorOffset,
-                                            extentOffset: newText.length - 1,
-                                          );
-                                        },
-                                      ),
-                                    Focus(
-                                      focusNode: _textFocusNode,
-                                      onKeyEvent: (node, event) {
-                                        if (event is KeyDownEvent) {
-                                          if (event.logicalKey == LogicalKeyboardKey.enter) {
-                                            final bool isShiftPressed = HardwareKeyboard.instance.logicalKeysPressed
-                                                    .contains(LogicalKeyboardKey.shiftLeft) ||
-                                                HardwareKeyboard.instance.logicalKeysPressed
-                                                    .contains(LogicalKeyboardKey.shiftRight);
-
-                                            if (!isShiftPressed) {
-                                              _sendMessage();
-                                              return KeyEventResult.handled;
-                                            }
-                                          }
-                                        }
-                                        return KeyEventResult.ignored;
-                                      },
-                                      child: TextField(
-                                        controller: _textController,
-                                        enabled: !isBlocked,
-                                        keyboardType: TextInputType.multiline,
-                                        textInputAction: TextInputAction.newline,
-                                        minLines: 1,
-                                        maxLines: 5,
-                                        onChanged: _handleChatInputChanged,
-                                        decoration: InputDecoration(
-                                          hintText: isBlocked ? 'Пользователь заблокирован' : 'Сообщение...',
-                                          filled: true,
-                                          isDense: true,
-                                          fillColor: isBlocked
-                                              ? Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.25)
-                                              : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-                                          border: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(24),
-                                            borderSide: BorderSide.none,
-                                          ),
-                                          enabledBorder: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(24),
-                                            borderSide: BorderSide.none,
-                                          ),
-                                          focusedBorder: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(24),
-                                            borderSide: BorderSide.none,
-                                          ),
-                                          contentPadding: const EdgeInsets.symmetric(
-                                            horizontal: 18.0,
-                                            vertical: 12.0,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                StreamBuilder<bool>(
-                                  stream: Stream.periodic(
-                                    const Duration(milliseconds: 500),
-                                    (_) {
-                                      return ApiService.instance.isOnline && ApiService.instance.isSessionReady;
-                                    },
-                                  ).distinct(),
-                                  initialData: ApiService.instance.isOnline && ApiService.instance.isSessionReady,
-                                  builder: (context, snapshot) {
-                                    final isConnected = snapshot.data ?? false;
-                                    if (isConnected) return const SizedBox.shrink();
-                                    return Positioned(
-                                      left: 8,
-                                      bottom: 8,
-                                      child: SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          valueColor: AlwaysStoppedAnimation<Color>(
-                                            Theme.of(context).colorScheme.onSurfaceVariant,
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ],
-                            ),
-                          ),
-                          StreamBuilder<bool>(
-                            stream: Stream.periodic(
-                              const Duration(milliseconds: 500),
-                              (_) {
-                                return ApiService.instance.isOnline && ApiService.instance.isSessionReady;
-                              },
-                            ).distinct(),
-                            initialData: ApiService.instance.isOnline && ApiService.instance.isSessionReady,
-                            builder: (context, snapshot) {
-                              final isConnected = snapshot.data ?? false;
-                              if (isConnected) return const SizedBox.shrink();
-                              return Padding(
-                                padding: const EdgeInsets.only(right: 4.0),
-                                child: SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      Theme.of(context).colorScheme.onSurfaceVariant,
-                                    ),
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                          const SizedBox(width: 4),
-                          Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(24),
-                              onTap: isBlocked ? null : _onAttachPressed,
-                              child: Padding(
-                                padding: const EdgeInsets.all(6.0),
-                                child: Icon(
-                                  Icons.attach_file,
-                                  color: isBlocked
-                                      ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3)
-                                      : Theme.of(context).colorScheme.primary,
-                                  size: 24,
-                                ),
-                              ),
-                            ),
-                          ),
-                          if (context.watch<ThemeProvider>().messageTransition == TransitionOption.slide)
-                            Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(24),
-                                onTap: isBlocked ? null : _testSlideAnimation,
-                                child: Padding(
-                                  padding: const EdgeInsets.all(6.0),
-                                  child: Icon(
-                                    Icons.animation,
-                                    color: isBlocked
-                                        ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3)
-                                        : Colors.orange,
-                                    size: 24,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          const SizedBox(width: 4),
-                          const SizedBox(width: 52),
-                        ],
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          ),
-        ),
-          Positioned(
-            right: 12,
-            bottom: 8,
-            child: sendButton,
-          ),
-        ],
-      );
-
-      final wrapped = Stack(
-        clipBehavior: Clip.none,
-        children: [
-          CompositedTransformTarget(
-            link: _mentionLayerLink,
-            child: inputBar,
-          ),
-        ],
-      );
-
-      return _wrapInputWithPanels(wrapped);
-
-    } else {
-
-      if (_isVoiceRecordingUi) {
-        final sendButton = _buildSendOrMicButton(isBlocked: isBlocked, isSmall: false);
-
-        final inputBar = Stack(
-          clipBehavior: Clip.none,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              clipBehavior: Clip.none,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.85),
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.1),
-                      blurRadius: 10,
-                      offset: const Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: SafeArea(
-                  top: false,
-                  bottom: false,
-                  child: _buildVoiceRecordingBar(isBlocked: isBlocked, isGlass: false),
                 ),
               ),
             ),
@@ -6755,7 +6981,625 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                     child: Padding(
                       padding: const EdgeInsets.all(6),
                       child: Icon(
-                        _isVoiceRecordingPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                        _isVoiceRecordingPaused
+                            ? Icons.play_arrow_rounded
+                            : Icons.pause_rounded,
+                        color: Theme.of(context).colorScheme.onPrimary,
+                        size: 16,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+
+        final wrapped = Stack(
+          clipBehavior: Clip.none,
+          children: [
+            CompositedTransformTarget(link: _mentionLayerLink, child: inputBar),
+          ],
+        );
+
+        return _wrapInputWithPanels(wrapped);
+      }
+
+      final inputBar = Stack(
+        clipBehavior: Clip.none,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            clipBehavior: Clip.antiAlias,
+            child: BackdropFilter(
+              filter: ImageFilter.blur(
+                sigmaX: theme.bottomBarBlur,
+                sigmaY: theme.bottomBarBlur,
+              ),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12.0,
+                  vertical: 8.0,
+                ),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface.withValues(
+                    alpha: theme.bottomBarOpacity,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.1),
+                      blurRadius: 10,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: SafeArea(
+                  top: false,
+                  bottom: false,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_replyingToMessage != null) ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(10),
+                          margin: const EdgeInsets.only(bottom: 8),
+                          decoration: BoxDecoration(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .primaryContainer
+                                .withValues(alpha: 0.4),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border(
+                              left: BorderSide(
+                                color: Theme.of(context).colorScheme.primary,
+                                width: 3,
+                              ),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.reply_rounded,
+                                size: 18,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Ответ на сообщение',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.primary,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      _replyingToMessage!.text.isNotEmpty
+                                          ? _replyingToMessage!.text
+                                          : (_replyingToMessage!.hasFileAttach
+                                                ? 'Файл'
+                                                : 'Фото'),
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurface
+                                            .withValues(alpha: 0.7),
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(20),
+                                  onTap: _cancelReply,
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(6.0),
+                                    child: Icon(
+                                      Icons.close_rounded,
+                                      size: 18,
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.primary,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      if (isBlocked) ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          margin: const EdgeInsets.only(bottom: 8),
+                          decoration: BoxDecoration(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.errorContainer.withValues(alpha: 0.4),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border(
+                              left: BorderSide(
+                                color: Theme.of(context).colorScheme.error,
+                                width: 3,
+                              ),
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.block_rounded,
+                                    color: Theme.of(context).colorScheme.error,
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    'Пользователь заблокирован',
+                                    style: TextStyle(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.error,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                'Разблокируйте пользователя для отправки сообщений',
+                                style: TextStyle(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onErrorContainer,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                'или включите block_bypass',
+                                style: TextStyle(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onErrorContainer
+                                      .withValues(alpha: 0.7),
+                                  fontSize: 11,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              if (_specialMessagesEnabled)
+                                Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(24),
+                                    onTap: isBlocked
+                                        ? null
+                                        : _showSpecialMessagesPanel,
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(6.0),
+                                      child: Icon(
+                                        Icons.auto_fix_high,
+                                        color: isBlocked
+                                            ? Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurface
+                                                  .withValues(alpha: 0.3)
+                                            : Theme.of(
+                                                context,
+                                              ).colorScheme.primary,
+                                        size: 24,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              if (_specialMessagesEnabled)
+                                const SizedBox(width: 4),
+                              Expanded(
+                                child: Stack(
+                                  children: [
+                                    Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (_showKometColorPicker)
+                                          _KometColorPickerBar(
+                                            onColorSelected: (color) {
+                                              if (_currentKometColorPrefix ==
+                                                  null)
+                                                return;
+                                              final hex = color
+                                                  .toARGB32()
+                                                  .toRadixString(16)
+                                                  .padLeft(8, '0')
+                                                  .substring(2)
+                                                  .toUpperCase();
+
+                                              String newText;
+                                              int cursorOffset;
+
+                                              if (_currentKometColorPrefix ==
+                                                  'komet.color_#') {
+                                                newText =
+                                                    '$_currentKometColorPrefix$hex\'ваш текст\'';
+                                                final textLength =
+                                                    newText.length;
+                                                cursorOffset = textLength - 12;
+                                              } else if (_currentKometColorPrefix ==
+                                                  'komet.cosmetic.pulse#') {
+                                                newText =
+                                                    '$_currentKometColorPrefix$hex\'ваш текст\'';
+                                                final textLength =
+                                                    newText.length;
+                                                cursorOffset = textLength - 12;
+                                              } else {
+                                                return;
+                                              }
+
+                                              _textController.text = newText;
+                                              _textController.selection =
+                                                  TextSelection(
+                                                    baseOffset: cursorOffset,
+                                                    extentOffset:
+                                                        newText.length - 1,
+                                                  );
+                                            },
+                                          ),
+                                        Focus(
+                                          focusNode: _textFocusNode,
+                                          onKeyEvent: (node, event) {
+                                            if (event is KeyDownEvent) {
+                                              if (event.logicalKey ==
+                                                  LogicalKeyboardKey.enter) {
+                                                final bool isShiftPressed =
+                                                    HardwareKeyboard
+                                                        .instance
+                                                        .logicalKeysPressed
+                                                        .contains(
+                                                          LogicalKeyboardKey
+                                                              .shiftLeft,
+                                                        ) ||
+                                                    HardwareKeyboard
+                                                        .instance
+                                                        .logicalKeysPressed
+                                                        .contains(
+                                                          LogicalKeyboardKey
+                                                              .shiftRight,
+                                                        );
+
+                                                if (!isShiftPressed) {
+                                                  _sendMessage();
+                                                  return KeyEventResult.handled;
+                                                }
+                                              }
+                                            }
+                                            return KeyEventResult.ignored;
+                                          },
+                                          child: TextField(
+                                            controller: _textController,
+                                            enabled: !isBlocked,
+                                            keyboardType:
+                                                TextInputType.multiline,
+                                            textInputAction:
+                                                TextInputAction.newline,
+                                            minLines: 1,
+                                            maxLines: 5,
+                                            onChanged: _handleChatInputChanged,
+                                            decoration: InputDecoration(
+                                              hintText: isBlocked
+                                                  ? 'Пользователь заблокирован'
+                                                  : 'Сообщение...',
+                                              filled: true,
+                                              isDense: true,
+                                              fillColor: isBlocked
+                                                  ? Theme.of(context)
+                                                        .colorScheme
+                                                        .surfaceContainerHighest
+                                                        .withValues(alpha: 0.25)
+                                                  : Theme.of(context)
+                                                        .colorScheme
+                                                        .surfaceContainerHighest
+                                                        .withValues(alpha: 0.4),
+                                              border: OutlineInputBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(24),
+                                                borderSide: BorderSide.none,
+                                              ),
+                                              enabledBorder: OutlineInputBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(24),
+                                                borderSide: BorderSide.none,
+                                              ),
+                                              focusedBorder: OutlineInputBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(24),
+                                                borderSide: BorderSide.none,
+                                              ),
+                                              contentPadding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 18.0,
+                                                    vertical: 12.0,
+                                                  ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    StreamBuilder<bool>(
+                                      stream: Stream.periodic(
+                                        const Duration(milliseconds: 500),
+                                        (_) {
+                                          return ApiService.instance.isOnline &&
+                                              ApiService
+                                                  .instance
+                                                  .isSessionReady;
+                                        },
+                                      ).distinct(),
+                                      initialData:
+                                          ApiService.instance.isOnline &&
+                                          ApiService.instance.isSessionReady,
+                                      builder: (context, snapshot) {
+                                        final isConnected =
+                                            snapshot.data ?? false;
+                                        if (isConnected)
+                                          return const SizedBox.shrink();
+                                        return Positioned(
+                                          left: 8,
+                                          bottom: 8,
+                                          child: SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              valueColor:
+                                                  AlwaysStoppedAnimation<Color>(
+                                                    Theme.of(context)
+                                                        .colorScheme
+                                                        .onSurfaceVariant,
+                                                  ),
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              StreamBuilder<bool>(
+                                stream: Stream.periodic(
+                                  const Duration(milliseconds: 500),
+                                  (_) {
+                                    return ApiService.instance.isOnline &&
+                                        ApiService.instance.isSessionReady;
+                                  },
+                                ).distinct(),
+                                initialData:
+                                    ApiService.instance.isOnline &&
+                                    ApiService.instance.isSessionReady,
+                                builder: (context, snapshot) {
+                                  final isConnected = snapshot.data ?? false;
+                                  if (isConnected)
+                                    return const SizedBox.shrink();
+                                  return Padding(
+                                    padding: const EdgeInsets.only(right: 4.0),
+                                    child: SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                              Theme.of(
+                                                context,
+                                              ).colorScheme.onSurfaceVariant,
+                                            ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                              const SizedBox(width: 4),
+                              Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(24),
+                                  onTap: isBlocked ? null : _onAttachPressed,
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(6.0),
+                                    child: Icon(
+                                      Icons.attach_file,
+                                      color: isBlocked
+                                          ? Theme.of(context)
+                                                .colorScheme
+                                                .onSurface
+                                                .withValues(alpha: 0.3)
+                                          : Theme.of(
+                                              context,
+                                            ).colorScheme.primary,
+                                      size: 24,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              if (context
+                                      .watch<ThemeProvider>()
+                                      .messageTransition ==
+                                  TransitionOption.slide)
+                                Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(24),
+                                    onTap: isBlocked
+                                        ? null
+                                        : _testSlideAnimation,
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(6.0),
+                                      child: Icon(
+                                        Icons.animation,
+                                        color: isBlocked
+                                            ? Theme.of(context)
+                                                  .colorScheme
+                                                  .onSurface
+                                                  .withValues(alpha: 0.3)
+                                            : Colors.orange,
+                                        size: 24,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              const SizedBox(width: 4),
+                              Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(24),
+                                  onTap: isBlocked ? null : _toggleStickerPanel,
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(6.0),
+                                    child: Icon(
+                                      Icons.sticky_note_2_outlined,
+                                      color: isBlocked
+                                          ? Theme.of(context)
+                                                .colorScheme
+                                                .onSurface
+                                                .withValues(alpha: 0.3)
+                                          : Theme.of(
+                                              context,
+                                            ).colorScheme.primary,
+                                      size: 24,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              const SizedBox(width: 52),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Positioned(right: 12, bottom: 8, child: sendButton),
+        ],
+      );
+
+      final wrapped = Stack(
+        clipBehavior: Clip.none,
+        children: [
+          CompositedTransformTarget(link: _mentionLayerLink, child: inputBar),
+        ],
+      );
+
+      return _wrapInputWithPanels(wrapped);
+    } else {
+      if (_isVoiceRecordingUi) {
+        final sendButton = _buildSendOrMicButton(
+          isBlocked: isBlocked,
+          isSmall: false,
+        );
+
+        final inputBar = Stack(
+          clipBehavior: Clip.none,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              clipBehavior: Clip.none,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12.0,
+                  vertical: 10.0,
+                ),
+                decoration: BoxDecoration(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.surface.withValues(alpha: 0.85),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.1),
+                      blurRadius: 10,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: SafeArea(
+                  top: false,
+                  bottom: false,
+                  child: _buildVoiceRecordingBar(
+                    isBlocked: isBlocked,
+                    isGlass: false,
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              right: 12,
+              top: 0,
+              bottom: 0,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onHorizontalDragStart: (!isBlocked && !_isVoiceRecordingPaused)
+                    ? (_) => _handleRecordCancelDragStart()
+                    : null,
+                onHorizontalDragUpdate: (!isBlocked && !_isVoiceRecordingPaused)
+                    ? (details) => _handleRecordCancelDragUpdate(details)
+                    : null,
+                onHorizontalDragEnd: (!isBlocked && !_isVoiceRecordingPaused)
+                    ? (_) => _handleRecordCancelDragEnd()
+                    : null,
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: sendButton,
+                ),
+              ),
+            ),
+            Positioned(
+              right: 12 + _recordSendButtonSpace + _recordButtonGap,
+              top: 0,
+              bottom: 0,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: (!isBlocked) ? _toggleVoiceRecordingPause : null,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(6),
+                      child: Icon(
+                        _isVoiceRecordingPaused
+                            ? Icons.play_arrow_rounded
+                            : Icons.pause_rounded,
                         color: Theme.of(context).colorScheme.onPrimary,
                         size: 16,
                       ),
@@ -6774,12 +7618,11 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         borderRadius: BorderRadius.circular(16),
         clipBehavior: Clip.none,
         child: Container(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 12.0,
-            vertical: 8.0,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface.withValues(alpha: 0.85),
+            color: Theme.of(
+              context,
+            ).colorScheme.surface.withValues(alpha: 0.85),
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
@@ -6801,7 +7644,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                     padding: const EdgeInsets.all(10),
                     margin: const EdgeInsets.only(bottom: 8),
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.4),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.primaryContainer.withValues(alpha: 0.4),
                       borderRadius: BorderRadius.circular(12),
                       border: Border(
                         left: BorderSide(
@@ -6834,10 +7679,13 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                               Text(
                                 _replyingToMessage!.text.isNotEmpty
                                     ? _replyingToMessage!.text
-                                    : (_replyingToMessage!.hasFileAttach ? 'Файл' : 'Фото'),
+                                    : (_replyingToMessage!.hasFileAttach
+                                          ? 'Файл'
+                                          : 'Фото'),
                                 style: TextStyle(
                                   fontSize: 13,
-                                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7),
+                                  color: Theme.of(context).colorScheme.onSurface
+                                      .withValues(alpha: 0.7),
                                 ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
@@ -6870,7 +7718,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                     padding: const EdgeInsets.all(12),
                     margin: const EdgeInsets.only(bottom: 8),
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.errorContainer.withValues(alpha: 0.4),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.errorContainer.withValues(alpha: 0.4),
                       borderRadius: BorderRadius.circular(12),
                       border: Border(
                         left: BorderSide(
@@ -6904,7 +7754,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                         Text(
                           'Разблокируйте пользователя для отправки сообщений',
                           style: TextStyle(
-                            color: Theme.of(context).colorScheme.onErrorContainer,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onErrorContainer,
                             fontSize: 13,
                           ),
                         ),
@@ -6912,7 +7764,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                         Text(
                           'или включите block_bypass',
                           style: TextStyle(
-                            color: Theme.of(context).colorScheme.onErrorContainer.withValues(alpha: 0.7),
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onErrorContainer
+                                .withValues(alpha: 0.7),
                             fontSize: 11,
                             fontStyle: FontStyle.italic,
                           ),
@@ -6922,107 +7777,147 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
                   ),
                 ],
                 Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Expanded(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            TextField(
-                              controller: _textController,
-                              enabled: !isBlocked,
-                              keyboardType: TextInputType.multiline,
-                              textInputAction: TextInputAction.newline,
-                              minLines: 1,
-                              maxLines: 5,
-                              decoration: InputDecoration(
-                                hintText: isBlocked ? 'Пользователь заблокирован' : 'Сообщение...',
-                                filled: true,
-                                isDense: true,
-                                fillColor: isBlocked
-                                    ? Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.25)
-                                    : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(24),
-                                  borderSide: BorderSide.none,
-                                ),
-                                enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(24),
-                                  borderSide: BorderSide.none,
-                                ),
-                                focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(24),
-                                  borderSide: BorderSide.none,
-                                ),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 18.0,
-                                  vertical: 12.0,
-                                ),
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          TextField(
+                            controller: _textController,
+                            enabled: !isBlocked,
+                            keyboardType: TextInputType.multiline,
+                            textInputAction: TextInputAction.newline,
+                            minLines: 1,
+                            maxLines: 5,
+                            decoration: InputDecoration(
+                              hintText: isBlocked
+                                  ? 'Пользователь заблокирован'
+                                  : 'Сообщение...',
+                              filled: true,
+                              isDense: true,
+                              fillColor: isBlocked
+                                  ? Theme.of(context)
+                                        .colorScheme
+                                        .surfaceContainerHighest
+                                        .withValues(alpha: 0.25)
+                                  : Theme.of(context)
+                                        .colorScheme
+                                        .surfaceContainerHighest
+                                        .withValues(alpha: 0.4),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(24),
+                                borderSide: BorderSide.none,
                               ),
-                              onChanged: isBlocked ? null : _handleChatInputChanged,
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      Builder(
-                        builder: (context) {
-                          final isEncryptionActive = _encryptionConfigForCurrentChat != null &&
-                              _encryptionConfigForCurrentChat!.password.isNotEmpty &&
-                              _sendEncryptedForCurrentChat;
-                          return Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(24),
-                              onTap: (isBlocked || isEncryptionActive)
-                                  ? null
-                                  : () async {
-                                final result = await _pickPhotosFlow(context);
-                                if (result != null && result.paths.isNotEmpty) {
-                                  await ApiService.instance.sendPhotoMessages(
-                                    widget.chatId,
-                                    localPaths: result.paths,
-                                    caption: result.caption,
-                                    senderId: _actualMyId,
-                                  );
-                                }
-                              },
-                              child: Padding(
-                                padding: const EdgeInsets.all(6.0),
-                                child: Icon(
-                                  Icons.photo_library_outlined,
-                                  color: (isBlocked || isEncryptionActive)
-                                      ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3)
-                                      : Theme.of(context).colorScheme.primary,
-                                  size: 24,
-                                ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(24),
+                                borderSide: BorderSide.none,
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(24),
+                                borderSide: BorderSide.none,
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 18.0,
+                                vertical: 12.0,
                               ),
                             ),
-                          );
-                        },
+                            onChanged: isBlocked
+                                ? null
+                                : _handleChatInputChanged,
+                          ),
+                        ],
                       ),
-                      if (context.watch<ThemeProvider>().messageTransition == TransitionOption.slide)
-                        Material(
+                    ),
+                    const SizedBox(width: 4),
+                    Builder(
+                      builder: (context) {
+                        final isEncryptionActive =
+                            _encryptionConfigForCurrentChat != null &&
+                            _encryptionConfigForCurrentChat!
+                                .password
+                                .isNotEmpty &&
+                            _sendEncryptedForCurrentChat;
+                        return Material(
                           color: Colors.transparent,
                           child: InkWell(
                             borderRadius: BorderRadius.circular(24),
-                            onTap: isBlocked ? null : _testSlideAnimation,
+                            onTap: (isBlocked || isEncryptionActive)
+                                ? null
+                                : () async {
+                                    final result = await _pickPhotosFlow(
+                                      context,
+                                    );
+                                    if (result != null &&
+                                        result.paths.isNotEmpty) {
+                                      await ApiService.instance
+                                          .sendPhotoMessages(
+                                            widget.chatId,
+                                            localPaths: result.paths,
+                                            caption: result.caption,
+                                            senderId: _actualMyId,
+                                          );
+                                    }
+                                  },
                             child: Padding(
                               padding: const EdgeInsets.all(6.0),
                               child: Icon(
-                                Icons.animation,
-                                color: isBlocked
-                                    ? Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3)
-                                    : Colors.orange,
+                                Icons.photo_library_outlined,
+                                color: (isBlocked || isEncryptionActive)
+                                    ? Theme.of(context).colorScheme.onSurface
+                                          .withValues(alpha: 0.3)
+                                    : Theme.of(context).colorScheme.primary,
                                 size: 24,
                               ),
                             ),
                           ),
+                        );
+                      },
+                    ),
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(24),
+                        onTap: isBlocked ? null : _toggleStickerPanel,
+                        child: Padding(
+                          padding: const EdgeInsets.all(6.0),
+                          child: Icon(
+                            Icons.sticky_note_2_outlined,
+                            color: isBlocked
+                                ? Theme.of(
+                                    context,
+                                  ).colorScheme.onSurface.withValues(alpha: 0.3)
+                                : Theme.of(context).colorScheme.primary,
+                            size: 24,
+                          ),
                         ),
-                      const SizedBox(width: 4),
-                      _buildSendOrMicButton(isBlocked: isBlocked, isSmall: false),
-                    ],
-                  ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    if (context.watch<ThemeProvider>().messageTransition ==
+                        TransitionOption.slide)
+                      Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(24),
+                          onTap: isBlocked ? null : _testSlideAnimation,
+                          child: Padding(
+                            padding: const EdgeInsets.all(6.0),
+                            child: Icon(
+                              Icons.animation,
+                              color: isBlocked
+                                  ? Theme.of(context).colorScheme.onSurface
+                                        .withValues(alpha: 0.3)
+                                  : Colors.orange,
+                              size: 24,
+                            ),
+                          ),
+                        ),
+                      ),
+                    const SizedBox(width: 4),
+                    _buildSendOrMicButton(isBlocked: isBlocked, isSmall: false),
+                  ],
+                ),
               ],
             ),
           ),
@@ -7032,10 +7927,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       final wrapped = Stack(
         clipBehavior: Clip.none,
         children: [
-          CompositedTransformTarget(
-            link: _mentionLayerLink,
-            child: inputBar,
-          ),
+          CompositedTransformTarget(link: _mentionLayerLink, child: inputBar),
         ],
       );
 
@@ -7079,10 +7971,7 @@ class _MentionDropdownPanel extends StatelessWidget {
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
-      constraints: const BoxConstraints(
-        maxHeight: 200,
-        maxWidth: 300,
-      ),
+      constraints: const BoxConstraints(maxHeight: 200, maxWidth: 300),
       decoration: BoxDecoration(
         color: colors.surface,
         borderRadius: BorderRadius.circular(12),
@@ -7093,10 +7982,7 @@ class _MentionDropdownPanel extends StatelessWidget {
             offset: const Offset(0, 4),
           ),
         ],
-        border: Border.all(
-          color: colors.outlineVariant,
-          width: 1,
-        ),
+        border: Border.all(color: colors.outlineVariant, width: 1),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
@@ -7116,10 +8002,7 @@ class _MentionDropdownPanel extends StatelessWidget {
                   ),
                   child: Row(
                     children: [
-                      ContactAvatarWidget(
-                        contactId: user.id,
-                        radius: 16,
-                      ),
+                      ContactAvatarWidget(contactId: user.id, radius: 16),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
@@ -7313,80 +8196,82 @@ class _BotCommandsPanel extends StatelessWidget {
         constraints: const BoxConstraints(maxHeight: 140),
         child: isLoading
             ? Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(colors.primary),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Text(
-                'Загрузка команд…',
-                style: TextStyle(color: colors.onSurfaceVariant),
-              ),
-            ],
-          ),
-        )
-            : (commands.isEmpty
-            ? Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: 8,
-          ),
-          child: Text(
-            'Нет команд',
-            style: TextStyle(color: colors.onSurfaceVariant),
-          ),
-        )
-            : Material(
-          color: Colors.transparent,
-          child: ListView.builder(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            shrinkWrap: true,
-            itemCount: commands.length,
-            itemBuilder: (context, index) {
-              final cmd = commands[index];
-              return InkWell(
-                onTap: () => onCommandTap(cmd),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                  child: RichText(
-                    text: TextSpan(
-                      children: [
-                        TextSpan(
-                          text: cmd.slashCommand,
-                          style: TextStyle(
-                            color: colors.onSurface,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14,
-                          ),
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          colors.primary,
                         ),
-                        if (cmd.description.isNotEmpty)
-                          TextSpan(
-                            text: ' ${cmd.description}',
-                            style: TextStyle(
-                              color: colors.onSurfaceVariant,
-                              fontWeight: FontWeight.w400,
-                              fontSize: 14,
-                            ),
-                          ),
-                      ],
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 10),
+                    Text(
+                      'Загрузка команд…',
+                      style: TextStyle(color: colors.onSurfaceVariant),
+                    ),
+                  ],
                 ),
-              );
-            },
-          ),
-        )),
+              )
+            : (commands.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      child: Text(
+                        'Нет команд',
+                        style: TextStyle(color: colors.onSurfaceVariant),
+                      ),
+                    )
+                  : Material(
+                      color: Colors.transparent,
+                      child: ListView.builder(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        shrinkWrap: true,
+                        itemCount: commands.length,
+                        itemBuilder: (context, index) {
+                          final cmd = commands[index];
+                          return InkWell(
+                            onTap: () => onCommandTap(cmd),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                              child: RichText(
+                                text: TextSpan(
+                                  children: [
+                                    TextSpan(
+                                      text: cmd.slashCommand,
+                                      style: TextStyle(
+                                        color: colors.onSurface,
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    if (cmd.description.isNotEmpty)
+                                      TextSpan(
+                                        text: ' ${cmd.description}',
+                                        style: TextStyle(
+                                          color: colors.onSurfaceVariant,
+                                          fontWeight: FontWeight.w400,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    )),
       ),
     );
   }
@@ -7581,7 +8466,8 @@ class _FakeWaveform extends StatefulWidget {
   State<_FakeWaveform> createState() => _FakeWaveformState();
 }
 
-class _FakeWaveformState extends State<_FakeWaveform> with SingleTickerProviderStateMixin {
+class _FakeWaveformState extends State<_FakeWaveform>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final Animation<double> _phase;
 
@@ -7942,11 +8828,11 @@ class _SendPhotosDialogState extends State<_SendPhotosDialog> {
           onPressed: _pickedPaths.isEmpty
               ? null
               : () {
-            Navigator.pop(
-              context,
-              _PhotosToSend(paths: _pickedPaths, caption: _caption.text),
-            );
-          },
+                  Navigator.pop(
+                    context,
+                    _PhotosToSend(paths: _pickedPaths, caption: _caption.text),
+                  );
+                },
           child: const Text('Отправить'),
         ),
       ],
@@ -7957,7 +8843,7 @@ class _SendPhotosDialogState extends State<_SendPhotosDialog> {
 Future<_PhotosToSend?> _pickPhotosFlow(BuildContext context) async {
   final isMobile =
       Theme.of(context).platform == TargetPlatform.android ||
-          Theme.of(context).platform == TargetPlatform.iOS;
+      Theme.of(context).platform == TargetPlatform.iOS;
   if (isMobile) {
     return await showModalBottomSheet<_PhotosToSend>(
       context: context,
@@ -8038,11 +8924,11 @@ class _SendPhotosBottomSheetState extends State<_SendPhotosBottomSheet> {
                           borderRadius: BorderRadius.circular(12),
                           child: preview != null
                               ? Image(
-                            image: preview,
-                            width: 140,
-                            height: 140,
-                            fit: BoxFit.cover,
-                          )
+                                  image: preview,
+                                  width: 140,
+                                  height: 140,
+                                  fit: BoxFit.cover,
+                                )
                               : const ColoredBox(color: Colors.black12),
                         ),
                         Positioned(
@@ -8103,14 +8989,14 @@ class _SendPhotosBottomSheetState extends State<_SendPhotosBottomSheet> {
                   onPressed: _pickedPaths.isEmpty
                       ? null
                       : () {
-                    Navigator.pop(
-                      context,
-                      _PhotosToSend(
-                        paths: _pickedPaths,
-                        caption: _caption.text,
-                      ),
-                    );
-                  },
+                          Navigator.pop(
+                            context,
+                            _PhotosToSend(
+                              paths: _pickedPaths,
+                              caption: _caption.text,
+                            ),
+                          );
+                        },
                   child: const Text('Отправить'),
                 ),
               ],
@@ -8315,8 +9201,8 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
     _loadLocalDescription();
 
     _changesSubscription = ContactLocalNamesService().changes.listen((
-        contactId,
-        ) {
+      contactId,
+    ) {
       if (contactId == widget.contact.id && mounted) {
         _loadLocalDescription();
       }
@@ -8350,7 +9236,7 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
       originalLastName: widget.contact.lastName,
     );
     final String description =
-    (_localDescription != null && _localDescription!.isNotEmpty)
+        (_localDescription != null && _localDescription!.isNotEmpty)
         ? _localDescription!
         : (widget.contact.description ?? '');
 
@@ -8502,12 +9388,12 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
                                     builder: (context) => EditContactScreen(
                                       contactId: widget.contact.id,
                                       originalFirstName:
-                                      widget.contact.firstName,
+                                          widget.contact.firstName,
                                       originalLastName: widget.contact.lastName,
                                       originalDescription:
-                                      widget.contact.description,
+                                          widget.contact.description,
                                       originalAvatarUrl:
-                                      widget.contact.photoBaseUrl,
+                                          widget.contact.photoBaseUrl,
                                     ),
                                   ),
                                 );
@@ -8539,7 +9425,7 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
                                       ApiService.instance.getCachedContact(
                                         widget.contact.id,
                                       ) !=
-                                          null;
+                                      null;
                                   if (isInContacts) {
                                     if (context.mounted) {
                                       ScaffoldMessenger.of(
@@ -8560,8 +9446,8 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
                                     );
                                     await ApiService.instance
                                         .requestContactsByIds([
-                                      widget.contact.id,
-                                    ]);
+                                          widget.contact.id,
+                                        ]);
 
                                     if (context.mounted) {
                                       ScaffoldMessenger.of(
@@ -8806,10 +9692,10 @@ class _WallpaperSelectionDialogState extends State<_WallpaperSelectionDialog> {
                 : () => widget.onImageSelected(_selectedImagePath!),
             child: _isLoading
                 ? const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
                 : const Text('Установить'),
           ),
       ],
@@ -9012,18 +9898,18 @@ class _ControlMessageChip extends StatelessWidget {
 
   String _formatControlMessage() {
     final controlAttach = message.attaches.firstWhere(
-          (a) => a['_type'] == 'CONTROL',
+      (a) => a['_type'] == 'CONTROL',
     );
 
     final eventType = controlAttach['event'];
     final senderContact = contacts[message.senderId];
     final senderName = senderContact != null
         ? getContactDisplayName(
-      contactId: senderContact.id,
-      originalName: senderContact.name,
-      originalFirstName: senderContact.firstName,
-      originalLastName: senderContact.lastName,
-    )
+            contactId: senderContact.id,
+            originalName: senderContact.name,
+            originalFirstName: senderContact.firstName,
+            originalLastName: senderContact.lastName,
+          )
         : 'ID ${message.senderId}';
     final isMe = message.senderId == myId;
     final senderDisplayName = isMe ? 'Вы' : senderName;
@@ -9034,20 +9920,20 @@ class _ControlMessageChip extends StatelessWidget {
       }
       final userNames = userIds
           .map((id) {
-        if (id == myId) {
-          return 'Вы';
-        }
-        final contact = contacts[id];
-        if (contact != null) {
-          return getContactDisplayName(
-            contactId: contact.id,
-            originalName: contact.name,
-            originalFirstName: contact.firstName,
-            originalLastName: contact.lastName,
-          );
-        }
-        return 'участник с ID $id';
-      })
+            if (id == myId) {
+              return 'Вы';
+            }
+            final contact = contacts[id];
+            if (contact != null) {
+              return getContactDisplayName(
+                contactId: contact.id,
+                originalName: contact.name,
+                originalFirstName: contact.firstName,
+                originalLastName: contact.lastName,
+              );
+            }
+            return 'участник с ID $id';
+          })
           .where((name) => name.isNotEmpty)
           .join(', ');
       return userNames;
@@ -9062,7 +9948,6 @@ class _ControlMessageChip extends StatelessWidget {
         } else {
           return '$senderDisplayName создал(а) группу "$title"';
         }
-
 
       case 'add':
         final userIds = List<int>.from(
@@ -9117,7 +10002,6 @@ class _ControlMessageChip extends StatelessWidget {
         } else {
           return '$senderDisplayName изменил(а) название группы на "$newTitle"';
         }
-
 
       case 'avatar':
       case 'photo':
