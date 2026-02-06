@@ -16,10 +16,6 @@ class KometMiscScreen extends StatefulWidget {
 class _KometMiscScreenState extends State<KometMiscScreen>
     with SingleTickerProviderStateMixin {
   bool? _isBatteryOptimizationDisabled;
-  bool _isAutoUpdateEnabled = false;
-  bool _showUpdateNotification = true;
-  bool _enableWebVersionCheck = false;
-  bool _showSpoofUpdateDialog = true;
   bool _showSferumButton = true;
 
   late AnimationController _animationController;
@@ -49,24 +45,7 @@ class _KometMiscScreenState extends State<KometMiscScreen>
         );
 
     _checkBatteryOptimizationStatus();
-    _loadUpdateSettings();
     _animationController.forward();
-  }
-
-  Future<void> _loadUpdateSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (mounted) {
-      setState(() {
-        _isAutoUpdateEnabled = prefs.getBool('auto_update_enabled') ?? false;
-        _showUpdateNotification =
-            prefs.getBool('show_update_notification') ?? true;
-        _enableWebVersionCheck =
-            prefs.getBool('enable_web_version_check') ?? false;
-        _showSpoofUpdateDialog =
-            prefs.getBool('show_spoof_update_dialog') ?? true;
-        _showSferumButton = prefs.getBool('show_sferum_button') ?? true;
-      });
-    }
   }
 
   Future<void> _checkBatteryOptimizationStatus() async {
@@ -347,86 +326,6 @@ class _KometMiscScreenState extends State<KometMiscScreen>
           ),
         ),
         const SizedBox(height: 20),
-        // Update Settings Card
-        _ToggleCard(
-          icon: Icons.system_update_rounded,
-          title: 'Автообновления',
-          description: 'Автоматически проверять и устанавливать обновления',
-          value: _isAutoUpdateEnabled,
-          onChanged: (value) {
-            setState(() {
-              _isAutoUpdateEnabled = value;
-            });
-            _updateSettings('auto_update_enabled', value);
-          },
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [colors.surfaceContainerHighest, colors.surfaceContainer],
-          ),
-        ),
-        const SizedBox(height: 12),
-        // Update Notifications Card
-        _ToggleCard(
-          icon: Icons.notifications_active_rounded,
-          title: 'Уведомления об обновлениях',
-          description: 'Показывать уведомления о доступных обновлениях',
-          value: _showUpdateNotification,
-          onChanged: _isAutoUpdateEnabled
-              ? null
-              : (value) {
-                  setState(() {
-                    _showUpdateNotification = value;
-                  });
-                  _updateSettings('show_update_notification', value);
-                },
-          isDisabled: _isAutoUpdateEnabled,
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [colors.surfaceContainerHighest, colors.surfaceContainer],
-          ),
-        ),
-        const SizedBox(height: 12),
-        // Spoof Update Dialog Card
-        _ToggleCard(
-          icon: Icons.sync_problem_rounded,
-          title: 'Диалог обновлений спуфа',
-          description:
-              'Показывать диалог проверки обновлений спуфа при запуске',
-          value: _showSpoofUpdateDialog,
-          onChanged: (value) {
-            setState(() {
-              _showSpoofUpdateDialog = value;
-            });
-            _updateSettings('show_spoof_update_dialog', value);
-          },
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [colors.surfaceContainerHighest, colors.surfaceContainer],
-          ),
-        ),
-        const SizedBox(height: 12),
-        // Web Version Check Card
-        _ToggleCard(
-          icon: Icons.web_rounded,
-          title: 'Проверка веб-версии',
-          description: 'Проверять обновления веб-версии приложения',
-          value: _enableWebVersionCheck,
-          onChanged: (value) {
-            setState(() {
-              _enableWebVersionCheck = value;
-            });
-            _updateSettings('enable_web_version_check', value);
-          },
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [colors.surfaceContainerHighest, colors.surfaceContainer],
-          ),
-        ),
-        const SizedBox(height: 12),
         // Sferum Button Card
         _ToggleCard(
           icon: Icons.remove_red_eye,

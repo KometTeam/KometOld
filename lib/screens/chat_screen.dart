@@ -246,6 +246,32 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   List<Message> _searchResults = [];
   int _currentResultIndex = -1;
 
+  StreamSubscription? _reconnectionCompleteSub;
+  StreamSubscription? _groupMentionsMessagesSub;
+  StreamSubscription? _contactUpdatesSub;
+  Timer? _mentionableUsersRetryTimer;
+
+  void _onTextControllerChanged() {
+    _handleTextChangedForKometColor();
+    _updateTextSelectionState();
+    _handleMentionFiltering(_textController.text);
+  }
+
+  void _onSearchControllerChanged() {
+    if (_searchController.text.isEmpty && _searchResults.isNotEmpty) {
+      Future.microtask(() {
+        if (mounted) {
+          setState(() {
+            _searchResults.clear();
+            _currentResultIndex = -1;
+          });
+        }
+      });
+    } else if (_searchController.text.isNotEmpty) {
+      _performSearch(_searchController.text);
+    }
+  }
+
 
   bool get _optimize => context.read<ThemeProvider>().optimizeChats;
   bool get _ultraOptimize => context.read<ThemeProvider>().ultraOptimizeChats;
@@ -276,11 +302,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
     NotificationService().clearNotificationMessagesForChat(widget.chatId);
 
-    _textController.addListener(() {
-      _handleTextChangedForKometColor();
-      _updateTextSelectionState();
-      _handleMentionFiltering(_textController.text);
-    });
+    _textController.addListener(_onTextControllerChanged);
 
     _textFocusNode.addListener(() {
       if (_textFocusNode.hasFocus) {
@@ -1458,7 +1480,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       // Если список пустой, делаем повторные попытки с задержкой (данные могут грузиться асинхронно)
       if (_mentionableUsers.isEmpty) {
         var retryCount = 0;
-        Timer.periodic(const Duration(milliseconds: 600), (timer) async {
+        _mentionableUsersRetryTimer?.cancel();
+        _mentionableUsersRetryTimer =
+            Timer.periodic(const Duration(milliseconds: 600), (timer) async {
           if (!mounted || _mentionableUsers.isNotEmpty || retryCount >= 10) {
             timer.cancel();
             return;
@@ -1479,7 +1503,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     }
 
     // Также обновляем при получении любого сообщения в этом чате (на случай если состав изменился)
-    ApiService.instance.messages.listen((msg) {
+    _groupMentionsMessagesSub?.cancel();
+    _groupMentionsMessagesSub = ApiService.instance.messages.listen((msg) {
       final payload = msg['payload'];
       if (payload != null && payload['chatId'] == widget.chatId &&
           (widget.isGroupChat || widget.isChannel) &&
@@ -1502,7 +1527,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       });
     }
 
-    ApiService.instance.contactUpdates.listen((contact) {
+    _contactUpdatesSub?.cancel();
+    _contactUpdatesSub = ApiService.instance.contactUpdates.listen((contact) {
       if (widget.chatId == 0) {
         return;
       }
@@ -1571,20 +1597,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       }
     });
 
-    _searchController.addListener(() {
-      if (_searchController.text.isEmpty && _searchResults.isNotEmpty) {
-        Future.microtask(() {
-          if (mounted) {
-            setState(() {
-              _searchResults.clear();
-              _currentResultIndex = -1;
-            });
-          }
-        });
-      } else if (_searchController.text.isNotEmpty) {
-        _performSearch(_searchController.text);
-      }
-    });
+    _searchController.addListener(_onSearchControllerChanged);
 
     _loadHistoryAndListen();
   }
@@ -1592,7 +1605,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   void _loadHistoryAndListen() {
     _paginateInitialLoad();
 
-    ApiService.instance.reconnectionComplete.listen((_) {
+    _reconnectionCompleteSub?.cancel();
+    _reconnectionCompleteSub = ApiService.instance.reconnectionComplete.listen((_) {
       if (mounted && ApiService.instance.currentActiveChatId == widget.chatId) {
         print('Переподключение: перезагружаем чат ${widget.chatId}');
         _paginateInitialLoad();
@@ -2002,8 +2016,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           ? serverHasMore || mergedMessages.length > slice.length
           : (_hasMore && hasAnyMessages);
 
-      _buildChatItems();
-
       Future.microtask(() {
         if (!mounted) return;
         setState(() {
@@ -2017,6 +2029,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           _isLoadingHistory = false;
         });
 
+        _buildChatItems();
         _messagesToAnimate.clear();
 
         if (_messages.isNotEmpty) {
@@ -4098,19 +4111,22 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     _sendDragReturnController.dispose();
     _recordCancelReturnController.dispose();
     _voiceRecordingTimer?.cancel();
-    _searchController.dispose();
-    _searchFocusNode.dispose();
+    _mentionableUsersRetryTimer?.cancel();
     if (ApiService.instance.currentActiveChatId == widget.chatId) {
       ApiService.instance.currentActiveChatId = null;
     }
     _typingTimer?.cancel();
     _stopSelectionCheck();
     _apiSubscription?.cancel();
+    _reconnectionCompleteSub?.cancel();
+    _groupMentionsMessagesSub?.cancel();
+    _contactUpdatesSub?.cancel();
     _connectionStatusSub?.cancel();
-    _textController.removeListener(_handleTextChangedForKometColor);
+    _textController.removeListener(_onTextControllerChanged);
     _textController.dispose();
     _textFocusNode.dispose();
     _mentions.clear();
+    _searchController.removeListener(_onSearchControllerChanged);
     _searchController.dispose();
     _searchFocusNode.dispose();
     _pinnedMessageNotifier.dispose();

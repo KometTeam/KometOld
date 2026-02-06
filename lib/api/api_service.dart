@@ -316,7 +316,7 @@ class ApiService {
         'osVersion': spoofedData['os_version'] as String? ?? 'Android 14',
         'deviceName':
             spoofedData['device_name'] as String? ?? 'Samsung Galaxy S23',
-        'appVersion': spoofedData['app_version'] as String? ?? '25.21.3',
+        'appVersion': SpoofingService.hardcodedAppVersion,
         'screen': spoofedData['screen'] as String? ?? 'xxhdpi 480dpi 1080x2340',
         'timezone': spoofedData['timezone'] as String? ?? 'Europe/Moscow',
         'pushDeviceType': 'GCM',
@@ -335,7 +335,7 @@ class ApiService {
           'osVersion': generatedData['os_version'] as String? ?? 'Android 14',
           'deviceName':
               generatedData['device_name'] as String? ?? 'Samsung Galaxy S23',
-          'appVersion': generatedData['app_version'] as String? ?? '25.21.3',
+          'appVersion': SpoofingService.hardcodedAppVersion,
           'screen':
               generatedData['screen'] as String? ?? 'xxhdpi 480dpi 1080x2340',
           'timezone': generatedData['timezone'] as String? ?? 'Europe/Moscow',
@@ -351,7 +351,7 @@ class ApiService {
         'deviceLocale': 'ru',
         'osVersion': 'Android 14',
         'deviceName': 'Samsung Galaxy S23',
-        'appVersion': '25.21.3',
+        'appVersion': SpoofingService.hardcodedAppVersion,
         'screen': 'xxhdpi 480dpi 1080x2340',
         'timezone': 'Europe/Moscow',
         'pushDeviceType': 'GCM',
@@ -399,7 +399,7 @@ class ApiService {
     await prefs.setString('spoof_locale', locale);
     await prefs.setString('spoof_deviceid', deviceId);
     await prefs.setString('spoof_devicetype', preset.deviceType);
-    await prefs.setString('spoof_appversion', '25.21.3');
+    await prefs.setString('spoof_appversion', SpoofingService.hardcodedAppVersion);
     await prefs.setString('spoof_arch', 'arm64-v8a');
     await prefs.setInt('spoof_buildnumber', 6498);
 
