@@ -611,6 +611,19 @@ class _ChatScreenState extends State<ChatScreen>
     _loadEncryptionConfig();
     _loadSpecialMessagesSetting();
 
+    // Initial height calculation for drafts
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _handleChatInputChanged(_textController.text);
+        // Capture initial input height
+        final renderBox =
+            _inputKey.currentContext?.findRenderObject() as RenderBox?;
+        if (renderBox != null) {
+          _inputHeightNotifier.value = renderBox.size.height;
+        }
+      }
+    });
+
     ApiService.instance.currentActiveChatId = widget.chatId;
 
     NotificationService().clearNotificationMessagesForChat(widget.chatId);
@@ -6043,7 +6056,7 @@ class _ChatScreenState extends State<ChatScreen>
                                 right: 16,
                                 bottom:
                                     MediaQuery.of(context).viewInsets.bottom +
-                                    (inputHeight > 0 ? inputHeight + 20 : 80),
+                                    (inputHeight > 0 ? inputHeight + 24 : 84),
                                 child: AnimatedScale(
                                   duration: const Duration(milliseconds: 200),
                                   curve: Curves.easeOutBack,
