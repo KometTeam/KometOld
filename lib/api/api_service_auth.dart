@@ -296,7 +296,7 @@ extension ApiServiceAuth on ApiService {
       StreamSubscription? tempSubscription;
 
       tempSubscription = messages.listen((message) {
-        if (message != null && message['type'] == 'invalid_token') {
+        if (message['type'] == 'invalid_token') {
           invalidTokenDetected = true;
           tempSubscription?.cancel();
         }
@@ -327,7 +327,7 @@ extension ApiServiceAuth on ApiService {
           await accountManager.updateAccountProfile(accountId, profileObj);
         }
       } catch (e) {
-        tempSubscription?.cancel();
+        tempSubscription.cancel();
 
         print("Ошибка переключения аккаунта: $e");
 
@@ -354,7 +354,7 @@ extension ApiServiceAuth on ApiService {
 
         rethrow;
       } finally {
-        tempSubscription?.cancel();
+        tempSubscription.cancel();
       }
     }
   }

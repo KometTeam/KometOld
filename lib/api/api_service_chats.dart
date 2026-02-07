@@ -33,7 +33,8 @@ extension ApiServiceChats on ApiService {
         "interactive": true,
         "presenceSync": 0,
         "token": authToken,
-        "configHash": "00000000-0000000000000000-00000000-0000000000000000-0000000000000000-0-0000000000000000-00000000",
+        "configHash":
+            "00000000-0000000000000000-00000000-0000000000000000-0000000000000000-0-0000000000000000-00000000",
         "userAgent": userAgentPayload,
       };
 
@@ -170,8 +171,8 @@ extension ApiServiceChats on ApiService {
   void updateGroup(int chatId, {String? name, List<int>? participantIds}) {
     final payload = {
       "chatId": chatId,
-      if (name != null) "name": name,
-      if (participantIds != null) "participantIds": participantIds,
+      "name": ?name,
+      "participantIds": ?participantIds,
     };
     _sendMessage(272, payload);
     print('Обновляем группу $chatId: ${truncatePayloadObjectForLog(payload)}');
@@ -423,7 +424,8 @@ extension ApiServiceChats on ApiService {
           "draftsSync": 0,
           "interactive": true,
           "presenceSync": 0,
-          "configHash": "00000000-0000000000000000-00000000-0000000000000000-0000000000000000-0-0000000000000000-00000000",
+          "configHash":
+              "00000000-0000000000000000-00000000-0000000000000000-0000000000000000-0-0000000000000000-00000000",
           "token": authToken,
           "userAgent": userAgentPayload,
         };
@@ -853,9 +855,9 @@ extension ApiServiceChats on ApiService {
   }) {
     final payload = {
       "id": folderId,
-      if (title != null) "title": title,
-      if (include != null) "include": include,
-      if (filters != null) "filters": filters,
+      "title": ?title,
+      "include": ?include,
+      "filters": ?filters,
     };
     _sendMessage(274, payload);
     print('Обновляем папку: $folderId');
@@ -1132,7 +1134,7 @@ extension ApiServiceChats on ApiService {
         "cid": clientMessageId,
         "elements": elements ?? [],
         "attaches": [],
-        if (replyLink != null) "link": replyLink,
+        "link": ?replyLink,
       },
       "notify": true,
     };
@@ -1149,7 +1151,7 @@ extension ApiServiceChats on ApiService {
       'type': 'USER',
       'cid': clientMessageId,
       'attaches': [],
-      if (replyLink != null) 'link': replyLink,
+      'link': ?replyLink,
     };
 
     _emitLocal({
@@ -1201,8 +1203,8 @@ extension ApiServiceChats on ApiService {
       "messageId": int.tryParse(message.id) ?? 0,
       "chatId": sourceChatId,
       "message": _mapMessageForLink(message),
-      if (sourceChatName != null) "chatName": sourceChatName,
-      if (sourceChatIconUrl != null) "chatIconUrl": sourceChatIconUrl,
+      "chatName": ?sourceChatName,
+      "chatIconUrl": ?sourceChatIconUrl,
     };
     final payload = {
       "chatId": targetChatId,

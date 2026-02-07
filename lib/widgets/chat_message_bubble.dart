@@ -71,7 +71,8 @@ class DomainLinkifier extends Linkifier {
 
             final url = text.substring(match.start, match.end);
             // Добавляем протокол, если его нет
-            final fullUrl = url.startsWith('http://') ||
+            final fullUrl =
+                url.startsWith('http://') ||
                     url.startsWith('https://') ||
                     url.startsWith('ftp://') ||
                     url.startsWith('telnet://')
@@ -3456,8 +3457,8 @@ class ChatMessageBubble extends StatelessWidget {
       final audioId = (audio['audioId'] is num)
           ? (audio['audioId'] as num).toInt()
           : (audio['id'] is num)
-              ? (audio['id'] as num).toInt()
-              : null;
+          ? (audio['id'] as num).toInt()
+          : null;
 
       widgets.add(
         Padding(
@@ -4527,10 +4528,7 @@ class ChatMessageBubble extends StatelessWidget {
               linkStyle: linkStyle,
               onOpen: onOpenLink,
               options: const LinkifyOptions(humanize: false),
-              linkifiers: const [
-                DomainLinkifier(),
-                EmailLinkifier(),
-              ],
+              linkifiers: const [DomainLinkifier(), EmailLinkifier()],
               textAlign: TextAlign.left,
             )
           else if (message.text.contains("komet.cosmetic.") ||
@@ -4802,7 +4800,7 @@ class ChatMessageBubble extends StatelessWidget {
       print(
         '⚠️ Сообщение слишком большое (${text.length} символов), обрезаем до $maxTextLength',
       );
-      text = text.substring(0, maxTextLength) + '... (сообщение обрезано)';
+      text = '${text.substring(0, maxTextLength)}... (сообщение обрезано)';
     }
 
     final segments = _parseMixedMessageSegments(text);
@@ -4828,10 +4826,7 @@ class ChatMessageBubble extends StatelessWidget {
                   linkStyle: linkStyle,
                   onOpen: onOpenLink,
                   options: const LinkifyOptions(humanize: false),
-                  linkifiers: const [
-                    DomainLinkifier(),
-                    EmailLinkifier(),
-                  ],
+                  linkifiers: const [DomainLinkifier(), EmailLinkifier()],
                   textAlign: TextAlign.left,
                   overflow: TextOverflow.visible,
                   softWrap: true,
@@ -4840,7 +4835,12 @@ class ChatMessageBubble extends StatelessWidget {
             } else {
               return Container(
                 constraints: const BoxConstraints(maxWidth: double.infinity),
-                child: _buildFormattedRichText(context, seg.text, baseForSeg, elements),
+                child: _buildFormattedRichText(
+                  context,
+                  seg.text,
+                  baseForSeg,
+                  elements,
+                ),
               );
             }
           case KometSegmentType.galaxy:
@@ -4944,25 +4944,27 @@ class ChatMessageBubble extends StatelessWidget {
       int end = start + 1;
       final style = styleForIndex(start);
       final entityId = getEntityIdForIndex(start);
-      while (end < text.length && 
-             styleForIndex(end) == style && 
-             getEntityIdForIndex(end) == entityId) {
+      while (end < text.length &&
+          styleForIndex(end) == style &&
+          getEntityIdForIndex(end) == entityId) {
         end++;
       }
-      
+
       final spanText = text.substring(start, end);
       final spanEntityId = getEntityIdForIndex(start);
-      
+
       if (spanEntityId != null) {
         final recognizer = TapGestureRecognizer()
           ..onTap = () {
             openUserProfileById(context, spanEntityId);
           };
-        spans.add(TextSpan(
-          text: spanText,
-          style: style.copyWith(color: baseStyle.color),
-          recognizer: recognizer,
-        ));
+        spans.add(
+          TextSpan(
+            text: spanText,
+            style: style.copyWith(color: baseStyle.color),
+            recognizer: recognizer,
+          ),
+        );
       } else {
         spans.add(TextSpan(text: spanText, style: style));
       }
@@ -6194,8 +6196,9 @@ class _MessageContextMenuState extends State<_MessageContextMenu>
 
     if (left + menuWidth > _safeRight) left = _safeRight - menuWidth;
     if (left < _safeLeft) left = _safeLeft;
-    if (top + menuHeightForPosition > _safeBottom)
+    if (top + menuHeightForPosition > _safeBottom) {
       top = _safeBottom - menuHeightForPosition;
+    }
     if (top < _safeTop) top = _safeTop;
 
     if (_overrideLeft != null) left = _overrideLeft!;

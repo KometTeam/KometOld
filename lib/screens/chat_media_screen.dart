@@ -35,10 +35,10 @@ class _ChatMediaScreenState extends State<ChatMediaScreen>
   bool _isLoading = true;
   String _error = '';
 
-  List<Message> _mediaMessages = [];
-  List<Message> _fileMessages = [];
-  List<Message> _audioMessages = [];
-  List<Message> _linkMessages = [];
+  final List<Message> _mediaMessages = [];
+  final List<Message> _fileMessages = [];
+  final List<Message> _audioMessages = [];
+  final List<Message> _linkMessages = [];
 
   @override
   void initState() {

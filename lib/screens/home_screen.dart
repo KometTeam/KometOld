@@ -22,7 +22,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  static bool _isDialogShowing = false;
+  static final bool _isDialogShowing = false;
   late Future<Map<String, dynamic>> _chatsFuture;
   Profile? _myProfile;
   bool _isProfileLoading = true;

@@ -337,7 +337,9 @@ class NotificationService {
 
       // Логируем определённый тип чата
       final chatType = chatData['type'] as String?;
-      print("🔔 Тип чата: $chatType, isChannel: $isChannel, isGroupChat: $isGroupChat, participantCount: $participantCount");
+      print(
+        "🔔 Тип чата: $chatType, isChannel: $isChannel, isGroupChat: $isGroupChat, participantCount: $participantCount",
+      );
 
       // Для групп и каналов создаём фейковый Contact с данными чата
       Contact contact;
@@ -709,7 +711,7 @@ class NotificationService {
             final firstName = nameData['firstName'] as String? ?? '';
             final lastName = nameData['lastName'] as String? ?? '';
             myName = '$firstName $lastName'.trim();
-            if (myName?.isEmpty == true) {
+            if (myName.isEmpty == true) {
               myName = null;
             }
           }
@@ -1004,7 +1006,7 @@ class NotificationService {
             largeIcon: avatarBitmap,
             styleInformation: avatarBitmap != null
                 ? BigPictureStyleInformation(
-                    avatarBitmap!,
+                    avatarBitmap,
                     hideExpandedLargeIcon: false,
                     contentTitle: senderName,
                     summaryText: messageText,

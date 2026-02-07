@@ -533,8 +533,8 @@ class _ToggleCard extends StatelessWidget {
     required this.description,
     required this.value,
     required this.onChanged,
-    this.isDisabled = false,
     required this.gradient,
+    this.isDisabled = false,
   });
 
   @override

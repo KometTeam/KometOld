@@ -91,7 +91,6 @@ class _ChatsScreenState extends State<ChatsScreen>
   String? _selectedFolderId;
   late TabController _folderTabController;
 
-
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   late AnimationController _searchAnimationController;
@@ -1317,7 +1316,9 @@ class _ChatsScreenState extends State<ChatsScreen>
 
               if (_filteredChats.isEmpty && _allChats.isNotEmpty) {
                 _filteredChats = List.from(_allChats)
-                  ..sort((a, b) => b.lastMessage.time.compareTo(a.lastMessage.time));
+                  ..sort(
+                    (a, b) => b.lastMessage.time.compareTo(a.lastMessage.time),
+                  );
               }
               if (_filteredChats.isEmpty && _allChats.isEmpty) {
                 return const Center(child: CircularProgressIndicator());
@@ -3348,10 +3349,7 @@ class _ChatsScreenState extends State<ChatsScreen>
                     layoutBuilder: (currentChild, previousChildren) {
                       return Stack(
                         alignment: Alignment.centerLeft,
-                        children: [
-                          ...previousChildren,
-                          if (currentChild != null) currentChild,
-                        ],
+                        children: [...previousChildren, ?currentChild],
                       );
                     },
                     child: _buildCurrentTitleWidget(),
@@ -3770,7 +3768,8 @@ class _ChatsScreenState extends State<ChatsScreen>
       final text = message.text.replaceAll("\n", " ");
       if (_looksLikeKometMessage(text)) {
         final built = _tryBuildKometPreview(text, colors.onSurfaceVariant);
-        messagePreview = built ??
+        messagePreview =
+            built ??
             Text(
               text,
               maxLines: 1,

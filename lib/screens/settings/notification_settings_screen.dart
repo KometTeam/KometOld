@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:gwid/api/api_service.dart';
 import 'package:gwid/services/notification_settings_service.dart';
 import 'dart:io' show Platform;
 

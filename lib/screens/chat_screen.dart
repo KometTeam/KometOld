@@ -402,13 +402,15 @@ class _ChatScreenState extends State<ChatScreen>
   Map<String, dynamic>? _emptyChatSticker;
   final FormattedTextController _textController = FormattedTextController();
   final FocusNode _textFocusNode = FocusNode();
-  List<Mention> _mentions = [];
+  final List<Mention> _mentions = [];
   StreamSubscription? _apiSubscription;
   final ItemScrollController _itemScrollController = ItemScrollController();
   final ItemPositionsListener _itemPositionsListener =
       ItemPositionsListener.create();
   final ValueNotifier<bool> _showScrollToBottomNotifier = ValueNotifier(false);
   final ValueNotifier<Message?> _pinnedMessageNotifier = ValueNotifier(null);
+  final ValueNotifier<double> _inputHeightNotifier = ValueNotifier(80.0);
+  final GlobalKey _inputKey = GlobalKey();
 
   bool _isUserAtBottom = true;
   bool _isScrollingToBottom = false;
@@ -438,14 +440,14 @@ class _ChatScreenState extends State<ChatScreen>
 
   bool _showStickerPanel = false;
 
-  bool _isStickerCatalogLoading = false;
+  final bool _isStickerCatalogLoading = false;
   Object? _stickerCatalogLoadError;
-  List<Map<String, dynamic>> _stickerSets = const [];
-  Map<int, Map<String, dynamic>> _stickersById = const {};
+  final List<Map<String, dynamic>> _stickerSets = const [];
+  final Map<int, Map<String, dynamic>> _stickersById = const {};
   StreamSubscription<Map<String, dynamic>>? _stickerCatalogSub;
   int? _selectedStickerSetId;
   final Set<int> _requestedStickerIds = {};
-  bool _isStickerBatchLoading = false;
+  final bool _isStickerBatchLoading = false;
   final Set<int> _requestedStickerSetIds = {};
 
   bool _showMentionDropdown = false;
@@ -992,11 +994,7 @@ class _ChatScreenState extends State<ChatScreen>
 
   Future<void> _loadMentionableUsers() async {
     if (!widget.isGroupChat && !widget.isChannel) {
-      if (_currentContact.id != null) {
-        _mentionableUsers = [_currentContact];
-      } else {
-        _mentionableUsers = [];
-      }
+      _mentionableUsers = [_currentContact];
       return;
     }
 
@@ -1053,9 +1051,7 @@ class _ChatScreenState extends State<ChatScreen>
           idsToFetch,
         );
         for (final contact in contacts) {
-          if (contact.id != null) {
-            _contactDetailsCache[contact.id] = contact;
-          }
+          _contactDetailsCache[contact.id] = contact;
         }
       } catch (e) {
         print('Ошибка загрузки контактов для пингов: $e');
@@ -1066,9 +1062,7 @@ class _ChatScreenState extends State<ChatScreen>
       _mentionableUsers = participantIds
           .where((id) => _contactDetailsCache.containsKey(id))
           .map((id) => _contactDetailsCache[id]!)
-          .where(
-            (contact) => contact.id != null && contact.id != 0,
-          ) // Доп. проверка
+          .where((contact) => contact.id != 0) // Доп. проверка
           .toList();
     });
 
@@ -1167,7 +1161,7 @@ class _ChatScreenState extends State<ChatScreen>
   void _insertMention(Contact user) {
     if (_mentionStartPosition == null) return;
 
-    if (user.id == null || user.id == 0) {
+    if (user.id == 0) {
       print('ERROR: Cannot mention user with null ID: ${user.name}');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -1238,6 +1232,18 @@ class _ChatScreenState extends State<ChatScreen>
     if (text.isNotEmpty) {
       _scheduleTypingPing();
     }
+
+    // Update input height (optimized)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final renderBox =
+          _inputKey.currentContext?.findRenderObject() as RenderBox?;
+      if (renderBox != null) {
+        final height = renderBox.size.height;
+        if ((height - _inputHeightNotifier.value).abs() > 1.0) {
+          _inputHeightNotifier.value = height;
+        }
+      }
+    });
 
     final shouldShowPanel = _currentContact.isBot && text.startsWith('/');
 
@@ -1770,7 +1776,6 @@ class _ChatScreenState extends State<ChatScreen>
         if (!mounted) return;
         setState(() {});
       }
-    } catch (e) {
     } finally {
       _loadingContactIds.remove(contactId);
     }
@@ -4778,6 +4783,7 @@ class _ChatScreenState extends State<ChatScreen>
     _searchFocusNode.dispose();
     _pinnedMessageNotifier.dispose();
     _showScrollToBottomNotifier.dispose();
+    _inputHeightNotifier.dispose();
     _audioRecorder.dispose();
     super.dispose();
   }
@@ -5064,7 +5070,7 @@ class _ChatScreenState extends State<ChatScreen>
       return;
     }
 
-    print('Файл записан: $filePath (${fileSize} bytes)');
+    print('Файл записан: $filePath ($fileSize bytes)');
 
     final duration = _voiceRecordingDuration;
 
@@ -6025,43 +6031,47 @@ class _ChatScreenState extends State<ChatScreen>
                                 ),
                               ),
                       ),
-                      ValueListenableBuilder<bool>(
-                        valueListenable: _showScrollToBottomNotifier,
-                        builder: (context, showArrow, child) {
-                          return AnimatedPositioned(
-                            duration: const Duration(milliseconds: 100),
-                            curve: Curves.easeOutQuad,
-                            right: 16,
-                            bottom:
-                                MediaQuery.of(context).viewInsets.bottom +
-                                MediaQuery.of(context).padding.bottom +
-                                80,
-                            child: AnimatedScale(
-                              duration: const Duration(milliseconds: 200),
-                              curve: Curves.easeOutBack,
-                              scale: showArrow ? 1.0 : 0.0,
-                              child: AnimatedOpacity(
-                                duration: const Duration(milliseconds: 150),
-                                opacity: showArrow ? 1.0 : 0.0,
-                                child: Material(
-                                  color: Colors.grey[800],
-                                  shape: const CircleBorder(),
-                                  elevation: 4,
-                                  child: InkWell(
-                                    onTap: _scrollToBottom,
-                                    borderRadius: BorderRadius.circular(28),
-                                    child: const SizedBox(
-                                      width: 56,
-                                      height: 56,
-                                      child: Icon(
-                                        Icons.arrow_downward_rounded,
-                                        color: Colors.white,
+                      ValueListenableBuilder<double>(
+                        valueListenable: _inputHeightNotifier,
+                        builder: (context, inputHeight, child) {
+                          return ValueListenableBuilder<bool>(
+                            valueListenable: _showScrollToBottomNotifier,
+                            builder: (context, showArrow, child) {
+                              return AnimatedPositioned(
+                                duration: const Duration(milliseconds: 100),
+                                curve: Curves.easeOutQuad,
+                                right: 16,
+                                bottom:
+                                    MediaQuery.of(context).viewInsets.bottom +
+                                    (inputHeight > 0 ? inputHeight + 20 : 80),
+                                child: AnimatedScale(
+                                  duration: const Duration(milliseconds: 200),
+                                  curve: Curves.easeOutBack,
+                                  scale: showArrow ? 1.0 : 0.0,
+                                  child: AnimatedOpacity(
+                                    duration: const Duration(milliseconds: 150),
+                                    opacity: showArrow ? 1.0 : 0.0,
+                                    child: Material(
+                                      color: Colors.grey[800],
+                                      shape: const CircleBorder(),
+                                      elevation: 4,
+                                      child: InkWell(
+                                        onTap: _scrollToBottom,
+                                        borderRadius: BorderRadius.circular(28),
+                                        child: const SizedBox(
+                                          width: 56,
+                                          height: 56,
+                                          child: Icon(
+                                            Icons.arrow_downward_rounded,
+                                            color: Colors.white,
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ),
-                              ),
-                            ),
+                              );
+                            },
                           );
                         },
                       ),
@@ -6706,10 +6716,15 @@ class _ChatScreenState extends State<ChatScreen>
           children: [
             Opacity(
               opacity: 1.0 - dragProgress,
-              child: Icon(
-                Icons.send_rounded,
-                color: sendColor,
-                size: isSmall ? 20 : 24,
+              child: Transform.translate(
+                offset: const Offset(0, 0),
+                child: Icon(
+                  Icons.send_rounded,
+                  color: showSend
+                      ? Colors.black.withValues(alpha: 0.8)
+                      : Colors.black.withValues(alpha: 0.4),
+                  size: isSmall ? 20 : 24,
+                ),
               ),
             ),
             Opacity(
@@ -6727,8 +6742,8 @@ class _ChatScreenState extends State<ChatScreen>
         final padding = EdgeInsets.all(isSmall ? 10 : 6);
         final baseIconSize = isSmall ? 20.0 : 24.0;
         final baseDiameter = baseIconSize + 2 * (isSmall ? 10.0 : 6.0);
-        const maxScale = 1.12;
-        final scale = 1.0 + (maxScale - 1.0) * dragProgress;
+        final maxScale = 1.2;
+        final scale = 1.0 + (dragProgress * (maxScale - 1.0));
 
         final button = Container(
           key: ValueKey<String>(showSend ? 'send' : 'mic'),
@@ -6781,8 +6796,9 @@ class _ChatScreenState extends State<ChatScreen>
                     0.0,
                   );
                   final nextPos = nextPull.clamp(-_sendDragThreshold, 0.0);
-                  if (nextPull == _sendDragPullDy && nextPos == _sendDragDy)
+                  if (nextPull == _sendDragPullDy && nextPos == _sendDragDy) {
                     return;
+                  }
                   setState(() {
                     _sendDragPullDy = nextPull;
                     _sendDragDy = nextPos;
@@ -7017,6 +7033,7 @@ class _ChatScreenState extends State<ChatScreen>
                 sigmaY: theme.bottomBarBlur,
               ),
               child: Container(
+                key: _inputKey,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12.0,
                   vertical: 8.0,
@@ -7230,8 +7247,9 @@ class _ChatScreenState extends State<ChatScreen>
                                           _KometColorPickerBar(
                                             onColorSelected: (color) {
                                               if (_currentKometColorPrefix ==
-                                                  null)
+                                                  null) {
                                                 return;
+                                              }
                                               final hex = color
                                                   .toARGB32()
                                                   .toRadixString(16)
@@ -7365,8 +7383,9 @@ class _ChatScreenState extends State<ChatScreen>
                                       builder: (context, snapshot) {
                                         final isConnected =
                                             snapshot.data ?? false;
-                                        if (isConnected)
+                                        if (isConnected) {
                                           return const SizedBox.shrink();
+                                        }
                                         return Positioned(
                                           left: 8,
                                           bottom: 8,
@@ -7402,8 +7421,9 @@ class _ChatScreenState extends State<ChatScreen>
                                     ApiService.instance.isSessionReady,
                                 builder: (context, snapshot) {
                                   final isConnected = snapshot.data ?? false;
-                                  if (isConnected)
+                                  if (isConnected) {
                                     return const SizedBox.shrink();
+                                  }
                                   return Padding(
                                     padding: const EdgeInsets.only(right: 4.0),
                                     child: SizedBox(
@@ -7506,7 +7526,12 @@ class _ChatScreenState extends State<ChatScreen>
               ),
             ),
           ),
-          Positioned(right: 12, bottom: 8, child: sendButton),
+          Positioned(
+            right: 12,
+            top: 0,
+            bottom: 8,
+            child: Center(child: sendButton),
+          ),
         ],
       );
 
@@ -7615,6 +7640,7 @@ class _ChatScreenState extends State<ChatScreen>
       }
 
       final inputBar = ClipRRect(
+        key: _inputKey,
         borderRadius: BorderRadius.circular(16),
         clipBehavior: Clip.none,
         child: Container(
@@ -7874,6 +7900,7 @@ class _ChatScreenState extends State<ChatScreen>
                         );
                       },
                     ),
+                    const SizedBox(width: 4),
                     Material(
                       color: Colors.transparent,
                       child: InkWell(
@@ -7914,7 +7941,7 @@ class _ChatScreenState extends State<ChatScreen>
                           ),
                         ),
                       ),
-                    const SizedBox(width: 4),
+                    const SizedBox(width: 8),
                     _buildSendOrMicButton(isBlocked: isBlocked, isSmall: false),
                   ],
                 ),
