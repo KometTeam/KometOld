@@ -1428,11 +1428,12 @@ extension on _ChatScreenState {
       final senderContact = _contactDetailsCache?[item.message.senderId];
       final senderName = senderContact?.name ?? 'ID ${item.message.senderId}';
       
+      final isMe = item.message.senderId == _actualMyId;
       return ChatMessageBubble(
         key: ValueKey(item.message.id),
         message: item.message,
         contactDetailsCache: _contactDetailsCache,
-        isMe: item.message.senderId == _actualMyId,
+        isMe: isMe,
         isFirstInGroup: item.isFirstInGroup,
         isLastInGroup: item.isLastInGroup,
         isGrouped: item.isGrouped,
@@ -1441,11 +1442,17 @@ extension on _ChatScreenState {
         senderName: senderName,
         myUserId: _actualMyId ?? 0,
         chatId: widget.chatId,
+        canDeleteForAll: isMe && item.message.canEdit(_actualMyId ?? 0),
+        canEditMessage: isMe && item.message.canEdit(_actualMyId ?? 0),
         onReply: () => _replyToMessage(item.message),
         onEdit: () => _editMessage(item.message),
         onForward: () => _forwardMessage(item.message),
         onDelete: () => _removeMessages([item.message.id]),
         onComplain: () => _showComplaintDialog(item.message.id),
+        onDeleteForMe: () => _removeMessages([item.message.id]),
+        onDeleteForAll: isMe && item.message.canEdit(_actualMyId ?? 0) ? () => _deleteMessageForAll(item.message.id) : null,
+        onReaction: (emoji) => _sendReaction(item.message.id, emoji),
+        onRemoveReaction: () => _removeReaction(item.message.id),
       );
     } else if (item is DateSeparatorItem) {
       return _DateSeparatorChip(date: item.date);

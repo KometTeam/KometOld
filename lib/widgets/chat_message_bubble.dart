@@ -985,7 +985,7 @@ class ChatMessageBubble extends StatelessWidget {
       messageContentChildren,
     );
 
-    if (onReaction != null || (isMe && (onEdit != null || onDelete != null))) {
+    if (onReaction != null || onReply != null || onForward != null || onComplain != null || (isMe && (onEdit != null || onDelete != null))) {
       if (isMobile) {
         messageContent = _LongPressContextMenuWrapper(
           child: messageContent,

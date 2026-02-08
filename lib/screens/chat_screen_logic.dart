@@ -1051,6 +1051,21 @@ extension on _ChatScreenState {
     });
   }
 
+  Future<void> _deleteMessageForAll(String messageId) async {
+    try {
+      await ApiService.instance.deleteMessage(widget.chatId, messageId, forMe: false);
+      // Локально удаляем сообщение
+      _removeMessages([messageId]);
+    } catch (e) {
+      print('[_deleteMessageForAll] Ошибка удаления сообщения для всех: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка удаления: $e')),
+        );
+      }
+    }
+  }
+
   void _updateMessageReaction(String messageId, Map<String, dynamic> reactionInfo) {
     final messageIndex = _messages.indexWhere((m) => m.id == messageId);
     if (messageIndex != -1) {
@@ -1129,6 +1144,33 @@ extension on _ChatScreenState {
         if (mounted) setState(() {});
       }
     }
+  }
+
+  void _sendReaction(String messageId, String emoji) {
+    _updateReactionOptimistically(messageId, emoji);
+    ApiService.instance.sendReaction(widget.chatId, messageId, emoji).catchError((e) {
+      print('[_sendReaction] Ошибка отправки реакции: $e');
+      // Откат оптимистичного обновления при ошибке
+      _removeReactionOptimistically(messageId);
+      return -1;
+    });
+  }
+
+  void _removeReaction(String messageId) {
+    final messageIndex = _messages.indexWhere((m) => m.id == messageId);
+    if (messageIndex == -1) return;
+    
+    final message = _messages[messageIndex];
+    final currentReaction = message.reactionInfo?['yourReaction'] as String?;
+    if (currentReaction == null) return;
+    
+    _removeReactionOptimistically(messageId);
+    ApiService.instance.removeReaction(widget.chatId, messageId).catchError((e) {
+      print('[_removeReaction] Ошибка удаления реакции: $e');
+      // Восстановление реакции при ошибке
+      _updateReactionOptimistically(messageId, currentReaction);
+      return -1;
+    });
   }
 
   // Data Helpers
