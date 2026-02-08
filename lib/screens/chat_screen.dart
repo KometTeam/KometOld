@@ -7,6 +7,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:gwid/utils/theme_provider.dart';
+import 'package:gwid/theme/theme.dart' show AppTheme, ChatWallpaperType;
 import 'package:gwid/api/api_service.dart';
 import 'package:flutter/services.dart';
 import 'package:gwid/models/chat.dart';

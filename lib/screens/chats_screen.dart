@@ -15,6 +15,7 @@ import 'package:gwid/models/message.dart';
 import 'package:gwid/models/profile.dart';
 import 'package:gwid/models/chat_folder.dart';
 import 'package:gwid/utils/theme_provider.dart';
+import 'package:gwid/theme/theme.dart' show AppTheme, DrawerBackgroundType, FolderTabsBackgroundType, AppBarBackgroundType, ChatPreviewMode;
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gwid/screens/join_group_screen.dart';
@@ -4177,7 +4178,9 @@ class _ChatsScreenState extends State<ChatsScreen>
     final message = chat.lastMessage;
     final senderName = _getSenderDisplayName(chat, message);
 
-    switch (theme.chatPreviewMode) {
+    final mode = theme.chatPreviewMode;
+    
+    switch (mode) {
       case ChatPreviewMode.twoLine:
         // Двустрочно: имя отправителя + сообщение (если есть имя)
         if (senderName.isNotEmpty) {
@@ -4206,7 +4209,6 @@ class _ChatsScreenState extends State<ChatsScreen>
         }
         // Если нет имени отправителя, показываем обычное превью
         return _buildLastMessagePreview(chat);
-
       case ChatPreviewMode.threeLine:
         // Трехстрочно: имя чата + имя отправителя + сообщение
         return Column(
@@ -4227,7 +4229,6 @@ class _ChatsScreenState extends State<ChatsScreen>
             _buildLastMessagePreview(chat),
           ],
         );
-
       case ChatPreviewMode.noNicknames:
         // Без имен: только сообщение
         return _buildLastMessagePreview(chat);

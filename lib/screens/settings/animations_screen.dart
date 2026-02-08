@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:gwid/utils/theme_provider.dart';
+import 'package:gwid/theme/theme.dart';
 
 class AnimationsScreen extends StatelessWidget {
   const AnimationsScreen({super.key});

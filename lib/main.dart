@@ -1,17 +1,21 @@
-import 'package:flutter/material.dart';
-import 'package:dynamic_color/dynamic_color.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:intl/date_symbol_data_local.dart';
 import 'dart:io';
 import 'dart:math';
-import 'screens/home_screen.dart';
-import 'screens/phone_entry_screen.dart';
-import 'utils/theme_provider.dart';
-import 'package:provider/provider.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
-import 'package:gwid/api/api_service.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:dynamic_color/dynamic_color.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:uuid/uuid.dart';
+
+import 'api/api_service.dart';
 import 'connection_lifecycle_manager.dart';
+import 'screens/home_screen.dart';
+import 'screens/phone_entry_screen.dart';
+import 'theme/theme.dart';
 import 'services/cache_service.dart';
 import 'services/avatar_cache_service.dart';
 import 'services/chat_cache_service.dart';
@@ -21,49 +25,31 @@ import 'services/music_player_service.dart';
 import 'services/whitelist_service.dart';
 import 'services/notification_service.dart';
 import 'services/message_queue_service.dart';
-import 'plugins/plugin_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:uuid/uuid.dart';
-import 'package:flutter_timezone/flutter_timezone.dart';
+import 'utils/theme_provider.dart';
 import 'utils/device_presets.dart';
+import 'plugins/plugin_service.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> _generateInitialAndroidSpoof() async {
   try {
     final prefs = await SharedPreferences.getInstance();
-    final isSpoofingEnabled = prefs.getBool('spoofing_enabled') ?? false;
-
-    if (isSpoofingEnabled) {
-      print('Спуф уже настроен, генерация не требуется');
-      return;
-    }
-
-    print('Генерируем автоматический спуф для Android...');
+    if (prefs.getBool('spoofing_enabled') ?? false) return;
 
     final androidPresets = devicePresets
         .where((p) => p.deviceType == 'ANDROID')
         .toList();
+    if (androidPresets.isEmpty) return;
 
-    if (androidPresets.isEmpty) {
-      print('Не найдены пресеты для Android');
-      return;
-    }
-
-    final random = Random();
-    final preset = androidPresets[random.nextInt(androidPresets.length)];
-
-    const uuid = Uuid();
-    final deviceId = uuid.v4();
+    final preset = androidPresets[Random().nextInt(androidPresets.length)];
+    final deviceId = const Uuid().v4();
 
     String timezone;
     try {
-      final timezoneInfo = await FlutterTimezone.getLocalTimezone();
-      timezone = timezoneInfo.identifier;
+      timezone = (await FlutterTimezone.getLocalTimezone()).identifier;
     } catch (_) {
       timezone = 'Europe/Moscow';
     }
-
     final locale = Platform.localeName.split('_').first;
 
     await prefs.setBool('spoofing_enabled', true);
@@ -77,77 +63,42 @@ Future<void> _generateInitialAndroidSpoof() async {
     await prefs.setString('spoof_deviceid', deviceId);
     await prefs.setString('spoof_devicetype', 'ANDROID');
     await prefs.setString('spoof_appversion', '25.21.3');
-
-    print('Спуф для Android успешно сгенерирован:');
-    print('  - Устройство: ${preset.deviceName}');
-    print('  - ОС: ${preset.osVersion}');
-    print('  - Device ID: $deviceId');
-    print('  - Часовой пояс: $timezone');
-    print('  - Локаль: $locale');
-  } catch (e) {
-    print('Ошибка при генерации спуфа: $e');
-  }
+  } catch (_) {}
 }
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting();
 
-  print("Генерируем спуф для Android при первом запуске...");
   await _generateInitialAndroidSpoof();
-  print("Проверка и генерация спуфа завершена");
-
-  print("Инициализируем сервисы кеширования...");
-  await CacheService().initialize();
-  await AvatarCacheService().initialize();
-  await ChatCacheService().initialize();
-  await ContactLocalNamesService().initialize();
-  await MessageQueueService().initialize();
-  print("Сервисы кеширования инициализированы");
-
-  print("Инициализируем AccountManager...");
+  
+  await Future.wait([
+    CacheService().initialize(),
+    AvatarCacheService().initialize(),
+    ChatCacheService().initialize(),
+    ContactLocalNamesService().initialize(),
+    MessageQueueService().initialize(),
+  ]);
+  
   await AccountManager().initialize();
   await AccountManager().migrateOldAccount();
-  print("AccountManager инициализирован");
-
-  print("Инициализируем MusicPlayerService...");
   await MusicPlayerService().initialize();
-  print("MusicPlayerService инициализирован");
-
-  print("Инициализируем PluginService...");
   await PluginService().initialize();
-  print("PluginService инициализирован");
-
-  print("Инициализируем WhitelistService...");
   await WhitelistService().loadWhitelist();
-  print("WhitelistService инициализирован");
-
-  print("Инициализируем NotificationService...");
   await NotificationService().initialize();
   NotificationService().setNavigatorKey(navigatorKey);
-  print("NotificationService инициализирован");
 
   if (Platform.isAndroid) {
-    print("Инициализируем фоновый сервис для Android...");
     await initializeBackgroundService();
-    print("Фоновый сервис инициализирован");
   }
 
-  print("Очищаем сессионные значения...");
   await ApiService.clearSessionValues();
-  print("Сессионные значения очищены");
-
   final hasToken = await ApiService.instance.hasToken();
-  print("При запуске приложения токен ${hasToken ? 'найден' : 'не найден'}");
 
   if (hasToken) {
     await WhitelistService().validateCurrentUserIfNeeded();
-
     if (await ApiService.instance.hasToken()) {
-      print("Инициируем подключение к WebSocket при запуске...");
       ApiService.instance.connect();
-    } else {
-      print("Токен удалён после проверки вайтлиста, автологин отключён");
     }
   }
 
@@ -170,26 +121,19 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final themeProvider = context.watch<ThemeProvider>();
-
-    if (themeProvider.optimization) {
-      timeDilation = 0.001;
-    } else {
-      timeDilation = 1.0;
-    }
+    timeDilation = themeProvider.optimization ? 0.001 : 1.0;
 
     return DynamicColorBuilder(
       builder: (ColorScheme? lightDynamic, ColorScheme? darkDynamic) {
-        final bool useMaterialYou =
-            themeProvider.appTheme == AppTheme.system &&
+        final bool useMaterialYou = themeProvider.appTheme == AppTheme.system &&
             lightDynamic != null &&
             darkDynamic != null;
 
         final Color accentColor = useMaterialYou
-            ? lightDynamic.primary
+            ? lightDynamic!.primary
             : themeProvider.accentColor;
 
-        final PageTransitionsTheme pageTransitionsTheme =
-            themeProvider.optimization
+        final PageTransitionsTheme pageTransitionsTheme = themeProvider.optimization
             ? const PageTransitionsTheme(
                 builders: {
                   TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
@@ -199,14 +143,14 @@ class MyApp extends StatelessWidget {
                   TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
                 },
               )
-            : PageTransitionsTheme(
+            : const PageTransitionsTheme(
                 builders: {
                   TargetPlatform.android: CupertinoPageTransitionsBuilder(),
                 },
               );
 
         final ColorScheme lightScheme = useMaterialYou
-            ? lightDynamic
+            ? lightDynamic!
             : ColorScheme.fromSeed(
                 seedColor: accentColor,
                 brightness: Brightness.light,
@@ -218,9 +162,7 @@ class MyApp extends StatelessWidget {
           useMaterial3: true,
           pageTransitionsTheme: pageTransitionsTheme,
           shadowColor: themeProvider.optimization ? Colors.transparent : null,
-          splashFactory: themeProvider.optimization
-              ? NoSplash.splashFactory
-              : null,
+          splashFactory: themeProvider.optimization ? NoSplash.splashFactory : null,
           appBarTheme: AppBarTheme(
             titleTextStyle: TextStyle(
               fontSize: 16,
@@ -231,7 +173,7 @@ class MyApp extends StatelessWidget {
         );
 
         final ColorScheme darkScheme = useMaterialYou
-            ? darkDynamic
+            ? darkDynamic!
             : ColorScheme.fromSeed(
                 seedColor: accentColor,
                 brightness: Brightness.dark,
@@ -243,9 +185,7 @@ class MyApp extends StatelessWidget {
           useMaterial3: true,
           pageTransitionsTheme: pageTransitionsTheme,
           shadowColor: themeProvider.optimization ? Colors.transparent : null,
-          splashFactory: themeProvider.optimization
-              ? NoSplash.splashFactory
-              : null,
+          splashFactory: themeProvider.optimization ? NoSplash.splashFactory : null,
           appBarTheme: AppBarTheme(
             titleTextStyle: TextStyle(
               fontSize: 16,
@@ -254,6 +194,7 @@ class MyApp extends StatelessWidget {
             ),
           ),
         );
+
         final ThemeData oledTheme = baseDarkTheme.copyWith(
           scaffoldBackgroundColor: Colors.black,
           colorScheme: baseDarkTheme.colorScheme.copyWith(
@@ -283,8 +224,7 @@ class MyApp extends StatelessWidget {
           ),
         );
 
-        final ThemeData activeDarkTheme =
-            themeProvider.appTheme == AppTheme.black
+        final ThemeData activeDarkTheme = themeProvider.appTheme == AppTheme.black
             ? oledTheme
             : baseDarkTheme;
 
@@ -292,8 +232,7 @@ class MyApp extends StatelessWidget {
           title: 'Komet',
           navigatorKey: navigatorKey,
           builder: (context, child) {
-            final showHud =
-                themeProvider.debugShowPerformanceOverlay ||
+            final showHud = themeProvider.debugShowPerformanceOverlay ||
                 themeProvider.showFpsOverlay;
             return SizedBox.expand(
               child: Stack(
@@ -315,7 +254,6 @@ class MyApp extends StatelessWidget {
           ],
           supportedLocales: const [Locale('ru'), Locale('en')],
           locale: const Locale('ru'),
-
           home: hasToken ? const HomeScreen() : const PhoneEntryScreen(),
         );
       },
@@ -354,11 +292,12 @@ class _MiniFpsHudState extends State<_MiniFpsHud> {
       _timings.removeRange(0, _timings.length - _sampleSize);
     }
     if (_timings.isEmpty) return;
-    final double avg =
-        _timings
-            .map((t) => (t.totalSpan.inMicroseconds) / 1000.0)
+    
+    final double avg = _timings
+            .map((t) => t.totalSpan.inMicroseconds / 1000.0)
             .fold(0.0, (a, b) => a + b) /
         _timings.length;
+    
     if (!mounted) return;
     setState(() {
       _avgMs = avg;

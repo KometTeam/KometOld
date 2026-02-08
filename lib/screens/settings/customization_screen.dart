@@ -3,6 +3,7 @@ import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:gwid/utils/theme_provider.dart';
+import 'package:gwid/theme/theme.dart';
 import 'dart:io';
 import 'dart:ui';
 import 'package:gwid/models/message.dart';
@@ -1174,25 +1175,21 @@ class _ThemeManagementSection extends StatelessWidget {
         final file = File(result.files.single.path!);
         final jsonString = await file.readAsString();
 
-        final bool success = await theme.importThemeFromJson(jsonString);
+        await theme.importThemeFromJson(jsonString);
 
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                success
-                    ? 'Тема успешно импортирована!'
-                    : 'Ошибка: Неверный формат файла темы.',
-              ),
+            const SnackBar(
+              content: Text('Тема успешно импортирована!'),
             ),
           );
         }
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Ошибка импорта: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка импорта: $e')),
+        );
       }
     }
   }

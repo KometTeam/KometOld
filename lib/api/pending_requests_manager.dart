@@ -42,14 +42,10 @@ class PendingRequestsManager {
 
   /// Регистрирует новый ожидающий запрос
   Completer<dynamic> register(int seq, {String? debugLabel}) {
-    // Если запрос с таким seq уже есть, завершаем старый с ошибкой
+    // Если запрос с таким seq уже есть, просто удаляем старый
+    // без вызова ошибки, чтобы избежать unhandled exceptions
     if (_pending.containsKey(seq)) {
-      final old = _pending[seq]!;
-      if (!old.completer.isCompleted) {
-        old.completer.completeError(
-          StateError('Запрос seq=$seq перезаписан новым запросом'),
-        );
-      }
+      _pending.remove(seq);
     }
 
     final completer = Completer<dynamic>();

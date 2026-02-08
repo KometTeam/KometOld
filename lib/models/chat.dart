@@ -1,5 +1,8 @@
-import 'package:gwid/models/message.dart';
+import 'package:meta/meta.dart';
+import 'message.dart';
 
+/// Модель чата
+@immutable
 class Chat {
   final int id;
   final int ownerId;
@@ -13,7 +16,7 @@ class Chat {
   final int? participantsCount;
   final Message? pinnedMessage;
 
-  Chat({
+  const Chat({
     required this.id,
     required this.ownerId,
     required this.lastMessage,
@@ -28,29 +31,24 @@ class Chat {
   });
 
   factory Chat.fromJson(Map<String, dynamic> json) {
-    var participantsMap = json['participants'] as Map<String, dynamic>? ?? {};
-    List<int> participantIds = participantsMap.keys
-        .map((id) => int.parse(id))
+    final participantsMap = json['participants'] as Map<String, dynamic>? ?? {};
+    final participantIds = participantsMap.keys
+        .map((id) => int.tryParse(id) ?? 0)
+        .where((id) => id != 0)
         .toList();
 
-    Message lastMessage;
-    if (json['lastMessage'] != null) {
-      lastMessage = Message.fromJson(json['lastMessage']);
-    } else {
-      lastMessage = Message(
-        id: 'empty',
-        senderId: 0,
-        time: DateTime.now().millisecondsSinceEpoch,
-        text: '',
-        cid: null,
-        attaches: [],
-      );
-    }
+    final lastMessage = json['lastMessage'] != null
+        ? Message.fromJson(json['lastMessage'] as Map<String, dynamic>)
+        : Message(
+            id: 'empty',
+            senderId: 0,
+            time: DateTime.now().millisecondsSinceEpoch,
+            text: '',
+          );
 
-    Message? pinnedMessage;
-    if (json['pinnedMessage'] != null) {
-      pinnedMessage = Message.fromJson(json['pinnedMessage']);
-    }
+    final pinnedMessage = json['pinnedMessage'] != null
+        ? Message.fromJson(json['pinnedMessage'] as Map<String, dynamic>)
+        : null;
 
     return Chat(
       id: json['id'] ?? 0,
@@ -58,28 +56,25 @@ class Chat {
       lastMessage: lastMessage,
       participantIds: participantIds,
       newMessages: json['newMessages'] ?? 0,
-      title: json['title'],
-      type: json['type'],
-      baseIconUrl: json['baseIconUrl'],
-      description: json['description'],
-      participantsCount: json['participantsCount'],
+      title: json['title'] as String?,
+      type: json['type'] as String?,
+      baseIconUrl: json['baseIconUrl'] as String?,
+      description: json['description'] as String?,
+      participantsCount: json['participantsCount'] as int?,
       pinnedMessage: pinnedMessage,
     );
   }
 
   bool get isGroup => type == 'CHAT' || participantIds.length > 2;
+  bool get isChannel => type == 'CHANNEL';
+  bool get isPrivate => !isGroup && !isChannel;
 
   List<int> get groupParticipantIds => participantIds;
-
   int get onlineParticipantsCount => participantIds.length;
 
   String get displayTitle {
-    if (title != null && title!.isNotEmpty) {
-      return title!;
-    }
-    if (isGroup) {
-      return 'Группа ${participantIds.length}';
-    }
+    if (title != null && title!.isNotEmpty) return title!;
+    if (isGroup) return 'Группа ${participantIds.length}';
     return 'Чат';
   }
 
@@ -100,9 +95,22 @@ class Chat {
       title: title ?? this.title,
       type: type ?? this.type,
       baseIconUrl: baseIconUrl ?? this.baseIconUrl,
-      description: description ?? description,
+      description: description,
       participantsCount: participantsCount,
       pinnedMessage: pinnedMessage ?? this.pinnedMessage,
     );
   }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is Chat &&
+          runtimeType == other.runtimeType &&
+          id == other.id;
+
+  @override
+  int get hashCode => id.hashCode;
+
+  @override
+  String toString() => 'Chat(id: $id, title: $displayTitle, type: $type)';
 }

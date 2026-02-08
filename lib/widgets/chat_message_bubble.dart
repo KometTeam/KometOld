@@ -12,6 +12,7 @@ import 'package:intl/intl.dart';
 import 'package:gwid/models/message.dart';
 import 'package:gwid/models/contact.dart';
 import 'package:gwid/utils/theme_provider.dart';
+import 'package:gwid/theme/theme.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/services.dart';
 import 'dart:ui';
