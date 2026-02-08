@@ -520,6 +520,11 @@ extension on _ChatScreenState {
             if (queueItem != null) queueService.removeFromQueue(queueItem.id);
           }
         }
+        // Если идёт загрузка истории, откладываем обработку
+        if (_isLoadingHistory) {
+          _pendingMessagesDuringLoad.add(newMessage);
+          return;
+        }
         Future.microtask(() {
           if (mounted) _updateMessage(newMessage);
         });
@@ -531,6 +536,13 @@ extension on _ChatScreenState {
           _removeMessages([newMessage.id]);
         } else {
           unawaited(ChatCacheService().addMessageToCache(widget.chatId, newMessage));
+          
+          // Если идёт загрузка истории, откладываем обработку сообщения
+          if (_isLoadingHistory) {
+            _pendingMessagesDuringLoad.add(newMessage);
+            return;
+          }
+          
           Future.microtask(() {
             if (!mounted) return;
             final hasSameId = _messages.any((m) => m.id == newMessage.id);
@@ -558,6 +570,11 @@ extension on _ChatScreenState {
         final messageMap = payload['message'];
         if (messageMap is! Map<String, dynamic>) return;
         final editedMessage = Message.fromJson(messageMap);
+        // Если идёт загрузка истории, откладываем обработку
+        if (_isLoadingHistory) {
+          _pendingMessagesDuringLoad.add(editedMessage);
+          return;
+        }
         Future.microtask(() {
           if (mounted) _updateMessage(editedMessage);
         });
@@ -783,19 +800,25 @@ extension on _ChatScreenState {
           ? serverHasMore || mergedMessages.length > slice.length
           : (_hasMore && hasAnyMessages);
 
+      // Сначала обновляем _messages, затем строим элементы чата
+      _messages
+        ..clear()
+        ..addAll(slice);
+      _oldestLoadedTime = _messages.isNotEmpty ? _messages.first.time : null;
+      _hasMore = nextHasMore;
+      
       _buildChatItems();
+      _messagesToAnimate.clear();
 
       Future.microtask(() {
         if (!mounted) return;
         setState(() {
-          _messages
-            ..clear()
-            ..addAll(slice);
-          _oldestLoadedTime = _messages.isNotEmpty ? _messages.first.time : null;
-          _hasMore = nextHasMore;
           _isLoadingHistory = false;
         });
-        _messagesToAnimate.clear();
+        
+        // Обрабатываем сообщения, пришедшие во время загрузки
+        _processPendingMessages();
+        
         if (_messages.isNotEmpty) {
           _jumpToBottom();
           _updatePinnedMessage();
@@ -809,6 +832,8 @@ extension on _ChatScreenState {
         setState(() {
           _isLoadingHistory = false;
         });
+        // Обрабатываем отложенные сообщения даже при ошибке
+        _processPendingMessages();
       }
     }
 
@@ -820,6 +845,29 @@ extension on _ChatScreenState {
 
     if (shouldReadOnEnter && _messages.isNotEmpty) {
       ApiService.instance.markMessageAsRead(widget.chatId, _messages.last.id);
+    }
+  }
+
+  // Обработка сообщений, пришедших во время загрузки истории
+  void _processPendingMessages() {
+    if (_pendingMessagesDuringLoad.isEmpty) return;
+    
+    print('[ChatScreen] Обработка ${_pendingMessagesDuringLoad.length} отложенных сообщений');
+    
+    final pending = List<Message>.from(_pendingMessagesDuringLoad);
+    _pendingMessagesDuringLoad.clear();
+    
+    for (final newMessage in pending) {
+      if (!mounted) return;
+      
+      final hasSameId = _messages.any((m) => m.id == newMessage.id);
+      final hasSameCid = newMessage.cid != null && _messages.any((m) => m.cid != null && m.cid == newMessage.cid);
+      
+      if (hasSameId || hasSameCid) {
+        _updateMessage(newMessage);
+      } else {
+        _addMessage(newMessage);
+      }
     }
   }
 

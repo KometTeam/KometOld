@@ -202,6 +202,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   bool _isIdReady = false;
   int? _oldestLoadedTime;
   int _maxViewedIndex = 0;
+  
+  // Queue for messages received during history loading
+  final List<Message> _pendingMessagesDuringLoad = [];
   int _lastLoadedAtViewedIndex = 0;
   static const int _pageSize = 50;
   static const int _loadMoreThreshold = 20;
@@ -433,6 +436,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     _sendDragReturnController.dispose();
     _recordCancelReturnController.dispose();
     _audioRecorder.dispose();
+    _pendingMessagesDuringLoad.clear();
 
     ApiService.instance.currentActiveChatId = null;
     super.dispose();

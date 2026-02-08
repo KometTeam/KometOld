@@ -1811,7 +1811,7 @@ extension on _ChatScreenState {
 
   // Photo/File operations
   Future<void> _onAttachPressed() async {
-    if (Platform.isAndroid || Platform.isIOS) {
+    if (_isMobilePlatform) {
       if (!mounted) return;
       final colors = Theme.of(context).colorScheme;
 
