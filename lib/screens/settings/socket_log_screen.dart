@@ -1091,7 +1091,9 @@ class _AnimatedLogEntryCardState extends State<AnimatedLogEntryCard>
           ],
         ),
       );
-    } catch (_) {}
+    } catch (e) {
+      print('⚠️ Ошибка показа диалога с деталями сообщения: $e');
+    }
   }
 
   (String?, String?) _extractInfo(String message) {

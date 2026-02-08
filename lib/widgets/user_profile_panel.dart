@@ -94,7 +94,9 @@ class _UserProfilePanelState extends State<UserProfilePanel> {
             });
           }
         }
-      } catch (_) {}
+      } catch (e) {
+        print('⚠️ Ошибка обработки данных контакта: $e');
+      }
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {

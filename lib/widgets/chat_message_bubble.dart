@@ -1012,7 +1012,7 @@ class ChatMessageBubble extends StatelessWidget {
               : MainAxisAlignment.start,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            if (!isMe && isGroupChat && !isChannel) ...[
+            if (!isMe && (isGroupChat || isChannel)) ...[
               SizedBox(
                 width: 40,
                 child: isLastInGroup
@@ -1198,7 +1198,7 @@ class ChatMessageBubble extends StatelessWidget {
               : MainAxisAlignment.start,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            if (!isMe && isGroupChat && !isChannel) ...[
+            if (!isMe && (isGroupChat || isChannel)) ...[
               SizedBox(
                 width: 40,
                 child: isLastInGroup
@@ -1227,7 +1227,7 @@ class ChatMessageBubble extends StatelessWidget {
                       : CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (isGroupChat && !isMe && senderName != null)
+                    if ((isGroupChat || isChannel) && !isMe && senderName != null)
                       Padding(
                         padding: const EdgeInsets.only(left: 2.0, bottom: 0.0),
                         child: Text(
@@ -1244,7 +1244,7 @@ class ChatMessageBubble extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                    if (isGroupChat && !isMe && senderName != null)
+                    if ((isGroupChat || isChannel) && !isMe && senderName != null)
                       const SizedBox(height: 2),
 
                     Text(
@@ -1344,7 +1344,7 @@ class ChatMessageBubble extends StatelessWidget {
               : MainAxisAlignment.start,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            if (!isMe && isGroupChat && !isChannel) ...[
+            if (!isMe && (isGroupChat || isChannel)) ...[
               SizedBox(
                 width: 40,
                 child: isLastInGroup
@@ -1433,7 +1433,9 @@ class ChatMessageBubble extends StatelessWidget {
         final b64 = previewData.substring(idx + 7);
         try {
           previewBytes = base64Decode(b64);
-        } catch (_) {}
+        } catch (e) {
+          print('⚠️ Ошибка декодирования base64 превью видеокружка: $e');
+        }
       }
     }
 
@@ -1634,7 +1636,7 @@ class ChatMessageBubble extends StatelessWidget {
                 : MainAxisAlignment.start,
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              if (!isMe && isGroupChat && !isChannel) ...[
+              if (!isMe && (isGroupChat || isChannel)) ...[
                 SizedBox(
                   width: 40,
                   child: isLastInGroup
@@ -1748,7 +1750,7 @@ class ChatMessageBubble extends StatelessWidget {
         : const Color(0xFF6b7280);
 
     final showNameHeader =
-        videos.length == 1 && isGroupChat && !isMe && senderName != null;
+        videos.length == 1 && (isGroupChat || isChannel) && !isMe && senderName != null;
 
     Widget videoContent = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
@@ -1778,7 +1780,9 @@ class ChatMessageBubble extends StatelessWidget {
                 final b64 = previewData.substring(idx + 7);
                 try {
                   previewBytes = base64Decode(b64);
-                } catch (_) {}
+                } catch (e) {
+                  print('⚠️ Ошибка декодирования base64 превью видео: $e');
+                }
               }
             }
 
@@ -1805,7 +1809,7 @@ class ChatMessageBubble extends StatelessWidget {
                       : MainAxisAlignment.start,
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    if (!isMe && isGroupChat && !isChannel && index == 0) ...[
+                    if (!isMe && (isGroupChat || isChannel) && index == 0) ...[
                       SizedBox(
                         width: 40,
                         child: isLastInGroup
@@ -1942,7 +1946,7 @@ class ChatMessageBubble extends StatelessWidget {
         : const Color(0xFF6b7280);
 
     final showNameHeader =
-        files.length == 1 && isGroupChat && !isMe && senderName != null;
+        files.length == 1 && (isGroupChat || isChannel) && !isMe && senderName != null;
 
     Widget fileContent = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
@@ -1957,7 +1961,7 @@ class ChatMessageBubble extends StatelessWidget {
                 : MainAxisAlignment.start,
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              if (!isMe && isGroupChat && !isChannel) ...[
+              if (!isMe && (isGroupChat || isChannel)) ...[
                 SizedBox(
                   width: 40,
                   child: isLastInGroup
@@ -2170,7 +2174,9 @@ class ChatMessageBubble extends StatelessWidget {
           final b64 = previewData.substring(idx + 7);
           try {
             previewBytes = base64Decode(b64);
-          } catch (_) {}
+          } catch (e) {
+            print('⚠️ Ошибка декодирования base64 превью: $e');
+          }
         }
       } else if (previewDataRaw is List<dynamic>) {
         try {
@@ -2184,7 +2190,9 @@ class ChatMessageBubble extends StatelessWidget {
           } else {
             previewBytes = Uint8List.fromList(intList);
           }
-        } catch (_) {}
+        } catch (e) {
+          print('⚠️ Ошибка преобразования previewData: $e');
+        }
       }
 
       String? highQualityThumbnailUrl;
@@ -4250,7 +4258,9 @@ class ChatMessageBubble extends StatelessWidget {
         final b64 = preview.substring(idx + 7);
         try {
           previewBytes = base64Decode(b64);
-        } catch (_) {}
+        } catch (e) {
+          print('⚠️ Ошибка декодирования base64 превью фото: $e');
+        }
       }
     }
 
@@ -4371,7 +4381,7 @@ class ChatMessageBubble extends StatelessWidget {
     }
 
     return [
-      if (isGroupChat && !isMe && senderName != null)
+      if ((isGroupChat || isChannel) && !isMe && senderName != null)
         MouseRegion(
           cursor: SystemMouseCursors.click,
           child: GestureDetector(
@@ -4396,7 +4406,7 @@ class ChatMessageBubble extends StatelessWidget {
           ),
         ),
 
-      if (isGroupChat && !isMe && senderName != null) const SizedBox(height: 2),
+      if ((isGroupChat || isChannel) && !isMe && senderName != null) const SizedBox(height: 2),
       if (message.isForwarded && message.link != null) ...[
         if (message.link is Map<String, dynamic>)
           _buildForwardedMessage(
@@ -5489,7 +5499,9 @@ class _ProgressiveNetworkImageState extends State<_ProgressiveNetworkImage>
         }
         return;
       }
-    } catch (_) {}
+    } catch (e) {
+      print('⚠️ Ошибка загрузки изображения из памяти: $e');
+    }
     if (_fullBytes == null) {
       await _download();
     }
@@ -5531,7 +5543,9 @@ class _ProgressiveNetworkImageState extends State<_ProgressiveNetworkImage>
           final f = io.File(path);
           await f.writeAsBytes(data, flush: true);
         }
-      } catch (_) {}
+      } catch (e) {
+        print('⚠️ Ошибка сохранения изображения на диск: $e');
+      }
       if (mounted && _fullBytes == null) {
         setState(() => _fullBytes = data);
       }
@@ -6990,7 +7004,9 @@ class _FullScreenPhotoViewerState extends State<FullScreenPhotoViewer> {
         try {
           final bytes = base64Decode(b64);
           return Image.memory(bytes, fit: BoxFit.cover);
-        } catch (_) {}
+        } catch (e) {
+          print('⚠️ Ошибка декодирования base64 превью фото: $e');
+        }
       }
     }
     return Container(
@@ -8466,7 +8482,9 @@ class _SinglePhotoWidgetState extends State<_SinglePhotoWidget> {
         final b64 = preview.substring(idx + 7);
         try {
           previewBytes = base64Decode(b64);
-        } catch (_) {}
+        } catch (e) {
+          print('⚠️ Ошибка декодирования base64 превью: $e');
+        }
       }
     }
 

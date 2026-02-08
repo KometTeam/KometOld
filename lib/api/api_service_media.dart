@@ -61,7 +61,9 @@ extension ApiServiceMedia on ApiService {
       if (decoded is Map) {
         token = decoded['token']?.toString();
       }
-    } catch (_) {}
+    } catch (e) {
+      print('⚠️ Ошибка парсинга токена загрузки аудио: $e');
+    }
 
     if (token == null || token.isEmpty) {
       throw Exception('Не получен token после загрузки аудио');

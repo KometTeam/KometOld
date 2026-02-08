@@ -432,6 +432,9 @@ class _ChatsScreenState extends State<ChatsScreen>
 
         _filterChats();
       }
+    }).catchError((error) {
+      print('Ошибка в _refreshChats: $error');
+      // При ошибке ничего не делаем, просто логируем
     });
   }
 
@@ -1081,6 +1084,15 @@ class _ChatsScreenState extends State<ChatsScreen>
 
       _filterChats();
       _loadChatDrafts();
+    }).catchError((error) {
+      print('Ошибка в _loadChatsAndContacts: $error');
+      if (!mounted) return;
+
+      // Даже при ошибке убедимся, что _chatsLoaded установлен в true
+      // чтобы не показывать вечный индикатор загрузки
+      setState(() {
+        _chatsLoaded = true;
+      });
     });
   }
 
@@ -1309,6 +1321,14 @@ class _ChatsScreenState extends State<ChatsScreen>
                 });
 
                 _loadChatOrder().then((_) {
+                  if (!mounted) return;
+                  setState(() {
+                    _filteredChats = List.from(_allChats);
+                  });
+                }).catchError((error) {
+                  print('Ошибка в _loadChatOrder: $error');
+                  if (!mounted) return;
+                  // При ошибке все равно показываем чаты
                   setState(() {
                     _filteredChats = List.from(_allChats);
                   });
@@ -1320,7 +1340,17 @@ class _ChatsScreenState extends State<ChatsScreen>
                   ..sort((a, b) => b.lastMessage.time.compareTo(a.lastMessage.time));
               }
               if (_filteredChats.isEmpty && _allChats.isEmpty) {
-                return const Center(child: CircularProgressIndicator());
+                // Если чаты еще не загружены - показываем индикатор загрузки
+                if (!_chatsLoaded) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                // Если чаты загружены но их нет - показываем сообщение
+                return const Center(
+                  child: Text(
+                    'Нет чатов',
+                    style: TextStyle(fontSize: 16, color: Colors.grey),
+                  ),
+                );
               }
 
               if (_isSearchExpanded) {
@@ -2082,6 +2112,7 @@ class _ChatsScreenState extends State<ChatsScreen>
             participantCount,
           );
         } else {
+          print('🔘 Открываем ChatScreen для чата: ${chat.id}');
           Navigator.of(context).push(
             MaterialPageRoute(
               builder: (context) => ChatScreen(
@@ -4356,7 +4387,7 @@ class _ChatsScreenState extends State<ChatsScreen>
     } else {
       final myId = chat.ownerId;
       final otherParticipantId = chat.participantIds.firstWhere(
-        (id) => id != myId,
+            (id) => id != myId,
         orElse: () => myId,
       );
       contact = _contacts[otherParticipantId];
@@ -4381,6 +4412,7 @@ class _ChatsScreenState extends State<ChatsScreen>
     return ListTile(
       key: ValueKey(chat.id),
       onTap: () {
+        print('🔘 onTap вызван для чата: ${chat.id}');
         final theme = context.read<ThemeProvider>();
         if (theme.debugReadOnEnter) {
           final chatIndex = _allChats.indexWhere((c) => c.id == chat.id);
@@ -4402,26 +4434,26 @@ class _ChatsScreenState extends State<ChatsScreen>
 
         final Contact contactFallback = isSavedMessages
             ? Contact(
-                id: chat.id,
-                name: "Избранное",
-                firstName: "",
-                lastName: "",
-                photoBaseUrl: null,
-                description: null,
-                isBlocked: false,
-                isBlockedByMe: false,
-              )
+          id: chat.id,
+          name: "Избранное",
+          firstName: "",
+          lastName: "",
+          photoBaseUrl: null,
+          description: null,
+          isBlocked: false,
+          isBlockedByMe: false,
+        )
             : contact ??
-                  Contact(
-                    id: chat.id,
-                    name: title,
-                    firstName: "",
-                    lastName: "",
-                    photoBaseUrl: avatarUrl,
-                    description: isChannel ? chat.description : null,
-                    isBlocked: false,
-                    isBlockedByMe: false,
-                  );
+            Contact(
+              id: chat.id,
+              name: title,
+              firstName: "",
+              lastName: "",
+              photoBaseUrl: avatarUrl,
+              description: isChannel ? chat.description : null,
+              isBlocked: false,
+              isBlockedByMe: false,
+            );
 
         final participantCount =
             chat.participantsCount ?? chat.participantIds.length;
@@ -4442,7 +4474,8 @@ class _ChatsScreenState extends State<ChatsScreen>
               builder: (context) => ChatScreen(
                 chatId: chat.id,
                 contact: contactFallback,
-                myId: chat.ownerId,
+                // Используем ID из профиля или запасной вариант через API сервис
+                myId: _myProfile?.id ?? int.tryParse(ApiService.instance.userId ?? '0') ?? 0,
                 pinnedMessage: chat.pinnedMessage,
                 isGroupChat: isGroupChat,
                 isChannel: isChannel,
@@ -4476,11 +4509,11 @@ class _ChatsScreenState extends State<ChatsScreen>
 
               child: avatarUrl == null
                   ? (isSavedMessages || isGroupChat || isChannel)
-                        ? Icon(leadingIcon, color: colors.onPrimaryContainer)
-                        : Text(
-                            title.isNotEmpty ? title[0].toUpperCase() : '?',
-                            style: TextStyle(color: colors.onPrimaryContainer),
-                          )
+                  ? Icon(leadingIcon, color: colors.onPrimaryContainer)
+                  : Text(
+                title.isNotEmpty ? title[0].toUpperCase() : '?',
+                style: TextStyle(color: colors.onPrimaryContainer),
+              )
                   : null,
             ),
           ),
@@ -4490,8 +4523,8 @@ class _ChatsScreenState extends State<ChatsScreen>
             child: _typingChats.contains(chat.id)
                 ? TypingDots(color: colors.primary, size: 20)
                 : (_onlineChats.contains(chat.id)
-                      ? PresenceDot(isOnline: true, size: 12)
-                      : const SizedBox.shrink()),
+                ? PresenceDot(isOnline: true, size: 12)
+                : const SizedBox.shrink()),
           ),
         ],
       ),

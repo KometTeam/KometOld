@@ -166,7 +166,9 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> {
           uri.pathSegments.first.startsWith('id')) {
         return true;
       }
-    } catch (_) {}
+    } catch (e) {
+      print('⚠️ Ошибка парсинга ссылки канала: $e');
+    }
 
     return false;
   }

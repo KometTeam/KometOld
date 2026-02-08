@@ -238,7 +238,9 @@ class ImageCacheService {
   Future<void> _updateFileAccessTime(File file) async {
     try {
       await file.setLastModified(DateTime.now());
-    } catch (e) {}
+    } catch (e) {
+      print('⚠️ Ошибка обновления времени доступа к файлу: $e');
+    }
   }
 
   String _generateFileName(String url) {

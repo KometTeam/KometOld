@@ -305,7 +305,9 @@ class _ChatMediaScreenState extends State<ChatMediaScreen>
         final b64 = previewData.substring(idx + 7);
         try {
           previewBytes = base64Decode(b64);
-        } catch (_) {}
+        } catch (e) {
+          print('⚠️ Ошибка декодирования base64 превью: $e');
+        }
       }
     }
 

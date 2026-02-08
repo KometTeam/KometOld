@@ -18,7 +18,9 @@ extension ApiServiceConnection on ApiService {
     if (close && _socket != null) {
       try {
         await _socket!.close();
-      } catch (_) {}
+      } catch (e) {
+        print('⚠️ Ошибка закрытия сокета: $e');
+      }
     }
     _socket = null;
   }
@@ -798,7 +800,9 @@ extension ApiServiceConnection on ApiService {
     if (_socket != null) {
       try {
         _socket!.close();
-      } catch (e) {}
+      } catch (e) {
+        print('⚠️ Ошибка закрытия сокета при переподключении: $e');
+      }
       _socket = null;
     }
     _socketConnected = false;
@@ -951,7 +955,9 @@ extension ApiServiceConnection on ApiService {
       if (_socket != null) {
         try {
           _socket!.close();
-        } catch (e) {}
+        } catch (e) {
+          print('⚠️ Ошибка закрытия сокета при полном переподключении: $e');
+        }
         _socket = null;
       }
       _socketConnected = false;

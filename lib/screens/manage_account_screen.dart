@@ -96,7 +96,6 @@ class _ManageAccountScreenState extends State<ManageAccountScreen> {
           'delete': delete,
           'type': 0,
         },
-        timeout: const Duration(seconds: 30),
       );
 
       if (mounted) {

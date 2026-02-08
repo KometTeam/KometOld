@@ -201,7 +201,9 @@ class _ResourceStatsWidgetState extends State<_ResourceStatsWidget> {
             _batteryState = batteryState;
           });
         }
-      } catch (e) {}
+      } catch (e) {
+        print('⚠️ Ошибка получения уровня батареи: $e');
+      }
     }
   }
 

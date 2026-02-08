@@ -12,7 +12,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:image/image.dart' as img;
 import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart';
-import 'package:gwid/services/avatar_cache_service.dart';
+
 import 'package:gwid/services/chat_cache_service.dart';
 import 'package:gwid/services/notification_settings_service.dart';
 import 'package:gwid/api/api_service.dart';

@@ -755,12 +755,18 @@ class MessageHandler {
     try {
       final foldersJson = payload['folders'] as List<dynamic>?;
       if (foldersJson != null) {
+        // Защищенный маппинг - пропускаем битые папки
         final newFolders = foldersJson.map((json) {
-          final jsonMap = json is Map<String, dynamic>
-              ? json
-              : Map<String, dynamic>.from(json as Map);
-          return ChatFolder.fromJson(jsonMap);
-        }).toList();
+          try {
+            final jsonMap = json is Map<String, dynamic>
+                ? json
+                : Map<String, dynamic>.from(json as Map);
+            return ChatFolder.fromJson(jsonMap);
+          } catch (err) {
+            print('⚠️ Ошибка парсинга папки: $err');
+            return null; // Пропускаем битую папку
+          }
+        }).whereType<ChatFolder>().toList(); // Оставляем только валидные
 
         final context = getContext();
         if (context.mounted) {
@@ -775,7 +781,7 @@ class MessageHandler {
         }
       }
     } catch (e) {
-      print('Ошибка обработки папок из opcode 272: $e');
+      print('❌ Критическая ошибка обработки папок из opcode 272: $e');
     }
   }
 
@@ -1007,7 +1013,9 @@ class MessageHandler {
     // Ищем в allChats
     try {
       return allChats.firstWhere((c) => c.id == chatId);
-    } catch (_) {}
+    } catch (e) {
+      print('⚠️ Чат $chatId не найден в allChats: $e');
+    }
 
     // Из payload
     if (chatFromPayload != null) {
@@ -1020,7 +1028,9 @@ class MessageHandler {
       if (cachedChatJson != null) {
         return Chat.fromJson(cachedChatJson);
       }
-    } catch (_) {}
+    } catch (e) {
+      print('⚠️ Ошибка получения чата $chatId из кэша: $e');
+    }
 
     return null;
   }

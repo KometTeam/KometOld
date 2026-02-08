@@ -1141,6 +1141,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 themeProvider.useDesktopLayout &&
                 constraints.maxWidth >= kDesktopLayoutBreakpoint;
 
+            print('🔘 HomeScreen: shouldUseDesktopLayout=$shouldUseDesktopLayout, width=${constraints.maxWidth}');
             if (shouldUseDesktopLayout) {
               return const _DesktopLayout();
             } else {
@@ -1181,6 +1182,7 @@ class _DesktopLayoutState extends State<_DesktopLayout> {
 
   Future<void> _loadMyProfile() async {
     if (!mounted) return;
+    print('🔘 DesktopLayout._loadMyProfile: начало загрузки');
     setState(() => _isProfileLoading = true);
     try {
       final result = await ApiService.instance.getChatsAndContacts(
@@ -1188,17 +1190,22 @@ class _DesktopLayoutState extends State<_DesktopLayout> {
       );
       if (mounted) {
         final profileJson = result['profile'];
+        print('🔘 DesktopLayout._loadMyProfile: profileJson=${profileJson != null}');
         if (profileJson != null) {
           setState(() {
             _myProfile = Profile.fromJson(profileJson);
             _isProfileLoading = false;
           });
+        } else {
+          // Важно: сбрасываем флаг загрузки даже если профиль null
+          setState(() => _isProfileLoading = false);
         }
       }
     } catch (e) {
       if (mounted) setState(() => _isProfileLoading = false);
       print("Ошибка загрузки профиля в _DesktopLayout: $e");
     }
+    print('🔘 DesktopLayout._loadMyProfile: завершено, _isProfileLoading=$_isProfileLoading');
   }
 
   void _onChatSelected(
@@ -1208,6 +1215,7 @@ class _DesktopLayoutState extends State<_DesktopLayout> {
     bool isChannel,
     int? participantCount,
   ) {
+    print('🔘 DesktopLayout._onChatSelected: chatId=${chat.id}, contact=${contact.name}, isGroup=$isGroup, isChannel=$isChannel');
     setState(() {
       _selectedChat = chat;
       _selectedContact = contact;
@@ -1220,6 +1228,7 @@ class _DesktopLayoutState extends State<_DesktopLayout> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    print('🔘 DesktopLayout.build: _selectedChat=$_selectedChat, _selectedContact=$_selectedContact, _isProfileLoading=$_isProfileLoading');
 
     return Scaffold(
       body: Row(
@@ -1278,7 +1287,7 @@ class _DesktopLayoutState extends State<_DesktopLayout> {
                           ),
                   )
                 : ChatScreen(
-                    key: ValueKey(_selectedChat!.id),
+                    key: ValueKey('chat_${_selectedChat!.id}_${DateTime.now().millisecondsSinceEpoch}'),
                     chatId: _selectedChat!.id,
                     contact: _selectedContact!,
                     myId: _myProfile?.id ?? 0,

@@ -13,7 +13,7 @@ import 'package:gwid/models/complaint.dart';
 import 'package:gwid/models/contact.dart';
 import 'package:gwid/models/message.dart';
 import 'package:gwid/models/profile.dart';
-import 'package:gwid/utils/proxy_service.dart';
+
 import 'package:gwid/services/account_manager.dart';
 import 'package:gwid/services/avatar_cache_service.dart';
 import 'package:gwid/services/cache_service.dart';
@@ -29,12 +29,12 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
-import 'package:gwid/app_urls.dart';
+
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
-import 'package:ffi/ffi.dart';
+
 import 'package:msgpack_dart/msgpack_dart.dart' as msgpack;
 import 'packet_buffer.dart';
 import 'protocol_handler.dart';
@@ -172,7 +172,7 @@ class ApiService {
   bool get isOnline => _isSessionOnline;
 
   Future<void> waitUntilOnline() async {
-    if (_isSessionOnline && _isSessionReady) return;
+    if (_isSessionOnline) return;
     if (_onlineCompleter == null || _onlineCompleter!.isCompleted) {
       _onlineCompleter = Completer<void>();
     }
@@ -254,7 +254,9 @@ class ApiService {
           'payload': {'chatId': chatId, 'chat': chatJson},
         });
       }
-    } catch (e) {}
+    } catch (e) {
+      _log('Ошибка обновления чата в списке', level: LogLevel.error, data: {'error': e.toString()});
+    }
   }
 
   int _reconnectDelaySeconds = 2;
@@ -295,7 +297,9 @@ class ApiService {
   void _emitLocal(Map<String, dynamic> frame) {
     try {
       _messageController.add(frame);
-    } catch (_) {}
+    } catch (e) {
+      _log('Ошибка отправки сообщения в контроллер', level: LogLevel.error, data: {'error': e.toString()});
+    }
   }
 
   String generateRandomDeviceId() {
@@ -494,10 +498,14 @@ class ApiService {
               'LZ4_decompress_fast',
             )
                 .asFunction();
-          } catch (e2) {}
+          } catch (e2) {
+            print('⚠️ Ошибка инициализации LZ4 fallback: $e2');
+          }
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      print('⚠️ Ошибка инициализации LZ4: $e');
+    }
   }
 
   //  обработка входящих данных
@@ -542,10 +550,32 @@ class ApiService {
 
       final message = parsed.toMap();
 
+
+      if (!_socketConnected) {
+        _socketConnected = true;
+        _log('🔌 Соединение восстановлено (получены данные)', level: LogLevel.info);
+      }
+
+      if (!_isSessionOnline) {
+        _isSessionOnline = true;
+        if (_onlineCompleter != null && !_onlineCompleter!.isCompleted) {
+          _onlineCompleter!.complete();
+        }
+      }
+
+      // Если получаем данные (opcode 32 - контакты/чаты), значит сессия точно готова
+      if (!_isSessionReady && (parsed.opcode == 32 || parsed.opcode == 64 || parsed.opcode == 128)) {
+        _isSessionReady = true;
+        _updateConnectionState(conn_state.ConnectionState.connected,
+            message: 'Сессия активна', latency: 0);
+        _connectionStatusController.add('connected');
+      }
+
       // Отправляем в стрим
       _emitLocal(message);
 
-      _pendingManager.complete(parsed.seq, parsed.payload);
+      // Передаем ВЕСЬ message (включая cmd), а не только payload
+      _pendingManager.complete(parsed.seq, message);
 
       try {
         handleSocketMessage(message);
@@ -558,6 +588,52 @@ class ApiService {
       print('❌ Ошибка обработки пакета: $e');
       print(stack);
     }
+  }
+
+  Future<Map<String, dynamic>> sendRequest(int opcode, Map<String, dynamic> payload) async {
+    // Opcode 19 (auth) и 6 (handshake) создают сессию, они не требуют готовой сессии
+    final bool isAuthOpcode = opcode == 19 || opcode == 6;
+
+    if (isAuthOpcode) {
+      // Для авторизации достаточно, чтобы сокет был подключен
+      await waitUntilOnline();
+    } else {
+      // Для остальных запросов ждем полной готовности сессии
+      await waitUntilOnline();
+      if (!_isSessionReady) {
+        // Если сессия не готова, ждем (с таймаутом)
+        await Future.any([
+          Future.doWhile(() async {
+            if (_isSessionReady) return false;
+            await Future.delayed(const Duration(milliseconds: 50));
+            return true;
+          }),
+          Future.delayed(const Duration(seconds: 10)).then((_) =>
+          throw TimeoutException('Session not ready after 10s')
+          ),
+        ]);
+      }
+    }
+
+    final seq = _seq++ % 256;
+
+    final completer = _pendingManager.register(
+      seq,
+      debugLabel: 'opcode_$opcode',
+    );
+
+    try {
+      final packet = _packPacket(11, 0, seq, opcode, payload);
+
+      _socket?.add(packet);
+      _lastActionTime = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    } catch (e) {
+      _pendingManager.completeError(seq, e);
+      rethrow;
+    }
+
+    final result = await completer.future;
+    return result as Map<String, dynamic>;
   }
 
   Uint8List _packPacket(
@@ -707,7 +783,9 @@ class ApiService {
       if (decoded is Map) {
         token = decoded['token']?.toString();
       }
-    } catch (_) {}
+    } catch (e) {
+      _log('Ошибка парсинга ответа загрузки аудио', level: LogLevel.warning, data: {'error': e.toString()});
+    }
 
     token ??= uploadInfo['token']?.toString();
 
