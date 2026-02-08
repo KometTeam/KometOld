@@ -45,11 +45,25 @@ import 'package:gwid/screens/chat/widgets/empty_chat_widget.dart';
 import 'package:gwid/screens/chats_screen.dart';
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:platform_info/platform_info.dart';
 
 part 'chat_screen_widgets.dart';
 part 'chat_screen_logic.dart';
 part 'chat_screen_ui.dart';
 part 'chat_screen_voice.dart';
+
+bool get _isMobilePlatform =>
+    Platform.instance.operatingSystem.iOS ||
+    Platform.instance.operatingSystem.android;
+
+// Intents для клавиатурных сочетаний в чате
+class SendMessageIntent extends Intent {
+  const SendMessageIntent();
+}
+
+class NewLineIntent extends Intent {
+  const NewLineIntent();
+}
 
 class ChatDebugSettings {
   static bool showExactDate = false;

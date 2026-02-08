@@ -972,35 +972,82 @@ extension on _ChatScreenState {
                     maxHeight: 120,
                   ),
                   padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: TextField(
-                    controller: _textController,
-                    focusNode: _textFocusNode,
-                    maxLines: null,
-                    textInputAction: TextInputAction.newline,
-                    decoration: InputDecoration(
-                      hintText: 'Сообщение',
-                      border: InputBorder.none,
-                      hintStyle: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  child: _isMobilePlatform
+                    ? TextField(
+                        controller: _textController,
+                        focusNode: _textFocusNode,
+                        maxLines: null,
+                        textInputAction: TextInputAction.newline,
+                        decoration: InputDecoration(
+                          hintText: 'Сообщение',
+                          border: InputBorder.none,
+                          hintStyle: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurface,
+                        ),
+                        onChanged: (text) {
+                          setState(() {});
+                          _handleChatInputChanged(text);
+                        },
+                      )
+                    : FocusableActionDetector(
+                        focusNode: _textFocusNode,
+                        shortcuts: {
+                          // Enter - отправить сообщение
+                          const SingleActivator(LogicalKeyboardKey.enter): const SendMessageIntent(),
+                          // Shift+Enter - новая строка
+                          const SingleActivator(LogicalKeyboardKey.enter, shift: true): const NewLineIntent(),
+                        },
+                        actions: {
+                          SendMessageIntent: CallbackAction<SendMessageIntent>(
+                            onInvoke: (_) {
+                              final text = _textController.text;
+                              if (text.trim().isNotEmpty) {
+                                if (_editingMessage != null) {
+                                  _editMessage(_editingMessage!);
+                                } else {
+                                  _sendMessage();
+                                }
+                              }
+                              return null;
+                            },
+                          ),
+                          NewLineIntent: CallbackAction<NewLineIntent>(
+                            onInvoke: (_) {
+                              final text = _textController.text;
+                              final selection = _textController.selection;
+                              final newText = text.substring(0, selection.start) + '\n' + text.substring(selection.end);
+                              _textController.text = newText;
+                              _textController.selection = TextSelection.collapsed(offset: selection.start + 1);
+                              setState(() {});
+                              _handleChatInputChanged(_textController.text);
+                              return null;
+                            },
+                          ),
+                        },
+                        child: TextField(
+                          controller: _textController,
+                          maxLines: null,
+                          textInputAction: TextInputAction.send,
+                          decoration: InputDecoration(
+                            hintText: 'Сообщение (Enter - отправить, Shift+Enter - новая строка)',
+                            border: InputBorder.none,
+                            hintStyle: TextStyle(
+                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onSurface,
+                          ),
+                          onChanged: (text) {
+                            setState(() {});
+                            _handleChatInputChanged(text);
+                          },
+                        ),
                       ),
-                    ),
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurface,
-                    ),
-                    onChanged: (text) {
-                      setState(() {});
-                      _handleChatInputChanged(text);
-                    },
-                    onSubmitted: (_) {
-                      if (_textController.text.trim().isNotEmpty) {
-                        if (_editingMessage != null) {
-                          _editMessage(_editingMessage!);
-                        } else {
-                          _sendMessage();
-                        }
-                      }
-                    },
-                  ),
                 ),
               ],
             ),
