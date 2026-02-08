@@ -3433,6 +3433,86 @@ class _ChatScreenState extends State<ChatScreen>
     });
   }
 
+  bool _removeQuoteFormattingAtRightBoundary(int cursorOffset) {
+    if (cursorOffset <= 0) return false;
+
+    final idx = _textController.elements.indexWhere((el) {
+      final type = el['type'] as String?;
+      if (type != 'QUOTE') return false;
+      final from = (el['from'] as int?) ?? 0;
+      final length = (el['length'] as int?) ?? 0;
+      if (length <= 0) return false;
+      return (from + length) == cursorOffset;
+    });
+
+    if (idx < 0) return false;
+
+    setState(() {
+      _textController.elements.removeAt(idx);
+      _textController.selection = TextSelection.collapsed(offset: cursorOffset);
+    });
+
+    return true;
+  }
+
+  Widget _buildInputContextMenu(
+    BuildContext context,
+    EditableTextState editableTextState,
+  ) {
+    final isEncryptionActive =
+        _encryptionConfigForCurrentChat != null &&
+        _encryptionConfigForCurrentChat!.password.isNotEmpty &&
+        _sendEncryptedForCurrentChat;
+
+    final selection = _textController.selection;
+    final canFormat =
+        !isEncryptionActive &&
+        selection.isValid &&
+        !selection.isCollapsed &&
+        selection.end > selection.start;
+
+    final defaultItems = editableTextState.contextMenuButtonItems;
+    if (!canFormat) {
+      return AdaptiveTextSelectionToolbar.buttonItems(
+        anchors: editableTextState.contextMenuAnchors,
+        buttonItems: defaultItems,
+      );
+    }
+
+    void applyAndClose(String type) {
+      editableTextState.hideToolbar();
+      _applyTextFormat(type);
+    }
+
+    final customItems = <ContextMenuButtonItem>[
+      ContextMenuButtonItem(
+        onPressed: () => applyAndClose('QUOTE'),
+        label: 'Цитата',
+      ),
+      ContextMenuButtonItem(
+        onPressed: () => applyAndClose('STRONG'),
+        label: 'Жирный',
+      ),
+      ContextMenuButtonItem(
+        onPressed: () => applyAndClose('EMPHASIZED'),
+        label: 'Курсив',
+      ),
+      ContextMenuButtonItem(
+        onPressed: () => applyAndClose('UNDERLINE'),
+        label: 'Подчеркнуть',
+      ),
+      ContextMenuButtonItem(
+        onPressed: () => applyAndClose('STRIKETHROUGH'),
+        label: 'Зачеркнуть',
+      ),
+    ];
+
+    return AdaptiveTextSelectionToolbar.buttonItems(
+      anchors: editableTextState.contextMenuAnchors,
+      buttonItems: [...defaultItems, ...customItems],
+    );
+  }
+
   void _updateTextSelectionState() {
     final selection = _textController.selection;
     final hasSelection =
@@ -3572,7 +3652,10 @@ class _ChatScreenState extends State<ChatScreen>
 
       // Захват и валидация упоминаний ДО любых асинхронных операций
       // Это критически важно, чтобы не потерять mentions при очистке
-      final List<Map<String, dynamic>> elements = _captureMentions();
+      final List<Map<String, dynamic>> elements = [
+        ..._textController.elements.map((e) => Map<String, dynamic>.from(e)),
+        ..._captureMentions(),
+      ];
 
       // Отладочное логирование для пингов/упоминаний
       _logMentionsDebugInfo(elements);
@@ -3684,11 +3767,13 @@ class _ChatScreenState extends State<ChatScreen>
       print('  - Тип: ${element['type']}');
 
       // Дополнительные проверки валидации
-      if (element['entityId'] == null) {
-        print('ВНИМАНИЕ: entityId равен NULL!');
-      }
-      if (element['entityId'] == 0) {
-        print('ВНИМАНИЕ: entityId равен 0, возможно невалидный ID!');
+      if (element['type'] == 'USER_MENTION') {
+        if (element['entityId'] == null) {
+          print('ВНИМАНИЕ: entityId равен NULL!');
+        }
+        if (element['entityId'] == 0) {
+          print('ВНИМАНИЕ: entityId равен 0, возможно невалидный ID!');
+        }
       }
     }
     print('=====================================');
@@ -7305,6 +7390,27 @@ class _ChatScreenState extends State<ChatScreen>
                                           onKeyEvent: (node, event) {
                                             if (event is KeyDownEvent) {
                                               if (event.logicalKey ==
+                                                  LogicalKeyboardKey.backspace) {
+                                                final selection =
+                                                    _textController.selection;
+                                                if (selection.isValid &&
+                                                    selection.isCollapsed) {
+                                                  final cursor = selection
+                                                      .baseOffset
+                                                      .clamp(
+                                                        0,
+                                                        _textController
+                                                            .text.length,
+                                                      );
+                                                  if (_removeQuoteFormattingAtRightBoundary(
+                                                    cursor,
+                                                  )) {
+                                                    return KeyEventResult.handled;
+                                                  }
+                                                }
+                                              }
+
+                                              if (event.logicalKey ==
                                                   LogicalKeyboardKey.enter) {
                                                 final bool isShiftPressed =
                                                     HardwareKeyboard
@@ -7332,6 +7438,12 @@ class _ChatScreenState extends State<ChatScreen>
                                           },
                                           child: TextField(
                                             controller: _textController,
+                                            contextMenuBuilder: (context, editableTextState) {
+                                              return _buildInputContextMenu(
+                                                context,
+                                                editableTextState,
+                                              );
+                                            },
                                             enabled: !isBlocked,
                                             keyboardType:
                                                 TextInputType.multiline,
@@ -7822,48 +7934,78 @@ class _ChatScreenState extends State<ChatScreen>
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          TextField(
-                            controller: _textController,
-                            enabled: !isBlocked,
-                            keyboardType: TextInputType.multiline,
-                            textInputAction: TextInputAction.newline,
-                            minLines: 1,
-                            maxLines: 5,
-                            decoration: InputDecoration(
-                              hintText: isBlocked
-                                  ? 'Пользователь заблокирован'
-                                  : 'Сообщение...',
-                              filled: true,
-                              isDense: true,
-                              fillColor: isBlocked
-                                  ? Theme.of(context)
-                                        .colorScheme
-                                        .surfaceContainerHighest
-                                        .withValues(alpha: 0.25)
-                                  : Theme.of(context)
-                                        .colorScheme
-                                        .surfaceContainerHighest
-                                        .withValues(alpha: 0.4),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(24),
-                                borderSide: BorderSide.none,
+                          Focus(
+                            focusNode: _textFocusNode,
+                            onKeyEvent: (node, event) {
+                              if (event is KeyDownEvent) {
+                                if (event.logicalKey ==
+                                    LogicalKeyboardKey.backspace) {
+                                  final selection = _textController.selection;
+                                  if (selection.isValid &&
+                                      selection.isCollapsed) {
+                                    final cursor = selection.baseOffset.clamp(
+                                      0,
+                                      _textController.text.length,
+                                    );
+                                    if (_removeQuoteFormattingAtRightBoundary(
+                                      cursor,
+                                    )) {
+                                      return KeyEventResult.handled;
+                                    }
+                                  }
+                                }
+                              }
+                              return KeyEventResult.ignored;
+                            },
+                            child: TextField(
+                              controller: _textController,
+                              contextMenuBuilder: (context, editableTextState) {
+                                return _buildInputContextMenu(
+                                  context,
+                                  editableTextState,
+                                );
+                              },
+                              enabled: !isBlocked,
+                              keyboardType: TextInputType.multiline,
+                              textInputAction: TextInputAction.newline,
+                              minLines: 1,
+                              maxLines: 5,
+                              decoration: InputDecoration(
+                                hintText: isBlocked
+                                    ? 'Пользователь заблокирован'
+                                    : 'Сообщение...',
+                                filled: true,
+                                isDense: true,
+                                fillColor: isBlocked
+                                    ? Theme.of(context)
+                                          .colorScheme
+                                          .surfaceContainerHighest
+                                          .withValues(alpha: 0.25)
+                                    : Theme.of(context)
+                                          .colorScheme
+                                          .surfaceContainerHighest
+                                          .withValues(alpha: 0.4),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(24),
+                                  borderSide: BorderSide.none,
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(24),
+                                  borderSide: BorderSide.none,
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(24),
+                                  borderSide: BorderSide.none,
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 18.0,
+                                  vertical: 12.0,
+                                ),
                               ),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(24),
-                                borderSide: BorderSide.none,
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(24),
-                                borderSide: BorderSide.none,
-                              ),
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 18.0,
-                                vertical: 12.0,
-                              ),
+                              onChanged: isBlocked
+                                  ? null
+                                  : _handleChatInputChanged,
                             ),
-                            onChanged: isBlocked
-                                ? null
-                                : _handleChatInputChanged,
                           ),
                         ],
                       ),

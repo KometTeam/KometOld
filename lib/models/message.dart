@@ -44,11 +44,16 @@ class Message {
       time = 0;
     }
 
+    final rawText = json['text'] ?? '';
+    final parsedText = rawText is String
+        ? rawText.replaceAll(r'\r\n', '\n').replaceAll(r'\n', '\n')
+        : '';
+
     return Message(
       id:
           json['id']?.toString() ??
           'local_${DateTime.now().millisecondsSinceEpoch}',
-      text: json['text'] ?? '',
+      text: parsedText,
       time: time,
       senderId: senderId,
       status: json['status'],

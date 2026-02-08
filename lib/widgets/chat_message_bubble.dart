@@ -4882,6 +4882,124 @@ class ChatMessageBubble extends StatelessWidget {
       );
     }
 
+    List<Map<String, int>> buildQuoteRanges() {
+      final ranges = <Map<String, int>>[];
+      for (final el in elements) {
+        final type = el['type'] as String?;
+        if (type != 'QUOTE') continue;
+        final from = (el['from'] as int?) ?? 0;
+        final length = (el['length'] as int?) ?? 0;
+        if (length <= 0) continue;
+        final start = from.clamp(0, text.length);
+        final end = (from + length).clamp(0, text.length);
+        if (end <= start) continue;
+        ranges.add({'from': start, 'to': end});
+      }
+      if (ranges.isEmpty) return ranges;
+
+      ranges.sort((a, b) => a['from']!.compareTo(b['from']!));
+      final merged = <Map<String, int>>[];
+      Map<String, int> current = Map<String, int>.from(ranges.first);
+      for (int i = 1; i < ranges.length; i++) {
+        final r = ranges[i];
+        final rFrom = r['from']!;
+        final rTo = r['to']!;
+        final cTo = current['to']!;
+        if (rFrom <= cTo) {
+          if (rTo > cTo) {
+            current['to'] = rTo;
+          }
+        } else {
+          merged.add(current);
+          current = Map<String, int>.from(r);
+        }
+      }
+      merged.add(current);
+      return merged;
+    }
+
+    final quoteRanges = buildQuoteRanges();
+    if (quoteRanges.isNotEmpty) {
+      List<Map<String, dynamic>> sliceElements(int segFrom, int segTo) {
+        final sliced = <Map<String, dynamic>>[];
+        for (final el in elements) {
+          final type = el['type'] as String?;
+          if (type == null || type == 'QUOTE') continue;
+          final from = (el['from'] as int?) ?? 0;
+          final length = (el['length'] as int?) ?? 0;
+          if (length <= 0) continue;
+
+          final start = from.clamp(0, text.length);
+          final end = (from + length).clamp(0, text.length);
+          if (end <= start) continue;
+
+          final overlapStart = start < segFrom ? segFrom : start;
+          final overlapEnd = end > segTo ? segTo : end;
+          if (overlapEnd <= overlapStart) continue;
+
+          final mapped = Map<String, dynamic>.from(el);
+          mapped['from'] = overlapStart - segFrom;
+          mapped['length'] = overlapEnd - overlapStart;
+          sliced.add(mapped);
+        }
+        return sliced;
+      }
+
+      Widget buildSegment(int segFrom, int segTo, {required bool isQuote}) {
+        final segText = text.substring(segFrom, segTo);
+        final segElements = sliceElements(segFrom, segTo);
+        final segmentWidget = _buildFormattedRichText(
+          context,
+          segText,
+          baseStyle,
+          segElements,
+        );
+
+        if (!isQuote) return segmentWidget;
+
+        final theme = Theme.of(context);
+        final bg = theme.colorScheme.surfaceVariant.withValues(alpha: 0.55);
+        final border = theme.dividerColor.withValues(alpha: 0.9);
+
+        return Container(
+          decoration: BoxDecoration(
+            color: bg,
+            border: Border(
+              left: BorderSide(color: border, width: 3),
+            ),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: segmentWidget,
+        );
+      }
+
+      final children = <Widget>[];
+      int cursor = 0;
+      for (final r in quoteRanges) {
+        final rFrom = r['from']!;
+        final rTo = r['to']!;
+
+        if (cursor < rFrom) {
+          children.add(buildSegment(cursor, rFrom, isQuote: false));
+        }
+        children.add(buildSegment(rFrom, rTo, isQuote: true));
+        cursor = rTo;
+      }
+      if (cursor < text.length) {
+        children.add(buildSegment(cursor, text.length, isQuote: false));
+      }
+
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children:
+            children
+                .where((w) => w is! SizedBox)
+                .toList(),
+      );
+    }
+
     final bold = List<bool>.filled(text.length, false);
     final italic = List<bool>.filled(text.length, false);
     final underline = List<bool>.filled(text.length, false);
