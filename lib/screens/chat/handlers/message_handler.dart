@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gwid/api/api_service.dart';
 import 'package:gwid/models/chat.dart';
 import 'package:gwid/models/contact.dart';
@@ -226,7 +227,7 @@ class MessageHandler {
         // Локальное обновление чата (без cmd, это локальное сообщение)
         _handleNewChat(payload);
       } else if (opcode == 128 && chatId != null) {
-        _handleNewMessage(chatId, payload);
+        unawaited(_handleNewMessage(chatId, payload));
       } else if (opcode == 67 && chatId != null) {
         _handleEditedMessage(chatId, payload);
       } else if ((opcode == 66 || opcode == 142) && chatId != null) {
@@ -312,7 +313,7 @@ class MessageHandler {
     }
   }
 
-  void _handleNewMessage(int chatId, Map<String, dynamic> payload) {
+  Future<void> _handleNewMessage(int chatId, Map<String, dynamic> payload) async {
     print('🔔 [MessageHandler] _handleNewMessage вызван для chatId: $chatId');
 
     if (allChats.isEmpty) {
@@ -439,17 +440,52 @@ class MessageHandler {
       }
     }
 
+    // Определяем, наше ли это сообщение (до проверки автопрочтения)
+    bool isMyMessage = false;
+    if (chatIndex != -1) {
+      final oldChat = allChats[chatIndex];
+      isMyMessage = (myId != null && newMessage.senderId == myId) ||
+          newMessage.senderId == oldChat.ownerId;
+    } else {
+      // Для новых чатов считаем сообщение "не нашим" по умолчанию
+      isMyMessage = myId != null && newMessage.senderId == myId;
+    }
+
+    // Проверяем, нужно ли автоматически отметить сообщение как прочитанное
+    // Условия: приложение на переднем плане, пользователь в этом чате, сообщение не наше, режим скрытия онлайна выключен
+    bool shouldAutoMarkAsRead = false;
+    final isInActiveChat = ApiService.instance.isAppInForeground &&
+        ApiService.instance.currentActiveChatId == chatId;
+    
+    print('🔔 [MessageHandler] Проверка автопрочтения: isInActiveChat=$isInActiveChat, isMyMessage=$isMyMessage');
+    
+    if (isInActiveChat && !isMyMessage) {
+      // Проверяем настройку скрытия онлайна
+      final prefs = await SharedPreferences.getInstance();
+      final isHiddenMode = prefs.getBool('privacy_hidden') ?? false;
+      // Автоматически отмечаем как прочитанное только если режим скрытия выключен
+      shouldAutoMarkAsRead = !isHiddenMode;
+      print('🔔 [MessageHandler] Режим скрытия онлайна: $isHiddenMode, shouldAutoMarkAsRead=$shouldAutoMarkAsRead');
+    }
+
+    // Если нужно автоматически отметить как прочитанное - делаем это
+    if (shouldAutoMarkAsRead) {
+      print('🔔 [MessageHandler] Автоматически отмечаем сообщение как прочитанное');
+      ApiService.instance.markMessageAsRead(chatId, newMessage.id);
+    }
+
     if (chatIndex != -1) {
       final oldChat = allChats[chatIndex];
 
-      // Определяем, наше ли это сообщение
-      final isMyMessage =
-          (myId != null && newMessage.senderId == myId) ||
-          newMessage.senderId == oldChat.ownerId;
+      // Увеличиваем счётчик непрочитанных только если:
+      // 1. Это не наше сообщение
+      // 2. Не включено автоматическое прочтение (скрытие онлайна выключено и мы в чате)
+      final shouldIncrementUnread = !isMyMessage && !shouldAutoMarkAsRead;
+      print('🔔 [MessageHandler] shouldIncrementUnread=$shouldIncrementUnread (isMyMessage=$isMyMessage, shouldAutoMarkAsRead=$shouldAutoMarkAsRead)');
 
       final updatedChat = oldChat.copyWith(
         lastMessage: newMessage,
-        newMessages: !isMyMessage
+        newMessages: shouldIncrementUnread
             ? oldChat.newMessages + 1
             : oldChat.newMessages,
       );
@@ -484,9 +520,11 @@ class MessageHandler {
           }
           if (chatJson != null) {
             final newChat = Chat.fromJson(chatJson);
+            // Для новых чатов тоже учитываем автоматическое прочтение
+            final shouldIncrementUnread = !isMyMessage && !shouldAutoMarkAsRead;
             final updatedChat = newChat.copyWith(
               lastMessage: Message.fromJson(payload['message']),
-              newMessages: newChat.newMessages + 1,
+              newMessages: shouldIncrementUnread ? newChat.newMessages + 1 : newChat.newMessages,
             );
             setState(() {
               allChats.add(updatedChat);
