@@ -461,9 +461,7 @@ class CacheService {
       print('CacheService: Target file path: $filePath');
 
       final response = await http
-          .get(
-            Uri.parse(url),
-          )
+          .get(Uri.parse(url))
           .timeout(
             const Duration(seconds: 30),
             onTimeout: () {
@@ -717,5 +715,65 @@ class CacheService {
       }
     }
     return null;
+  }
+
+  File? _getStickerCatalogFile() {
+    if (_cacheDirectory == null) return null;
+    return File('${_cacheDirectory!.path}/stickers/catalog.json.lz4');
+  }
+
+  Future<File?> getCachedStickerCatalogFile() async {
+    if (_cacheDirectory == null) {
+      await initialize();
+    }
+    final file = _getStickerCatalogFile();
+    if (file == null) return null;
+    if (!await file.exists()) return null;
+    return file;
+  }
+
+  Future<void> saveStickerCatalogToFile(Map<String, dynamic> catalog) async {
+    if (_cacheDirectory == null) {
+      await initialize();
+    }
+
+    final file = _getStickerCatalogFile();
+    if (file == null) return;
+
+    final stickerDir = Directory('${_cacheDirectory!.path}/stickers');
+    if (!await stickerDir.exists()) {
+      await stickerDir.create(recursive: true);
+    }
+
+    final bytes = utf8.encode(jsonEncode(catalog));
+    if (_lz4Available && _lz4Codec != null) {
+      try {
+        final compressed = _lz4Codec!.encode(bytes);
+        await file.writeAsBytes(compressed, flush: true);
+        return;
+      } catch (e) {
+        print('⚠️ Ошибка сжатия sticker catalog, сохраняем без сжатия: $e');
+      }
+    }
+
+    await file.writeAsBytes(Uint8List.fromList(bytes), flush: true);
+  }
+
+  dynamic decodeStickerCatalogBytes(Uint8List bytes) {
+    try {
+      Uint8List decodedBytes = bytes;
+      if (_lz4Available && _lz4Codec != null) {
+        try {
+          decodedBytes = Uint8List.fromList(_lz4Codec!.decode(bytes));
+        } catch (_) {
+          decodedBytes = bytes;
+        }
+      }
+
+      final jsonString = utf8.decode(decodedBytes);
+      return jsonDecode(jsonString);
+    } catch (_) {
+      return null;
+    }
   }
 }

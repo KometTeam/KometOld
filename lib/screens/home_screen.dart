@@ -5,7 +5,6 @@ import 'package:gwid/screens/phone_entry_screen.dart';
 import 'package:gwid/api/api_service.dart';
 import 'package:gwid/screens/settings/reconnection_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:gwid/services/version_checker.dart';
 import 'package:app_links/app_links.dart';
 import 'package:gwid/models/chat.dart';
 import 'package:gwid/models/contact.dart';
@@ -23,7 +22,7 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  static bool _isDialogShowing = false;
+  static final bool _isDialogShowing = false;
   late Future<Map<String, dynamic>> _chatsFuture;
   Profile? _myProfile;
   bool _isProfileLoading = true;
@@ -53,9 +52,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     })();
 
-    _checkVersionInBackground();
     _initDeepLinking();
-    _showSpoofUpdateDialogIfNeeded();
 
     _connectionSubscription = ApiService.instance.connectionStatus.listen((
       status,
@@ -148,116 +145,6 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       if (mounted) setState(() => _isProfileLoading = false);
       print("Ошибка загрузки профиля в _HomeScreenState: $e");
-    }
-  }
-
-  Future<void> _showUpdateDialog(
-    BuildContext context,
-    String newVersion,
-  ) async {
-    await showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext dialogContext) {
-        return AlertDialog(
-          title: const Text('Доступно обновление'),
-          content: Text(
-            'Найдена новая версия приложения: $newVersion. Рекомендуется обновить данные сессии, чтобы соответствовать последней версии.',
-          ),
-          actions: <Widget>[
-            TextButton(
-              child: const Text('Отменить'),
-              onPressed: () {
-                Navigator.of(dialogContext).pop();
-              },
-            ),
-            FilledButton(
-              child: const Text('Обновить'),
-              onPressed: () async {
-                final prefs = await SharedPreferences.getInstance();
-                await prefs.setString('spoof_appversion', newVersion);
-
-                try {
-                  await ApiService.instance.performFullReconnection();
-                  print("Переподключение выполнено успешно");
-                } catch (e) {
-                  print("Ошибка переподключения: $e");
-                }
-
-                if (mounted) {
-                  Navigator.of(dialogContext).pop();
-                }
-
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Версия сессии обновлена до $newVersion!'),
-                      backgroundColor: Colors.green.shade700,
-                    ),
-                  );
-                }
-              },
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  Future<void> _checkVersionInBackground() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-
-      final isWebVersionCheckEnabled =
-          prefs.getBool('enable_web_version_check') ?? false;
-
-      if (!isWebVersionCheckEnabled) {
-        print("Web version checking is disabled, skipping check");
-        return;
-      }
-
-      final isAutoUpdateEnabled = prefs.getBool('auto_update_enabled') ?? false;
-      final showUpdateNotification =
-          prefs.getBool('show_update_notification') ?? true;
-
-      final currentVersion = prefs.getString('spoof_appversion') ?? '0.0.0';
-      final latestVersion = await VersionChecker.getLatestVersion();
-
-      if (latestVersion != currentVersion) {
-        if (isAutoUpdateEnabled) {
-          await prefs.setString('spoof_appversion', latestVersion);
-          print("Версия сессии автоматически обновлена до $latestVersion");
-
-          try {
-            await ApiService.instance.performFullReconnection();
-            print("Переподключение выполнено успешно");
-          } catch (e) {
-            print("Ошибка переподключения: $e");
-          }
-
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  'Спуф сессии автоматически обновлен до версии $latestVersion',
-                ),
-                backgroundColor: Colors.green.shade700,
-                behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                margin: const EdgeInsets.all(10),
-              ),
-            );
-          }
-        } else if (showUpdateNotification) {
-          if (mounted) {
-            _showUpdateDialog(context, latestVersion);
-          }
-        }
-      }
-    } catch (e) {
-      print("Фоновая проверка версии не удалась: $e");
     }
   }
 
@@ -870,157 +757,6 @@ class _HomeScreenState extends State<HomeScreen> {
         margin: const EdgeInsets.all(10),
       ),
     );
-  }
-
-  Future<void> _showSpoofUpdateDialogIfNeeded() async {
-    if (_isDialogShowing) return;
-
-    final prefs = await SharedPreferences.getInstance();
-    final shouldShow = prefs.getBool('show_spoof_update_dialog') ?? true;
-
-    if (!shouldShow || !mounted) return;
-
-    _isDialogShowing = true;
-
-    Future.delayed(const Duration(milliseconds: 500), () {
-      if (!mounted) {
-        _isDialogShowing = false;
-        return;
-      }
-
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (BuildContext context) {
-          bool dontShowAgain = false;
-
-          return StatefulBuilder(
-            builder: (context, setState) {
-              return AlertDialog(
-                title: const Text('Проверка обновлений'),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Хотите проверить обновления спуфа?'),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Checkbox(
-                          value: dontShowAgain,
-                          onChanged: (value) {
-                            setState(() {
-                              dontShowAgain = value ?? false;
-                            });
-                          },
-                        ),
-                        const Expanded(child: Text('Больше не показывать')),
-                      ],
-                    ),
-                  ],
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () async {
-                      if (dontShowAgain) {
-                        final prefs = await SharedPreferences.getInstance();
-                        await prefs.setBool('show_spoof_update_dialog', false);
-                      }
-                      Navigator.of(context).pop();
-                    },
-                    child: const Text('Нет'),
-                  ),
-                  TextButton(
-                    onPressed: () async {
-                      if (dontShowAgain) {
-                        final prefs = await SharedPreferences.getInstance();
-                        await prefs.setBool('show_spoof_update_dialog', false);
-                      }
-                      Navigator.of(context).pop();
-                      await _checkSpoofUpdateManually();
-                    },
-                    child: const Text('Ок!'),
-                  ),
-                ],
-              );
-            },
-          );
-        },
-      ).then((_) {
-        _isDialogShowing = false;
-      });
-    });
-  }
-
-  Future<void> _checkSpoofUpdateManually() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-
-      final isAutoUpdateEnabled = prefs.getBool('auto_update_enabled') ?? false;
-      final currentVersion = prefs.getString('spoof_appversion') ?? '0.0.0';
-      final latestVersion = await VersionChecker.getLatestVersion();
-
-      if (latestVersion != currentVersion) {
-        if (isAutoUpdateEnabled) {
-          await prefs.setString('spoof_appversion', latestVersion);
-          print("Версия сессии обновлена до $latestVersion");
-
-          try {
-            await ApiService.instance.performFullReconnection();
-            print("Переподключение выполнено успешно");
-          } catch (e) {
-            print("Ошибка переподключения: $e");
-          }
-
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Спуф сессии обновлен до версии $latestVersion'),
-                backgroundColor: Colors.green.shade700,
-                behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                margin: const EdgeInsets.all(10),
-              ),
-            );
-          }
-        } else {
-          if (mounted) {
-            _showUpdateDialog(context, latestVersion);
-          }
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Версия спуфа актуальна'),
-              backgroundColor: Colors.blue.shade700,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              margin: const EdgeInsets.all(10),
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      print("Проверка версии спуфа не удалась: $e");
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Ошибка проверки обновлений: $e'),
-            backgroundColor: Colors.red.shade700,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            margin: const EdgeInsets.all(10),
-          ),
-        );
-      }
-    }
   }
 
   void _handleGroupJoinError(Map<String, dynamic> message) {

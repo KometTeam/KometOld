@@ -422,8 +422,7 @@ extension ApiServiceConnection on ApiService {
         print('❌ Детали ошибки: ${truncatePayloadObjectForLog(payload)}');
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 97 &&
+      if (decodedMessage['opcode'] == 97 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256) &&
           decodedMessage['payload'] != null &&
           decodedMessage['payload']['token'] != null) {
@@ -433,8 +432,7 @@ extension ApiServiceConnection on ApiService {
         return;
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 6 &&
+      if (decodedMessage['opcode'] == 6 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         _isSessionOnline = true;
         _isSessionReady = false;
@@ -459,8 +457,7 @@ extension ApiServiceConnection on ApiService {
         }
       }
 
-      if (decodedMessage is Map &&
-          (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
+      if ((decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
         final error = decodedMessage['payload'];
         final errorMsg = error?['message'] ?? error?['error'] ?? 'server_error';
         print('← ERROR: $errorMsg');
@@ -527,8 +524,7 @@ extension ApiServiceConnection on ApiService {
         }
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 18 &&
+      if (decodedMessage['opcode'] == 18 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256) &&
           decodedMessage['payload'] != null) {
         final payload = decodedMessage['payload'];
@@ -548,8 +544,7 @@ extension ApiServiceConnection on ApiService {
         }
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 22 &&
+      if (decodedMessage['opcode'] == 22 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
@@ -558,8 +553,7 @@ extension ApiServiceConnection on ApiService {
         });
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 116 &&
+      if (decodedMessage['opcode'] == 116 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
@@ -569,8 +563,7 @@ extension ApiServiceConnection on ApiService {
       }
 
       // opcode 112: Начало установки 2FA - получаем trackId
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 112 &&
+      if (decodedMessage['opcode'] == 112 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
@@ -581,8 +574,7 @@ extension ApiServiceConnection on ApiService {
       }
 
       // opcode 107: Пароль 2FA установлен
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 107 &&
+      if (decodedMessage['opcode'] == 107 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         _messageController.add({
           'type': '2fa_password_set',
@@ -591,8 +583,7 @@ extension ApiServiceConnection on ApiService {
       }
 
       // opcode 108: Подсказка 2FA установлена
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 108 &&
+      if (decodedMessage['opcode'] == 108 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         _messageController.add({
           'type': '2fa_hint_set',
@@ -601,8 +592,7 @@ extension ApiServiceConnection on ApiService {
       }
 
       // opcode 109: Email для 2FA установлен, получаем данные для ввода кода
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 109 &&
+      if (decodedMessage['opcode'] == 109 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
@@ -615,8 +605,7 @@ extension ApiServiceConnection on ApiService {
       }
 
       // opcode 110: Email подтверждён
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 110 &&
+      if (decodedMessage['opcode'] == 110 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
@@ -628,8 +617,7 @@ extension ApiServiceConnection on ApiService {
       }
 
       // opcode 111: 2FA успешно установлен
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 111 &&
+      if (decodedMessage['opcode'] == 111 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         _messageController.add({
           'type': '2fa_setup_complete',
@@ -638,8 +626,7 @@ extension ApiServiceConnection on ApiService {
       }
 
       // 2FA Setup error handlers
-      if (decodedMessage is Map &&
-          decodedMessage['cmd'] == 3 &&
+      if (decodedMessage['cmd'] == 3 &&
           [107, 108, 109, 110, 111, 112].contains(decodedMessage['opcode'])) {
         _messageController.add({
           'type': '2fa_error',
@@ -648,8 +635,7 @@ extension ApiServiceConnection on ApiService {
         });
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 57 &&
+      if (decodedMessage['opcode'] == 57 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
@@ -658,15 +644,13 @@ extension ApiServiceConnection on ApiService {
         });
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 46 &&
+      if (decodedMessage['opcode'] == 46 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         final payload = decodedMessage['payload'];
         _messageController.add({'type': 'contact_found', 'payload': payload});
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 46 &&
+      if (decodedMessage['opcode'] == 46 &&
           (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
@@ -675,15 +659,13 @@ extension ApiServiceConnection on ApiService {
         });
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 32 &&
+      if (decodedMessage['opcode'] == 32 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         final payload = decodedMessage['payload'];
         _messageController.add({'type': 'channels_found', 'payload': payload});
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 32 &&
+      if (decodedMessage['opcode'] == 32 &&
           (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
@@ -692,8 +674,7 @@ extension ApiServiceConnection on ApiService {
         });
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 89 &&
+      if (decodedMessage['opcode'] == 89 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         final payload = decodedMessage['payload'];
         final chat = payload['chat'] as Map<String, dynamic>?;
@@ -719,15 +700,13 @@ extension ApiServiceConnection on ApiService {
         }
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 89 &&
+      if (decodedMessage['opcode'] == 89 &&
           (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
         final payload = decodedMessage['payload'];
         _messageController.add({'type': 'channel_error', 'payload': payload});
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 57 &&
+      if (decodedMessage['opcode'] == 57 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
@@ -736,22 +715,19 @@ extension ApiServiceConnection on ApiService {
         });
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 57 &&
+      if (decodedMessage['opcode'] == 57 &&
           (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
         final payload = decodedMessage['payload'];
         _messageController.add({'type': 'channel_error', 'payload': payload});
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 59 &&
+      if (decodedMessage['opcode'] == 59 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         final payload = decodedMessage['payload'];
         _messageController.add({'type': 'group_members', 'payload': payload});
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 162 &&
+      if (decodedMessage['opcode'] == 162 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         final payload = decodedMessage['payload'];
         try {
@@ -765,9 +741,7 @@ extension ApiServiceConnection on ApiService {
         }
       }
 
-      if (decodedMessage is Map<String, dynamic>) {
-        _messageController.add(decodedMessage);
-      }
+      _messageController.add(decodedMessage);
     } catch (e) {
       print('← ERROR invalid message: $e');
     }

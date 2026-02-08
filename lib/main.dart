@@ -237,7 +237,7 @@ class MyApp extends StatelessWidget {
             return SizedBox.expand(
               child: Stack(
                 children: [
-                  if (child != null) child,
+                  ?child,
                   if (showHud)
                     const Positioned(top: 8, right: 56, child: _MiniFpsHud()),
                 ],

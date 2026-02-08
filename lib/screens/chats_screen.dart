@@ -92,7 +92,6 @@ class _ChatsScreenState extends State<ChatsScreen>
   String? _selectedFolderId;
   late TabController _folderTabController;
 
-
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   late AnimationController _searchAnimationController;
@@ -1338,7 +1337,9 @@ class _ChatsScreenState extends State<ChatsScreen>
 
               if (_filteredChats.isEmpty && _allChats.isNotEmpty) {
                 _filteredChats = List.from(_allChats)
-                  ..sort((a, b) => b.lastMessage.time.compareTo(a.lastMessage.time));
+                  ..sort(
+                    (a, b) => b.lastMessage.time.compareTo(a.lastMessage.time),
+                  );
               }
               if (_filteredChats.isEmpty && _allChats.isEmpty) {
                 // Если чаты еще не загружены - показываем индикатор загрузки
@@ -3380,10 +3381,7 @@ class _ChatsScreenState extends State<ChatsScreen>
                     layoutBuilder: (currentChild, previousChildren) {
                       return Stack(
                         alignment: Alignment.centerLeft,
-                        children: [
-                          ...previousChildren,
-                          if (currentChild != null) currentChild,
-                        ],
+                        children: [...previousChildren, ?currentChild],
                       );
                     },
                     child: _buildCurrentTitleWidget(),
@@ -3799,12 +3797,25 @@ class _ChatsScreenState extends State<ChatsScreen>
         );
       }
     } else if (message.text.isNotEmpty) {
-      messagePreview = Text(
-        message.text.replaceAll("\n", " "),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(color: colors.onSurfaceVariant),
-      );
+      final text = message.text.replaceAll("\n", " ");
+      if (_looksLikeKometMessage(text)) {
+        final built = _tryBuildKometPreview(text, colors.onSurfaceVariant);
+        messagePreview =
+            built ??
+            Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: colors.onSurfaceVariant),
+            );
+      } else {
+        messagePreview = Text(
+          text,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: colors.onSurfaceVariant),
+        );
+      }
     } else {
       messagePreview = Text(
         isForwarded ? 'Пересланное сообщение' : '',
@@ -3815,6 +3826,163 @@ class _ChatsScreenState extends State<ChatsScreen>
     }
 
     return messagePreview;
+  }
+
+  bool _looksLikeKometMessage(String text) {
+    final lower = text.toLowerCase();
+    return lower.contains('komet.color_') ||
+        lower.contains('komet.cosmetic.pulse#') ||
+        lower.contains("komet.cosmetic.galaxy'");
+  }
+
+  Widget? _tryBuildKometPreview(String text, Color baseColor) {
+    try {
+      final spans = _parseKometPreviewSpans(text, baseColor);
+      if (spans.isEmpty) return null;
+      return RichText(
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        text: TextSpan(children: spans),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  List<InlineSpan> _parseKometPreviewSpans(String text, Color baseColor) {
+    final spans = <InlineSpan>[];
+    int index = 0;
+
+    while (index < text.length) {
+      final nextPulse = text.indexOf('komet.cosmetic.pulse#', index);
+      final nextGalaxy = text.indexOf("komet.cosmetic.galaxy'", index);
+      final nextColor = text.indexOf('komet.color_', index);
+
+      int nextMarker = text.length;
+      String? markerType;
+
+      if (nextPulse != -1 && nextPulse < nextMarker) {
+        nextMarker = nextPulse;
+        markerType = 'pulse';
+      }
+      if (nextGalaxy != -1 && nextGalaxy < nextMarker) {
+        nextMarker = nextGalaxy;
+        markerType = 'galaxy';
+      }
+      if (nextColor != -1 && nextColor < nextMarker) {
+        nextMarker = nextColor;
+        markerType = 'color';
+      }
+
+      if (markerType == null) {
+        if (index < text.length) {
+          spans.add(
+            TextSpan(
+              text: text.substring(index),
+              style: TextStyle(color: baseColor),
+            ),
+          );
+        }
+        break;
+      }
+
+      if (nextMarker > index) {
+        spans.add(
+          TextSpan(
+            text: text.substring(index, nextMarker),
+            style: TextStyle(color: baseColor),
+          ),
+        );
+      }
+
+      if (markerType == 'pulse') {
+        const prefix = 'komet.cosmetic.pulse#';
+        final afterHash = text.substring(nextMarker + prefix.length);
+        final quoteIndex = afterHash.indexOf("'");
+        if (quoteIndex == -1) throw StateError('invalid pulse syntax');
+        final hexStr = afterHash.substring(0, quoteIndex).trim();
+        final color = _parseKometHexColor(hexStr);
+
+        final textStart = quoteIndex + 1;
+        final secondQuote = afterHash.indexOf("'", textStart);
+        if (secondQuote == -1) throw StateError('invalid pulse text');
+        final segmentText = afterHash.substring(textStart, secondQuote);
+
+        spans.add(
+          TextSpan(
+            text: segmentText,
+            style: TextStyle(color: color, fontWeight: FontWeight.w600),
+          ),
+        );
+
+        index = nextMarker + prefix.length + secondQuote + 2;
+        continue;
+      }
+
+      if (markerType == 'galaxy') {
+        const prefix = "komet.cosmetic.galaxy'";
+        final textStart = nextMarker + prefix.length;
+        final quoteIndex = text.indexOf("'", textStart);
+        if (quoteIndex == -1) throw StateError('invalid galaxy syntax');
+        final segmentText = text.substring(textStart, quoteIndex);
+        spans.add(
+          TextSpan(
+            text: segmentText,
+            style: TextStyle(color: baseColor, fontWeight: FontWeight.w600),
+          ),
+        );
+        index = quoteIndex + 1;
+        continue;
+      }
+
+      if (markerType == 'color') {
+        const marker = 'komet.color_';
+        final colorStart = nextMarker + marker.length;
+        final firstQuote = text.indexOf("'", colorStart);
+        if (firstQuote == -1) throw StateError('invalid color syntax');
+        final colorStr = text.substring(colorStart, firstQuote).trim();
+        final color = _parseKometHexColor(colorStr);
+
+        final textStart = firstQuote + 1;
+        final secondQuote = text.indexOf("'", textStart);
+        if (secondQuote == -1) throw StateError('invalid color text');
+        final segmentText = text.substring(textStart, secondQuote);
+
+        spans.add(
+          TextSpan(
+            text: segmentText,
+            style: TextStyle(color: color, fontWeight: FontWeight.w600),
+          ),
+        );
+        index = secondQuote + 1;
+        continue;
+      }
+    }
+
+    return spans;
+  }
+
+  Color _parseKometHexColor(String raw) {
+    var hex = raw.trim();
+    if (hex.startsWith('#')) {
+      hex = hex.substring(1);
+    }
+    if (hex.isEmpty) throw StateError('empty hex');
+
+    if (hex.length == 3) {
+      hex = '${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}';
+    } else if (hex.length == 4) {
+      hex =
+          '${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}';
+    } else if (hex.length == 5) {
+      hex = '0$hex';
+    } else if (hex.length < 6) {
+      hex = hex.padRight(6, '0');
+    } else if (hex.length > 6) {
+      hex = hex.substring(0, 6);
+    }
+
+    return Color(int.parse('FF$hex', radix: 16));
   }
 
   Widget _buildLastMessagePreview(Chat chat) {
