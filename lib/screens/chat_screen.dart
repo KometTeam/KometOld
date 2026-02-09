@@ -22,7 +22,6 @@ import 'package:image_picker/image_picker.dart';
 import 'package:gwid/services/chat_cache_service.dart';
 import 'package:gwid/services/chat_read_settings_service.dart';
 import 'package:gwid/services/contact_local_names_service.dart';
-import 'package:gwid/services/cache_service.dart';
 import 'package:gwid/services/notification_service.dart';
 import 'package:gwid/services/message_queue_service.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
@@ -76,6 +75,7 @@ class ChatDebugSettings {
   }
 }
 
+// Sticker panel widget - referenced by chat_screen_widgets.dart part
 class _StickerPanel extends StatelessWidget {
   final bool isLoading;
   final Object? error;
@@ -490,6 +490,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   Message? _editingMessage;
   final ValueNotifier<bool> _testAnimationTrigger = ValueNotifier(false);
 
+  // Input field key and height notifier
+  final GlobalKey _inputKey = GlobalKey();
+  final ValueNotifier<double> _inputHeightNotifier = ValueNotifier<double>(56.0);
+
   // Scroll states
   bool _isUserAtBottom = true;
   bool _isScrollingToBottom = false;
@@ -599,6 +603,11 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     NotificationService().clearNotificationMessagesForChat(widget.chatId);
 
     _textController.addListener(_onTextControllerChanged);
+  }
+
+  // Text controller change handler
+  void _onTextControllerChanged() {
+    _handleChatInputChanged(_textController.text);
 
     _textFocusNode.addListener(() {
       if (_textFocusNode.hasFocus) {
@@ -721,17 +730,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   }
 
   // Placeholder methods that will be implemented in part files
-  void _handleTextChangedForKometColor() {
-    // Implemented in logic file
-  }
-
-  void _updateTextSelectionState() {
-    // Implemented in logic file
-  }
-
-  void _handleMentionFiltering(String text) {
-    // Implemented in logic file
-  }
+  // These methods are implemented in chat_screen_logic.dart via extension
 
   void _startSelectionCheck() {
     // Implemented in logic file

@@ -498,7 +498,8 @@ extension on _ChatScreenState {
 
   // Connection Banner
   Widget _buildConnectionBanner() {
-    final isConnected = _connectionStatus == 'connected';
+    // Use real connection state from ApiService for accurate status
+    final isConnected = ApiService.instance.isActuallyConnected;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 300),

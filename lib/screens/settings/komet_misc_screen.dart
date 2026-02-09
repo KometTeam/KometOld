@@ -524,7 +524,6 @@ class _ToggleCard extends StatelessWidget {
   final String description;
   final bool value;
   final ValueChanged<bool>? onChanged;
-  final bool isDisabled;
   final Gradient gradient;
 
   const _ToggleCard({
@@ -534,7 +533,6 @@ class _ToggleCard extends StatelessWidget {
     required this.value,
     required this.onChanged,
     required this.gradient,
-    this.isDisabled = false,
   });
 
   @override
@@ -554,9 +552,7 @@ class _ToggleCard extends StatelessWidget {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: isDisabled
-              ? null
-              : (onChanged != null ? () => onChanged!(!value) : null),
+          onTap: onChanged != null ? () => onChanged!(!value) : null,
           borderRadius: BorderRadius.circular(20),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -586,7 +582,7 @@ class _ToggleCard extends StatelessWidget {
                         style: GoogleFonts.manrope(
                           textStyle: textTheme.titleMedium,
                           fontWeight: FontWeight.bold,
-                          color: isDisabled ? colors.onSurfaceVariant : null,
+                          color: null,
                         ),
                       ),
                       const SizedBox(height: 4),
@@ -594,9 +590,7 @@ class _ToggleCard extends StatelessWidget {
                         description,
                         style: GoogleFonts.manrope(
                           textStyle: textTheme.bodySmall,
-                          color: colors.onSurfaceVariant.withValues(
-                            alpha: isDisabled ? 0.5 : 1,
-                          ),
+                          color: colors.onSurfaceVariant,
                           height: 1.3,
                         ),
                         maxLines: 2,
@@ -608,7 +602,7 @@ class _ToggleCard extends StatelessWidget {
                 const SizedBox(width: 16),
                 Switch(
                   value: value,
-                  onChanged: isDisabled ? null : onChanged,
+                  onChanged: onChanged,
                   activeThumbColor: colors.primary,
                   inactiveThumbColor: colors.outlineVariant,
                 ),

@@ -37,14 +37,11 @@ class Message {
     final senderId = json['sender'] is int ? json['sender'] as int : 0;
     final time = json['time'] is int ? json['time'] as int : 0;
 
-    final rawText = json['text'] ?? '';
-    final parsedText = rawText is String
-        ? rawText.replaceAll(r'\r\n', '\n').replaceAll(r'\n', '\n')
-        : '';
+    final text = json['text']?.toString() ?? '';
 
     return Message(
       id: json['id']?.toString() ?? 'local_${DateTime.now().millisecondsSinceEpoch}',
-      text: json['text'] ?? '',
+      text: text,
       time: time,
       senderId: senderId,
       status: json['status'] as String?,
