@@ -42,6 +42,16 @@ import 'package:gwid/widgets/message_bubble/utils/user_color_helper.dart';
 import 'package:gwid/widgets/message_bubble/widgets/dialogs/custom_emoji_dialog.dart';
 import 'package:gwid/widgets/message_bubble/widgets/media/audio_player_widget.dart';
 
+/// Вспомогательный класс для хранения информации о совпадении URL
+class LinkifyMatch {
+  final int start;
+  final int end;
+  final String text;
+  final bool hasProtocol;
+  
+  LinkifyMatch(this.start, this.end, this.text, this.hasProtocol);
+}
+
 class DomainLinkifier extends Linkifier {
   const DomainLinkifier();
 
@@ -51,8 +61,24 @@ class DomainLinkifier extends Linkifier {
     LinkifyOptions options,
   ) {
     // Регулярка для поиска URL с протоколом и без
-    final urlRegex = RegExp(
-      r'(?:(?:https?|ftp|telnet)://(?:[а-яёa-z0-9_-]{1,32}(?::[а-яёa-z0-9_-]{1,32})?@)?)?(?:(?:[а-яёa-z0-9-]{1,128}\.)+(?:рф|онлайн|сайт|ру|su|com|net|org|mil|edu|arpa|gov|biz|info|aero|inc|name|app|dev|io|co|shop|club|guru|ninja|xyz|top|store|tech|space|world|today|news|[а-яёa-z]{2,})|(?!0)(?:(?!0[^.]|255)[0-9]{1,3}\.){3}(?!0|255)[0-9]{1,3})(?::[0-9]{1,5})?(?:/[а-яёa-z0-9.,_@%&?+=~/-]*)?(?:#[^ ]*)?',
+    // Требует валидную доменную зону из списка, чтобы избежать ложных срабатываний на обычные слова с точкой
+    final validTlds = r'рф|онлайн|сайт|ру|su|com|net|org|mil|edu|arpa|gov|biz|info|aero|inc|name|app|dev|io|co|shop|club|guru|ninja|xyz|top|store|tech|space|world|today|news|ua|by|kz|uz|ge|az|am|md|tj|tm|kg|lv|lt|ee|pl|cz|sk|hu|ro|bg|rs|hr|si|al|ba|mk|me|ua|cn|jp|kr|tw|hk|sg|my|id|th|vn|ph|in|pk|bd|lk|np|au|nz|ca|us|uk|de|fr|it|es|pt|nl|be|ch|at|se|no|dk|fi|is|ie|uk|gov|edu|mil|int|eu|biz|info|name|museum|coop|aero|jobs|mobi|travel|xxx|post|geo|mail|рф|дети|москва|онлайн|сайт|бел';
+    
+    // URL с протоколом - разрешаем любой домен
+    final urlWithProtocolRegex = RegExp(
+      r'(?:https?|ftp|telnet)://(?:[а-яёa-z0-9_-]{1,32}(?::[а-яёa-z0-9_-]{1,32})?@)?(?:[а-яёa-z0-9-]{1,128}\.)+(?:' + validTlds + r')(?::[0-9]{1,5})?(?:/[а-яёa-z0-9.,_@%&?+=~/-]*)?(?:#[^ ]*)?',
+      caseSensitive: false,
+    );
+    
+    // URL без протокола - требуем www. или известную доменную зону
+    final urlWithoutProtocolRegex = RegExp(
+      r'(?:www\.)[а-яёa-z0-9-]{1,128}\.(?:' + validTlds + r')(?::[0-9]{1,5})?(?:/[а-яёa-z0-9.,_@%&?+=~/-]*)?(?:#[^ ]*)?',
+      caseSensitive: false,
+    );
+    
+    // IP адреса
+    final ipRegex = RegExp(
+      r'(?:(?:https?|ftp|telnet)://)?(?!0)(?:(?!0[^.]|255)[0-9]{1,3}\.){3}(?!0|255)[0-9]{1,3}(?::[0-9]{1,5})?(?:/[а-яёa-z0-9.,_@%&?+=~/-]*)?(?:#[^ ]*)?',
       caseSensitive: false,
     );
 
@@ -60,17 +86,36 @@ class DomainLinkifier extends Linkifier {
 
     for (final element in elements) {
       if (element is TextElement) {
-        final text = element.text;
-        final matches = urlRegex.allMatches(text);
-
-        if (matches.isNotEmpty) {
+        String text = element.text;
+        final List<LinkifyMatch> allMatches = [];
+        
+        // Собираем все совпадения из всех регулярок
+        for (final match in urlWithProtocolRegex.allMatches(text)) {
+          allMatches.add(LinkifyMatch(match.start, match.end, text.substring(match.start, match.end), true));
+        }
+        for (final match in urlWithoutProtocolRegex.allMatches(text)) {
+          // Проверяем, что это не пересекается с уже найденными URL с протоколом
+          if (!allMatches.any((m) => match.start >= m.start && match.end <= m.end)) {
+            allMatches.add(LinkifyMatch(match.start, match.end, text.substring(match.start, match.end), false));
+          }
+        }
+        for (final match in ipRegex.allMatches(text)) {
+          if (!allMatches.any((m) => match.start >= m.start && match.end <= m.end)) {
+            allMatches.add(LinkifyMatch(match.start, match.end, text.substring(match.start, match.end), true));
+          }
+        }
+        
+        // Сортируем по позиции
+        allMatches.sort((a, b) => a.start.compareTo(b.start));
+        
+        if (allMatches.isNotEmpty) {
           var lastIndex = 0;
-          for (final match in matches) {
+          for (final match in allMatches) {
             if (match.start > lastIndex) {
               list.add(TextElement(text.substring(lastIndex, match.start)));
             }
 
-            final url = text.substring(match.start, match.end);
+            final url = match.text;
             // Добавляем протокол, если его нет
             final fullUrl =
                 url.startsWith('http://') ||
@@ -176,7 +221,7 @@ class ChatMessageBubble extends StatelessWidget {
     this.isFirstInGroup = false,
     this.isLastInGroup = false,
     this.isGrouped = false,
-    this.avatarVerticalOffset = -35.0,
+    this.avatarVerticalOffset = -8.0,
     this.chatId,
     this.isEncryptionPasswordSet = false,
     this.decryptedText,
@@ -4409,6 +4454,30 @@ class ChatMessageBubble extends StatelessWidget {
         ),
 
       if ((isGroupChat || isChannel) && !isMe && senderName != null) const SizedBox(height: 2),
+      // Показываем кто переслал сообщение
+      if (message.isForwarded && forwardedFrom != null)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.forward,
+                size: 12,
+                color: textColor.withValues(alpha: 0.5),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                'Переслано от $forwardedFrom',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: textColor.withValues(alpha: 0.6),
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
+          ),
+        ),
       if (message.isForwarded && message.link != null) ...[
         if (message.link is Map<String, dynamic>)
           _buildForwardedMessage(
@@ -5227,6 +5296,7 @@ class ChatMessageBubble extends StatelessWidget {
         builder: (context) => MouseRegion(
           cursor: SystemMouseCursors.click,
           child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
             onTap: () => openUserProfileById(context, message.senderId),
             child: AvatarCacheService().getAvatarWidget(
               avatarUrl,

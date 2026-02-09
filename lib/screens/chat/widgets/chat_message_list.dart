@@ -22,6 +22,7 @@ class ChatMessageList extends StatelessWidget {
   final Function(Message)? onReplyTap;
   final Function(Message)? onEditTap;
   final Function(Message)? onDeleteTap;
+  final Function(String messageId)? onGoToMessage;
   final VoidCallback? onLoadMore;
   final bool isGroupChat;
   
@@ -34,6 +35,7 @@ class ChatMessageList extends StatelessWidget {
     this.onReplyTap,
     this.onEditTap,
     this.onDeleteTap,
+    this.onGoToMessage,
     this.onLoadMore,
     this.isGroupChat = false,
   });
@@ -60,6 +62,7 @@ class ChatMessageList extends StatelessWidget {
           onMessageTap: onMessageTap,
           onMessageLongPress: onMessageLongPress,
           onReplyTap: onReplyTap,
+          onGoToMessage: onGoToMessage,
           onLoadMore: onLoadMore,
           isGroupChat: isGroupChat,
           controller: controller,
@@ -76,6 +79,7 @@ class _MessageListView extends StatefulWidget {
   final Function(Message)? onMessageTap;
   final Function(Message)? onMessageLongPress;
   final Function(Message)? onReplyTap;
+  final Function(String messageId)? onGoToMessage;
   final VoidCallback? onLoadMore;
   final bool isGroupChat;
   final ChatController controller;
@@ -87,6 +91,7 @@ class _MessageListView extends StatefulWidget {
     this.onMessageTap,
     this.onMessageLongPress,
     this.onReplyTap,
+    this.onGoToMessage,
     this.onLoadMore,
     this.isGroupChat = false,
     required this.controller,
@@ -104,6 +109,8 @@ class _MessageListViewState extends State<_MessageListView> {
   void initState() {
     super.initState();
     _positionsListener.itemPositions.addListener(_onScroll);
+    // Регистрируем scroll controller в ChatController
+    widget.controller.setScrollController(_scrollController, _positionsListener);
   }
   
   void _onScroll() {
@@ -130,7 +137,7 @@ class _MessageListViewState extends State<_MessageListView> {
       itemPositionsListener: _positionsListener,
       itemCount: widget.messages.length + (widget.isLoadingMore ? 1 : 0),
       reverse: true,
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      padding: const EdgeInsets.only(top: 8, bottom: 16),
       minCacheExtent: 200.0,
       addRepaintBoundaries: true,
       addAutomaticKeepAlives: false,
@@ -155,9 +162,7 @@ class _MessageListViewState extends State<_MessageListView> {
           isMe: isMe,
           onTap: () => widget.onMessageTap?.call(message),
           onLongPress: () => widget.onMessageLongPress?.call(message),
-          onReplyTap: message.isReply 
-              ? () => widget.onReplyTap?.call(message)
-              : null,
+          onReplyTap: widget.onGoToMessage,
           isGroupChat: widget.isGroupChat,
           isGrouped: isGrouped,
           senderContact: senderContact,

@@ -264,39 +264,7 @@ class _UserProfilePanelState extends State<UserProfilePanel> {
                 const SizedBox(height: 24),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _buildActionButton(
-                      icon: Icons.phone,
-                      label: 'Позвонить',
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Звонков пока нету'),
-                            behavior: SnackBarBehavior.floating,
-                          ),
-                        );
-                      },
-                      colors: colors,
-                    ),
-                    if (widget.userId >= 0) ...[
-                      _buildActionButton(
-                        icon: Icons.person_add,
-                        label: _isInContacts ? 'В контактах' : 'В контакты',
-                        onPressed: _isInContacts || _isAddingToContacts
-                            ? null
-                            : _handleAddToContacts,
-                        colors: colors,
-                        isLoading: _isAddingToContacts,
-                      ),
-                      _buildActionButton(
-                        icon: Icons.message,
-                        label: 'Написать',
-                        onPressed: _isOpeningChat ? null : _handleWriteMessage,
-                        colors: colors,
-                        isLoading: _isOpeningChat,
-                      ),
-                    ],
-                  ],
+                  children: _buildActionButtons(colors),
                 ),
                 if (_displayDescription != null &&
                     _displayDescription!.isNotEmpty) ...[
@@ -430,6 +398,69 @@ class _UserProfilePanelState extends State<UserProfilePanel> {
     }
   }
 
+  Future<void> _handleOpenExistingChat() async {
+    if (_isOpeningChat) return;
+    
+    final chatId = widget.dialogChatId;
+    if (chatId == null || chatId == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Чат не найден'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _isOpeningChat = true;
+    });
+
+    try {
+      // Закрываем профиль
+      Navigator.of(context).pop();
+      
+      // Открываем существующий чат
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (ctx) => ChatScreen(
+            chatId: chatId,
+            pinnedMessage: null,
+            contact: Contact(
+              id: widget.userId,
+              name: widget.name ?? _displayName,
+              firstName: widget.firstName ?? '',
+              lastName: widget.lastName ?? '',
+              description: widget.description,
+              photoBaseUrl: widget.avatarUrl,
+              accountStatus: 0,
+              status: null,
+              options: const [],
+            ),
+            myId: widget.myId,
+            isGroupChat: false,
+            isChannel: false,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Ошибка при открытии чата: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isOpeningChat = false;
+        });
+      }
+    }
+  }
+
   Future<void> _handleAddToContacts() async {
     if (_isAddingToContacts || _isInContacts) return;
 
@@ -465,6 +496,150 @@ class _UserProfilePanelState extends State<UserProfilePanel> {
       if (mounted) {
         setState(() {
           _isAddingToContacts = false;
+        });
+      }
+    }
+  }
+
+  /// Строит кнопки действий в зависимости от типа контакта
+  List<Widget> _buildActionButtons(ColorScheme colors) {
+    final isGroupOrChannel = widget.userId < 0;
+    
+    if (isGroupOrChannel) {
+      // Для групп и каналов
+      final isChannel = widget.currentChatId != null && widget.currentChatId! < 0;
+      return [
+        _buildActionButton(
+          icon: isChannel ? Icons.newspaper : Icons.group,
+          label: isChannel ? 'Открыть канал' : 'Открыть группу',
+          onPressed: _isOpeningChat ? null : _handleOpenGroupOrChannel,
+          colors: colors,
+          isLoading: _isOpeningChat,
+        ),
+        _buildActionButton(
+          icon: Icons.share,
+          label: 'Поделиться',
+          onPressed: () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Скоро будет доступно'),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          },
+          colors: colors,
+        ),
+      ];
+    }
+    
+    // Для личных чатов
+    final buttons = <Widget>[
+      _buildActionButton(
+        icon: Icons.phone,
+        label: 'Позвонить',
+        onPressed: () {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Звонков пока нету'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        },
+        colors: colors,
+      ),
+    ];
+    
+    if (widget.userId >= 0) {
+      buttons.add(
+        _buildActionButton(
+          icon: Icons.person_add,
+          label: _isInContacts ? 'В контактах' : 'В контакты',
+          onPressed: _isInContacts || _isAddingToContacts
+              ? null
+              : _handleAddToContacts,
+          colors: colors,
+          isLoading: _isAddingToContacts,
+        ),
+      );
+      
+      // Если есть dialogChatId - показываем "Открыть чат", иначе "Написать"
+      if (widget.dialogChatId != null && widget.dialogChatId! > 0) {
+        buttons.add(
+          _buildActionButton(
+            icon: Icons.chat,
+            label: 'Открыть чат',
+            onPressed: _isOpeningChat ? null : _handleOpenExistingChat,
+            colors: colors,
+            isLoading: _isOpeningChat,
+          ),
+        );
+      } else {
+        buttons.add(
+          _buildActionButton(
+            icon: Icons.message,
+            label: 'Написать',
+            onPressed: _isOpeningChat ? null : _handleWriteMessage,
+            colors: colors,
+            isLoading: _isOpeningChat,
+          ),
+        );
+      }
+    }
+    
+    return buttons;
+  }
+
+  /// Открывает группу или канал
+  Future<void> _handleOpenGroupOrChannel() async {
+    if (_isOpeningChat) return;
+
+    setState(() {
+      _isOpeningChat = true;
+    });
+
+    try {
+      // Для групп/каналов chatId == userId (отрицательное число)
+      final chatId = widget.userId;
+
+      if (!mounted) return;
+
+      Navigator.of(context).pop();
+
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (ctx) => ChatScreen(
+            chatId: chatId,
+            pinnedMessage: null,
+            contact: Contact(
+              id: widget.userId,
+              name: widget.name ?? _displayName,
+              firstName: '',
+              lastName: '',
+              description: widget.description,
+              photoBaseUrl: widget.avatarUrl,
+              accountStatus: 0,
+              status: null,
+              options: const [],
+            ),
+            myId: widget.myId,
+            isGroupChat: chatId < 0,
+            isChannel: false, // TODO: Определить является ли каналом
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Ошибка при открытии: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isOpeningChat = false;
         });
       }
     }

@@ -1046,7 +1046,8 @@ extension on _ChatScreenState {
                             hintText: 'Сообщение (Enter - отправить, Shift+Enter - новая строка)',
                             border: InputBorder.none,
                             hintStyle: TextStyle(
-                              color: Theme.of(context).colorScheme.onSurfaceVariant,
+                              color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
+                              fontSize: 13,
                             ),
                           ),
                           style: TextStyle(
@@ -1484,9 +1485,23 @@ extension on _ChatScreenState {
   Widget _buildChatItem(ChatItem item) {
     if (item is MessageItem) {
       final senderContact = _contactDetailsCache[item.message.senderId];
-      final senderName = senderContact?.name ?? 'ID ${item.message.senderId}';
+      // Для каналов (senderId == 0) используем имя канала из контакта
+      // Для групп и личных чатов - имя отправителя или ID
+      String senderName;
+      if (item.message.senderId == 0) {
+        senderName = widget.contact.name;
+      } else if (senderContact != null) {
+        senderName = senderContact.name ?? 'ID ${item.message.senderId}';
+      } else {
+        senderName = 'ID ${item.message.senderId}';
+      }
       
       final isMe = item.message.senderId == _actualMyId;
+      
+      // Для пересланных сообщений добавляем информацию о текущем пользователе (кто пересылает)
+      final String? forwardedFrom = item.message.isForwarded ? _currentContact.name : null;
+      final String? forwardedFromAvatarUrl = item.message.isForwarded ? _currentContact.photoBaseUrl : null;
+      
       return ChatMessageBubble(
         key: ValueKey(item.message.id),
         message: item.message,
@@ -1498,11 +1513,14 @@ extension on _ChatScreenState {
         isGroupChat: widget.isGroupChat,
         isChannel: widget.isChannel,
         senderName: senderName,
+        forwardedFrom: forwardedFrom,
+        forwardedFromAvatarUrl: forwardedFromAvatarUrl,
         myUserId: _actualMyId ?? 0,
         chatId: widget.chatId,
         canDeleteForAll: isMe && item.message.canEdit(_actualMyId ?? 0),
         canEditMessage: isMe && item.message.canEdit(_actualMyId ?? 0),
         onReply: () => _replyToMessage(item.message),
+        onReplyTap: (messageId) => _scrollToMessage(messageId),
         onEdit: () => _editMessage(item.message),
         onForward: () => _forwardMessage(item.message),
         onDelete: () => _removeMessages([item.message.id]),

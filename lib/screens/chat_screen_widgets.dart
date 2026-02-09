@@ -372,6 +372,130 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
     super.dispose();
   }
 
+  void _openChatWithContact(BuildContext context) async {
+    try {
+      final chatId = await ApiService.instance.getChatIdByUserId(widget.contact.id);
+      if (chatId == null) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Не удалось найти чат с пользователем')),
+          );
+        }
+        return;
+      }
+
+      if (!context.mounted) return;
+      
+      // Закрываем диалог профиля
+      Navigator.of(context).pop();
+      
+      // Открываем чат
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (ctx) => ChatScreen(
+            chatId: chatId,
+            pinnedMessage: null,
+            contact: widget.contact,
+            myId: widget.myId ?? 0,
+            isGroupChat: false,
+            isChannel: false,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка: $e')),
+        );
+      }
+    }
+  }
+
+  /// Открывает группу или канал
+  void _openGroupOrChannel(BuildContext context) {
+    // Закрываем диалог профиля
+    Navigator.of(context).pop();
+    
+    // Открываем группу/канал напрямую
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (ctx) => ChatScreen(
+          chatId: widget.contact.id,
+          pinnedMessage: null,
+          contact: widget.contact,
+          myId: widget.myId ?? 0,
+          isGroupChat: widget.contact.id < 0 && !widget.isChannel,
+          isChannel: widget.isChannel,
+        ),
+      ),
+    );
+  }
+
+  /// Строит кнопки действий в зависимости от типа контакта
+  Widget _buildActionButtons(BuildContext context, ColorScheme colors) {
+    final isGroupOrChannel = widget.contact.id < 0;
+    
+    if (isGroupOrChannel) {
+      // Для групп и каналов показываем только релевантные кнопки
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _ProfileActionButton(
+            icon: widget.isChannel ? Icons.newspaper : Icons.group,
+            label: widget.isChannel ? 'Открыть канал' : 'Открыть группу',
+            onPressed: () => _openGroupOrChannel(context),
+            colors: colors,
+          ),
+          _ProfileActionButton(
+            icon: Icons.share,
+            label: 'Поделиться',
+            onPressed: () {
+              // TODO: Реализовать поделиться ссылкой на группу/канал
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Скоро будет доступно')),
+              );
+            },
+            colors: colors,
+          ),
+        ],
+      );
+    }
+    
+    // Для личных чатов - стандартные кнопки
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+      children: [
+        _ProfileActionButton(
+          icon: Icons.message,
+          label: 'Написать',
+          onPressed: () => _openChatWithContact(context),
+          colors: colors,
+        ),
+        _ProfileActionButton(
+          icon: Icons.call,
+          label: 'Позвонить',
+          onPressed: () {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Звонки скоро будут доступны')),
+            );
+          },
+          colors: colors,
+        ),
+        _ProfileActionButton(
+          icon: Icons.info_outline,
+          label: 'Подробнее',
+          onPressed: () {
+            // TODO: Показать полную информацию о контакте
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Подробная информация скоро будет доступна')),
+            );
+          },
+          colors: colors,
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
@@ -499,6 +623,9 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
                           }
                         },
                       ),
+                    const SizedBox(height: 16),
+                    // Кнопки действий
+                    _buildActionButtons(context, colors),
                   ],
                 ),
               ),
@@ -506,6 +633,50 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
           ),
         ],
       ),
+    );
+  }
+}
+
+// Вспомогательный виджет для кнопки действия в профиле
+class _ProfileActionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
+  final ColorScheme colors;
+
+  const _ProfileActionButton({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    required this.colors,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 56,
+          height: 56,
+          decoration: BoxDecoration(
+            color: colors.primaryContainer,
+            shape: BoxShape.circle,
+          ),
+          child: IconButton(
+            icon: Icon(icon, color: colors.primary),
+            onPressed: onPressed,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: colors.onSurfaceVariant,
+          ),
+        ),
+      ],
     );
   }
 }

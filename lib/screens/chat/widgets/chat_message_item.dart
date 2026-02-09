@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../../models/message.dart';
 import '../../../models/contact.dart';
 import '../../../widgets/contact_avatar_widget.dart';
 import '../../../widgets/contact_name_widget.dart';
+import '../../../widgets/user_profile_panel.dart';
+import '../../../api/api_service.dart';
 
 /// Упрощенный виджет элемента сообщения
 class ChatMessageItem extends StatelessWidget {
@@ -10,7 +13,7 @@ class ChatMessageItem extends StatelessWidget {
   final bool isMe;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
-  final VoidCallback? onReplyTap;
+  final Function(String messageId)? onReplyTap;
   final bool showAvatar;
   final bool isGrouped;
   final bool isGroupChat;
@@ -44,17 +47,24 @@ class ChatMessageItem extends StatelessWidget {
           if (showSenderInfo)
             Padding(
               padding: const EdgeInsets.only(right: 8, bottom: 4),
-              child: ContactAvatarWidget(
-                contactId: message.senderId,
-                originalAvatarUrl: senderContact?.photoBaseUrl,
-                radius: 18,
-                fallbackText: () {
-                  final name = senderContact?.name;
-                  if (name != null && name.isNotEmpty) {
-                    return name[0].toUpperCase();
-                  }
-                  return '?';
-                }(),
+              child: MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => _openUserProfile(context, message.senderId),
+                  child: ContactAvatarWidget(
+                    contactId: message.senderId,
+                    originalAvatarUrl: senderContact?.photoBaseUrl,
+                    radius: 18,
+                    fallbackText: () {
+                      final name = senderContact?.name;
+                      if (name != null && name.isNotEmpty) {
+                        return name[0].toUpperCase();
+                      }
+                      return '?';
+                    }(),
+                  ),
+                ),
               ),
             )
           else if (!isMe && isGroupChat)
@@ -90,7 +100,7 @@ class _MessageContent extends StatelessWidget {
   final Message message;
   final bool isMe;
   final ThemeData theme;
-  final VoidCallback? onReplyTap;
+  final Function(String messageId)? onReplyTap;
   final bool showSenderInfo;
   final Contact? senderContact;
   
@@ -118,20 +128,30 @@ class _MessageContent extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         // Имя отправителя (только для чужих сообщений в групповых чатах)
+        // Для каналов (senderId == 0) показываем 'Канал' или имя контакта
         if (showSenderInfo)
           Padding(
             padding: const EdgeInsets.only(left: 4, bottom: 2),
-            child: ContactNameWidget(
-              contactId: message.senderId,
-              originalName: senderContact?.name,
-              originalFirstName: senderContact?.firstName,
-              originalLastName: senderContact?.lastName,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: theme.colorScheme.primary,
-              ),
-            ),
+            child: message.senderId == 0
+                ? Text(
+                    senderContact?.name ?? 'Канал',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.primary,
+                    ),
+                  )
+                : ContactNameWidget(
+                    contactId: message.senderId,
+                    originalName: senderContact?.name,
+                    originalFirstName: senderContact?.firstName,
+                    originalLastName: senderContact?.lastName,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
           ),
         
         // Reply preview
@@ -139,7 +159,14 @@ class _MessageContent extends StatelessWidget {
           _ReplyPreview(
             link: message.link!,
             theme: theme,
-            onTap: onReplyTap,
+            onTap: () {
+              // Получаем ID сообщения из link и вызываем onReplyTap
+              final replyMessage = message.link!['message'] as Map<String, dynamic>?;
+              final messageId = replyMessage?['id']?.toString();
+              if (messageId != null && onReplyTap != null) {
+                onReplyTap!(messageId);
+              }
+            },
           ),
         
         // Message bubble
@@ -222,28 +249,45 @@ class _ReplyPreview extends StatelessWidget {
     final replyMessage = link['message'] as Map<String, dynamic>?;
     final text = replyMessage?['text'] as String? ?? '';
     
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surface.withOpacity(0.5),
-          borderRadius: BorderRadius.circular(8),
-          border: Border(
-            left: BorderSide(
-              color: theme.colorScheme.primary,
-              width: 2,
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Container(
+          margin: EdgeInsets.zero,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(8),
+            border: Border(
+              left: BorderSide(
+                color: theme.colorScheme.primary,
+                width: 2,
+              ),
             ),
           ),
-        ),
-        child: Text(
-          text,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            color: theme.colorScheme.onSurface.withOpacity(0.7),
-            fontSize: 13,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.reply,
+                size: 14,
+                color: theme.colorScheme.primary.withValues(alpha: 0.8),
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  text.isNotEmpty ? text : 'Медиафайл',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -324,4 +368,31 @@ class _MessageStatusIndicator extends StatelessWidget {
       color: color,
     );
   }
+}
+
+/// Открывает профиль пользователя
+void _openUserProfile(BuildContext context, int userId) {
+  final myIdStr = ApiService.instance.userId;
+  final myId = myIdStr != null ? int.tryParse(myIdStr) : null;
+  if (myId == null) return;
+  
+  final contact = ApiService.instance.getCachedContact(userId);
+  
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) => UserProfilePanel(
+      userId: userId,
+      name: contact?.name,
+      firstName: contact?.firstName,
+      lastName: contact?.lastName,
+      avatarUrl: contact?.photoBaseUrl,
+      description: contact?.description,
+      myId: myId,
+      currentChatId: null,
+      contactData: null,
+      dialogChatId: null,
+    ),
+  );
 }

@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import '../../../models/message.dart';
 import '../../../models/contact.dart';
 import '../../../services/chat_cache_service.dart';
@@ -44,6 +46,9 @@ class ChatController extends ChangeNotifier {
   // Subscriptions
   StreamSubscription? _messageSubscription;
   bool _isDisposed = false;
+  
+  // Scroll controller для скролла к сообщениям
+  ItemScrollController? _itemScrollController;
 
   // Getters
   List<Message> get messages => List.unmodifiable(_messages);
@@ -230,6 +235,37 @@ class ChatController extends ChangeNotifier {
   /// Отметить прочтение сообщений
   void markAsRead() {
     // TODO: Отправка на сервер
+  }
+  
+  /// Установить scroll controller
+  void setScrollController(ItemScrollController controller, ItemPositionsListener listener) {
+    _itemScrollController = controller;
+  }
+  
+  /// Скролл к сообщению по ID
+  Future<void> scrollToMessage(String messageId) async {
+    if (_itemScrollController == null) return;
+    
+    // Находим индекс сообщения
+    final index = _messages.indexWhere((m) => m.id == messageId);
+    if (index == -1) {
+      // Сообщение не найдено, возможно нужно подгрузить историю
+      print('⚠️ Сообщение $messageId не найдено для скролла');
+      return;
+    }
+    
+    // Вычисляем индекс для reverse списка
+    final visualIndex = _messages.length - 1 - index;
+    
+    try {
+      _itemScrollController!.scrollTo(
+        index: visualIndex,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    } catch (e) {
+      print('⚠️ Ошибка скролла к сообщению: $e');
+    }
   }
   
   /// Обновить максимальный просмотренный индекс

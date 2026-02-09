@@ -44,12 +44,18 @@ class ChatInputBar extends StatelessWidget {
                 
                 // Input row
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     // Attach button
                     IconButton(
                       onPressed: onAttachTap,
                       icon: const Icon(Icons.attach_file),
                       color: theme.colorScheme.onSurfaceVariant,
+                      padding: const EdgeInsets.all(8),
+                      constraints: const BoxConstraints(
+                        minWidth: 40,
+                        minHeight: 40,
+                      ),
                     ),
                     
                     // Text field
@@ -125,8 +131,8 @@ class _ReplyIndicator extends StatelessWidget {
     final theme = Theme.of(context);
     
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      margin: EdgeInsets.zero,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(8),
