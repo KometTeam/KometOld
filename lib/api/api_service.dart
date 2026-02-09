@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:gwid/connection/connection_logger.dart';
 import 'package:gwid/connection/connection_state.dart' as conn_state;
@@ -83,7 +84,6 @@ class ApiService {
 
   bool _isAppInForeground = true;
 
-  int _currentUrlIndex = 0;
   Socket? _socket;
   StreamSubscription? _socketSubscription;
   Timer? _pingTimer;
@@ -318,14 +318,6 @@ class ApiService {
     final spoofedData = await SpoofingService.getSpoofedSessionData();
 
     if (spoofedData != null) {
-      final String finalDeviceId;
-      final String? idFromSpoofing = spoofedData['device_id'] as String?;
-
-      if (idFromSpoofing != null && idFromSpoofing.isNotEmpty) {
-        finalDeviceId = idFromSpoofing;
-      } else {
-        finalDeviceId = generateRandomDeviceId();
-      }
       return {
         'deviceType': spoofedData['device_type'] as String? ?? 'ANDROID',
         'locale': spoofedData['locale'] as String? ?? 'ru',
@@ -686,7 +678,7 @@ class ApiService {
     final seq = _seq++ % 256;
 
     // Регистрируем pending request ДО отправки
-    final completer = _pendingManager.register(
+    _pendingManager.register(
       seq,
       debugLabel: debugLabel ?? 'opcode_$opcode',
     );
@@ -709,18 +701,7 @@ class ApiService {
     return seq;
   }
 
-  // Очистка при разрыве соединения (вызывается из api_service_connection.dart)
-  void _handleDisconnection() {
-    //  Очищаем все ожидающие запросы
-    _pendingManager.clearAll(reason: 'Connection lost');
 
-    //  Сбрасываем буфер для экономии памяти
-    _packetBuffer.reset();
-
-    _socketConnected = false;
-    _isSessionOnline = false;
-    _isSessionReady = false;
-  }
 
   void dispose() {
     _pingTimer?.cancel();

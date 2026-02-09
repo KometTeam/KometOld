@@ -566,19 +566,15 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
                       },
                       items: ChatPreviewMode.values.map((mode) {
                         String text;
-                        String subtitle;
                         switch (mode) {
                           case ChatPreviewMode.twoLine:
                             text = "Двустрочно";
-                            subtitle = "Имя чата + Имя: сообщение";
                             break;
                           case ChatPreviewMode.threeLine:
                             text = "Трехстрочно";
-                            subtitle = "Имя чата\nИмя отправителя\nСообщение";
                             break;
                           case ChatPreviewMode.noNicknames:
                             text = "Без имен";
-                            subtitle = "Показывать только имя чата";
                             break;
                         }
                         return DropdownMenuItem(

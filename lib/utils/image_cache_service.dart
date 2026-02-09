@@ -75,7 +75,10 @@ class ImageCacheService {
             final compressedData = _lz4Codec!.encode(response.bodyBytes);
             await file.writeAsBytes(compressedData);
           } catch (e) {
-            // Ошибка сжатия - сохраняем без сжатия
+            // Ошибка сжатия - отключаем LZ4 и сохраняем без сжатия
+            print('⚠️ Ошибка сжатия файла $url, сохраняем без сжатия: $e');
+            _lz4Available = false;
+            _lz4Codec = null;
             await file.writeAsBytes(response.bodyBytes);
           }
         } else {

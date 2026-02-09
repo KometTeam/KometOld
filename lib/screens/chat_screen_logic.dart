@@ -121,7 +121,7 @@ extension on _ChatScreenState {
 
   void _clearInputState() {
     _textController.clear();
-    setState(() {
+    _setStateIfMounted(() {
       _replyingToMessage = null;
       _mentions.clear();
     });
@@ -154,47 +154,6 @@ extension on _ChatScreenState {
         ApiService.instance.markMessageAsRead(widget.chatId, _messages.last.id);
       }
     });
-  }
-
-  void _cancelPendingMessage(Message message) {
-    final cid = message.cid ?? int.tryParse(message.id.replaceFirst('local_', ''));
-    if (cid != null) {
-      MessageQueueService().removeFromQueue('msg_$cid');
-    }
-    _removeMessages([message.id]);
-    ApiService.instance.updateChatLastMessage(widget.chatId).then((newLastMessage) {
-      widget.onLastMessageChanged?.call(newLastMessage);
-    });
-  }
-
-  Future<void> _retryPendingMessage(Message message) async {
-    final cid = message.cid ?? int.tryParse(message.id.replaceFirst('local_', ''));
-    if (cid == null) return;
-
-    MessageQueueService().removeFromQueue('msg_$cid');
-
-    String? replyToId;
-    Message? replyToMessage;
-    final link = message.link;
-    if (link is Map<String, dynamic> && link['type'] == 'REPLY') {
-      final dynamic replyId = link['messageId'] ?? link['message']?['id'];
-      if (replyId != null) replyToId = replyId.toString();
-      final replyMessageMap = link['message'];
-      if (replyMessageMap is Map<String, dynamic>) {
-        replyToMessage = Message.fromJson(
-          replyMessageMap.map((key, value) => MapEntry(key.toString(), value)),
-        );
-      }
-    }
-
-    ApiService.instance.sendMessage(
-      widget.chatId,
-      message.text,
-      replyToMessageId: replyToId,
-      replyToMessage: replyToMessage,
-      cid: cid,
-      elements: message.elements,
-    );
   }
 
   void _editMessage(Message message) {
@@ -362,12 +321,6 @@ extension on _ChatScreenState {
         await ChatCacheService().cacheChatContacts(widget.chatId, contactsToCache);
       }
 
-      if (mounted) {
-        setState(() {
-          _isIdReady = true;
-        });
-      }
-
       _loadContactDetails();
       _checkContactCache();
 
@@ -385,7 +338,7 @@ extension on _ChatScreenState {
             await _loadGroupParticipants();
             await _loadMentionableUsers();
             if (_mentionableUsers.isNotEmpty && mounted) {
-              setState(() {});
+              _setStateIfMounted(() {});
               timer.cancel();
             }
           });
@@ -403,7 +356,7 @@ extension on _ChatScreenState {
           if (payload['participants'] != null ||
               (payload['chat'] != null && payload['chat']['participants'] != null)) {
             _loadMentionableUsers().then((_) {
-              if (mounted) setState(() {});
+              _setStateIfMounted(() {});
             });
           }
         }
@@ -421,7 +374,7 @@ extension on _ChatScreenState {
           ApiService.instance.updateCachedContact(contact);
           Future.microtask(() {
             if (mounted) {
-              setState(() {
+              _setStateIfMounted(() {
                 _currentContact = contact;
               });
             }
@@ -460,7 +413,7 @@ extension on _ChatScreenState {
         if (_searchController.text.isEmpty && _searchResults.isNotEmpty) {
           Future.microtask(() {
             if (mounted) {
-              setState(() {
+              _setStateIfMounted(() {
                 _searchResults.clear();
                 _currentResultIndex = -1;
               });
@@ -477,7 +430,7 @@ extension on _ChatScreenState {
       print(stackTrace);
       // Гарантированный сброс загрузки при любой ошибке инициализации
       if (mounted) {
-        setState(() {
+        _setStateIfMounted(() {
           _isLoadingHistory = false;
         });
       }
@@ -496,6 +449,25 @@ extension on _ChatScreenState {
 
     _apiSubscription = ApiService.instance.messages.listen((message) {
       if (!mounted) return;
+      
+      // Обработка события завершения фоновой загрузки сообщений
+      final messageType = message['type'];
+      if (messageType == 'messages_loaded') {
+        final loadedChatId = message['chatId'];
+        if (loadedChatId == widget.chatId) {
+          final messages = message['messages'] as List<Message>?;
+          final newCount = message['newCount'] as int? ?? 0;
+          if (messages != null && newCount > 0) {
+            print('📥 Фоновая загрузка: получено $newCount новых сообщений');
+            _messages.clear();
+            _messages.addAll(_hydrateLinksSequentially(messages));
+            _buildChatItems();
+            _setStateIfMounted(() {});
+          }
+        }
+        return;
+      }
+      
       final opcode = message['opcode'];
       final cmd = message['cmd'];
       final seq = message['seq'];
@@ -596,7 +568,7 @@ extension on _ChatScreenState {
             if (_sendingReactions.isNotEmpty) {
               _sendingReactions.clear();
               _buildChatItems();
-              if (mounted) setState(() {});
+              _setStateIfMounted(() {});
             }
           }
         }
@@ -633,14 +605,14 @@ extension on _ChatScreenState {
 
           if (messageId != null) {
             if (_lastPeerReadMessageId == null || messageId > _lastPeerReadMessageId!) {
-              setState(() {
+              _setStateIfMounted(() {
                 _lastPeerReadMessageId = messageId;
                 _lastPeerReadMessageIdStr = messageIdStr;
               });
             }
           } else if (messageIdStr != null && messageIdStr.isNotEmpty) {
             if (_lastPeerReadMessageIdStr == null || messageIdStr.compareTo(_lastPeerReadMessageIdStr!) >= 0) {
-              setState(() {
+              _setStateIfMounted(() {
                 _lastPeerReadMessageIdStr = messageIdStr;
               });
             }
@@ -652,7 +624,7 @@ extension on _ChatScreenState {
 
   Future<void> _paginateInitialLoad() async {
     print('🔘 _paginateInitialLoad: начало для chatId=${widget.chatId}');
-    setState(() => _isLoadingHistory = true);
+    _setStateIfMounted(() => _isLoadingHistory = true);
     _maxViewedIndex = 0;
     _lastLoadedAtViewedIndex = 0;
 
@@ -664,7 +636,7 @@ extension on _ChatScreenState {
         "chatId": widget.chatId,
         "from": DateTime.now().add(const Duration(days: 1)).millisecondsSinceEpoch,
         "forward": 0,
-        "backward": _ChatScreenState._pageSize,
+        "backward": 10, // Начинаем с 10 сообщений для быстрой загрузки
         "getMessages": true,
       },
       createdAt: DateTime.now(),
@@ -677,6 +649,7 @@ extension on _ChatScreenState {
     List<Message>? cachedMessages = await chatCacheService.getCachedChatMessages(widget.chatId);
     bool hasCache = cachedMessages != null && cachedMessages.isNotEmpty;
 
+    // Если есть кэш - показываем сразу, но всё равно обновляем с сервера
     if (hasCache) {
       if (!mounted) return;
       _messages.clear();
@@ -689,11 +662,9 @@ extension on _ChatScreenState {
       _messagesToAnimate.clear();
 
       Future.microtask(() {
-        if (mounted) {
-          setState(() {
-            _isLoadingHistory = false;
-          });
-        }
+        _setStateIfMounted(() {
+          // Не снимаем флаг загрузки, так как грузим с сервера
+        });
       });
       _updatePinnedMessage();
       if (_messages.isEmpty && !widget.isChannel) _loadEmptyChatSticker();
@@ -701,11 +672,62 @@ extension on _ChatScreenState {
 
     List<Message> allMessages = [];
     try {
-      allMessages = await ApiService.instance.getMessageHistory(widget.chatId, force: true).timeout(
+      // Используем инкрементальную загрузку: сначала 4 сообщения для быстрого показа,
+      // затем в фоне подгружаются остальные до 30
+      allMessages = await ApiService.instance.getMessageHistory(
+        widget.chatId,
+        force: true,
+        initialLimit: 10,     // Первые 10 сообщения - моментально
+        maxMessages: 30,      // Всего загружаем до 30
+        onInitialLoaded: (initial) {
+          // Вызывается когда загружены первые 4 сообщения
+          if (!mounted) return;
+          print('⚡ Быстрая загрузка: ${initial.length} сообщений показаны моментально');
+          
+          // Обновляем UI только если ещё не показали кэш или кэш пустой
+          if (!hasCache || _messages.isEmpty) {
+            _messages.clear();
+            _messages.addAll(_hydrateLinksSequentially(initial));
+            if (_messages.isNotEmpty) _oldestLoadedTime = _messages.first.time;
+            _hasMore = initial.length >= 4;
+            
+            _buildChatItems();
+            _messagesToAnimate.clear();
+            
+            _setStateIfMounted(() {
+              _isLoadingHistory = false; // Снимаем флаг после быстрой загрузки
+            });
+            
+            _updatePinnedMessage();
+            if (_messages.isEmpty && !widget.isChannel) _loadEmptyChatSticker();
+          }
+        },
+        onCompleteLoaded: (all) {
+          // Вызывается когда загружены все сообщения (до 30)
+          if (!mounted) return;
+          print('✅ Полная загрузка: ${all.length} сообщений');
+          
+          // Обновляем полный список
+          _messages.clear();
+          _messages.addAll(_hydrateLinksSequentially(all));
+          if (_messages.isNotEmpty) _oldestLoadedTime = _messages.first.time;
+          _hasMore = true;
+          
+          _buildChatItems();
+          
+          // Снимаем флаг если ещё не снят
+          if (_isLoadingHistory) {
+            _setStateIfMounted(() => _isLoadingHistory = false);
+          }
+        },
+      ).timeout(
         const Duration(seconds: 10),
         onTimeout: () => <Message>[],
       );
-      if (allMessages.isNotEmpty) MessageQueueService().removeFromQueue('load_chat_${widget.chatId}');
+      
+      if (allMessages.isNotEmpty) {
+        MessageQueueService().removeFromQueue('load_chat_${widget.chatId}');
+      }
 
       if (!mounted) return;
       final bool hasServerData = allMessages.isNotEmpty;
@@ -811,8 +833,7 @@ extension on _ChatScreenState {
       _messagesToAnimate.clear();
 
       Future.microtask(() {
-        if (!mounted) return;
-        setState(() {
+        _setStateIfMounted(() {
           _isLoadingHistory = false;
         });
         
@@ -829,7 +850,7 @@ extension on _ChatScreenState {
     } catch (e) {
       print("[ChatScreen] Ошибка при загрузке истории сообщений: $e");
       if (mounted && !_isDisposed) {
-        setState(() {
+        _setStateIfMounted(() {
           _isLoadingHistory = false;
         });
         // Обрабатываем отложенные сообщения даже при ошибке
@@ -890,7 +911,7 @@ extension on _ChatScreenState {
       if (olderMessages.isEmpty) {
         _hasMore = false;
         _isLoadingMore = false;
-        setState(() {});
+        _setStateIfMounted(() {});
         return;
       }
 
@@ -899,7 +920,7 @@ extension on _ChatScreenState {
       if (newMessages.isEmpty) {
         _hasMore = false;
         _isLoadingMore = false;
-        setState(() {});
+        _setStateIfMounted(() {});
         return;
       }
 
@@ -917,7 +938,7 @@ extension on _ChatScreenState {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) setState(() {});
+            _setStateIfMounted(() {});
           });
         });
       }
@@ -927,7 +948,7 @@ extension on _ChatScreenState {
       if (mounted) {
         _isLoadingMore = false;
         _hasMore = false;
-        setState(() {});
+        _setStateIfMounted(() {});
       }
     }
   }
@@ -945,9 +966,6 @@ extension on _ChatScreenState {
     final lastMessage = _messages.isNotEmpty ? _messages.last : null;
     _messages.add(normalizedMessage);
     _messagesToAnimate.add(normalizedMessage.id);
-
-    final hasPhoto = normalizedMessage.attaches.any((a) => a['_type'] == 'PHOTO');
-    if (hasPhoto) _updateCachedPhotos();
 
     final currentDate = DateTime.fromMillisecondsSinceEpoch(normalizedMessage.time).toLocal();
     final lastDate = lastMessage != null ? DateTime.fromMillisecondsSinceEpoch(lastMessage.time).toLocal() : null;
@@ -977,7 +995,7 @@ extension on _ChatScreenState {
     if (mounted) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          setState(() {});
+          _setStateIfMounted(() {});
           _invalidateCache();
           if ((wasAtBottom || isMyMessage || forceScroll) && _itemScrollController.isAttached) {
             _itemScrollController.jumpTo(index: 0);
@@ -1007,18 +1025,13 @@ extension on _ChatScreenState {
         return finalMessage;
       })();
 
-      final oldHasPhoto = oldMessage.attaches.any((a) => a['_type'] == 'PHOTO');
-      final newHasPhoto = finalMessageWithOriginalText.attaches.any((a) => a['_type'] == 'PHOTO');
-
       _messages[index] = finalMessageWithOriginalText;
       unawaited(ChatCacheService().cacheChatMessages(widget.chatId, _messages));
 
       if (mounted) {
-        setState(() {});
+        _setStateIfMounted(() {});
         _invalidateCache();
       }
-      if (oldHasPhoto != newHasPhoto) _updateCachedPhotos();
-
       final chatItemIndex = _chatItems.indexWhere((item) =>
       item is MessageItem &&
           (item.message.id == oldMessage.id ||
@@ -1033,10 +1046,10 @@ extension on _ChatScreenState {
           isLastInGroup: oldItem.isLastInGroup,
           isGrouped: oldItem.isGrouped,
         );
-        if (mounted) setState(() {});
+        _setStateIfMounted(() {});
       } else {
         _buildChatItems();
-        if (mounted) setState(() {});
+        _setStateIfMounted(() {});
       }
     } else {
       ApiService.instance.getMessageHistory(widget.chatId, force: true).then((fresh) {
@@ -1046,7 +1059,7 @@ extension on _ChatScreenState {
           ..addAll(fresh);
         _buildChatItems();
         Future.microtask(() {
-          if (mounted) setState(() {});
+          _setStateIfMounted(() {});
         });
       }).catchError((_) {});
     }
@@ -1070,7 +1083,7 @@ extension on _ChatScreenState {
           if (showDeletedMessages) {
             _messages[messageIndex] = message.copyWith(isDeleted: true);
             _buildChatItems();
-            if (mounted) setState(() {});
+            _setStateIfMounted(() {});
           } else {
             _removeMessages([messageId]);
           }
@@ -1081,7 +1094,7 @@ extension on _ChatScreenState {
 
   void _removeMessages(List<String> messageIds) {
     _deletingMessageIds.addAll(messageIds);
-    if (mounted) setState(() {});
+    _setStateIfMounted(() {});
 
     Future.delayed(const Duration(milliseconds: 300), () {
       final removedCount = _messages.length;
@@ -1094,7 +1107,7 @@ extension on _ChatScreenState {
           unawaited(ChatCacheService().removeMessageFromCache(widget.chatId, messageId));
         }
         _buildChatItems();
-        if (mounted) setState(() {});
+        _setStateIfMounted(() {});
       }
     });
   }
@@ -1125,7 +1138,7 @@ extension on _ChatScreenState {
       _buildChatItems();
       if (mounted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) setState(() {});
+          _setStateIfMounted(() {});
         });
       }
     }
@@ -1155,7 +1168,7 @@ extension on _ChatScreenState {
       _messages[messageIndex] = message.copyWith(reactionInfo: updatedReactionInfo);
       _sendingReactions.add(messageId);
       _buildChatItems();
-      if (mounted) setState(() {});
+      _setStateIfMounted(() {});
     }
   }
 
@@ -1189,7 +1202,7 @@ extension on _ChatScreenState {
         _messages[messageIndex] = message.copyWith(reactionInfo: updatedReactionInfo);
         _sendingReactions.add(messageId);
         _buildChatItems();
-        if (mounted) setState(() {});
+        _setStateIfMounted(() {});
       }
     }
   }
@@ -1305,11 +1318,7 @@ extension on _ChatScreenState {
   // Mention & Command Logic
   Future<void> _loadMentionableUsers() async {
     if (!widget.isGroupChat && !widget.isChannel) {
-      if (_currentContact.id != null) {
-        _mentionableUsers = [_currentContact];
-      } else {
-        _mentionableUsers = [];
-      }
+      _mentionableUsers = [_currentContact];
       return;
     }
 
@@ -1342,7 +1351,7 @@ extension on _ChatScreenState {
     }
 
     if (participantIds.isEmpty) {
-      setState(() => _mentionableUsers = []);
+      _setStateIfMounted(() => _mentionableUsers = []);
       return;
     }
 
@@ -1351,22 +1360,23 @@ extension on _ChatScreenState {
       try {
         final contacts = await ApiService.instance.fetchContactsByIds(idsToFetch);
         for (final contact in contacts) {
-          if (contact.id != null) _contactDetailsCache[contact.id] = contact;
+          _contactDetailsCache[contact.id] = contact;
         }
       } catch (e) {
         print('Ошибка загрузки контактов для пингов: $e');
       }
     }
 
-    setState(() {
+    _setStateIfMounted(() {
       _mentionableUsers = participantIds
           .where((id) => _contactDetailsCache.containsKey(id))
           .map((id) => _contactDetailsCache[id]!)
-          .where((contact) => contact.id != null && contact.id != 0)
+          .where((contact) => contact.id != 0)
           .toList();
     });
   }
 
+  // ignore: unused_element
   void _handleMentionFiltering(String text) {
     final cursorPosition = _textController.selection.baseOffset;
     if (cursorPosition > 0) {
@@ -1418,27 +1428,27 @@ extension on _ChatScreenState {
         });
 
         if (!_showMentionDropdown) {
-          setState(() {
+          _setStateIfMounted(() {
             _showMentionDropdown = true;
           });
         } else {
-          setState(() {});
+          _setStateIfMounted(() {});
         }
       } else {
         if (_showMentionDropdown) {
-          setState(() => _showMentionDropdown = false);
+          _setStateIfMounted(() => _showMentionDropdown = false);
         }
       }
     } else {
       if (_showMentionDropdown) {
-        setState(() => _showMentionDropdown = false);
+        _setStateIfMounted(() => _showMentionDropdown = false);
       }
     }
   }
 
   void _insertMention(Contact user) {
     if (_mentionStartPosition == null) return;
-    if (user.id == null || user.id == 0) {
+    if (user.id == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Ошибка: не удалось получить ID пользователя')),
       );
@@ -1464,7 +1474,7 @@ extension on _ChatScreenState {
       entityName: user.name,
     ));
 
-    setState(() {
+    _setStateIfMounted(() {
       _showMentionDropdown = false;
       _mentionQuery = '';
       _mentionStartPosition = null;
@@ -1479,9 +1489,9 @@ extension on _ChatScreenState {
 
     final shouldShowPanel = _currentContact.isBot && text.startsWith('/');
     if (shouldShowPanel != _showBotCommandsPanel) {
-      setState(() => _showBotCommandsPanel = shouldShowPanel);
+      _setStateIfMounted(() => _showBotCommandsPanel = shouldShowPanel);
     } else if (shouldShowPanel) {
-      setState(() {});
+      _setStateIfMounted(() {});
     }
 
     if (shouldShowPanel) _ensureBotCommandsLoaded();
@@ -1493,7 +1503,7 @@ extension on _ChatScreenState {
     if (_botCommandsForBotId == botId && _botCommands.isNotEmpty) return;
     if (_isLoadingBotCommands) return;
 
-    setState(() => _isLoadingBotCommands = true);
+    _setStateIfMounted(() => _isLoadingBotCommands = true);
     try {
       final seq = await ApiService.instance.sendRawRequest(145, {'botId': botId});
       if (seq == -1) throw Exception('Не удалось отправить запрос команд бота');
@@ -1512,19 +1522,19 @@ extension on _ChatScreenState {
           .toList(growable: false);
 
       if (!mounted) return;
-      setState(() {
+      _setStateIfMounted(() {
         _botCommandsForBotId = botId;
         _botCommands = commands;
       });
     } catch (e) {
       if (!mounted || _currentContact.id != botId) return;
-      setState(() {
+      _setStateIfMounted(() {
         _botCommandsForBotId = botId;
         _botCommands = const [];
       });
     } finally {
       if (!mounted || _currentContact.id != botId) return;
-      setState(() => _isLoadingBotCommands = false);
+      _setStateIfMounted(() => _isLoadingBotCommands = false);
     }
   }
 
@@ -1532,67 +1542,8 @@ extension on _ChatScreenState {
     final text = command.slashCommand;
     _textController.text = text;
     _textController.selection = TextSelection.collapsed(offset: text.length);
-    setState(() => _showBotCommandsPanel = false);
+    _setStateIfMounted(() => _showBotCommandsPanel = false);
     _textFocusNode.requestFocus();
-  }
-
-  Future<_PhotoPickerResult?> _pickPhotosFlow(BuildContext context) async {
-    try {
-      final ImagePicker picker = ImagePicker();
-      final choice = await showModalBottomSheet<String>(
-        context: context,
-        builder: (context) => SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.photo_library),
-                title: const Text('Выбрать из галереи'),
-                onTap: () => Navigator.pop(context, 'gallery'),
-              ),
-              ListTile(
-                leading: const Icon(Icons.camera_alt),
-                title: const Text('Сделать фото'),
-                onTap: () => Navigator.pop(context, 'camera'),
-              ),
-            ],
-          ),
-        ),
-      );
-
-      if (choice == null) return null;
-
-      List<XFile>? pickedFiles;
-      if (choice == 'gallery') {
-        pickedFiles = await picker.pickMultiImage();
-      } else if (choice == 'camera') {
-        final file = await picker.pickImage(source: ImageSource.camera);
-        if (file != null) pickedFiles = [file];
-      }
-
-      if (pickedFiles == null || pickedFiles.isEmpty) return null;
-
-      final caption = await showDialog<String>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Добавить подпись?'),
-          content: TextField(
-            autofocus: true,
-            decoration: const InputDecoration(hintText: 'Подпись к фото (необязательно)'),
-            onSubmitted: (value) => Navigator.pop(context, value),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context, null), child: const Text('Пропустить')),
-            TextButton(onPressed: () => Navigator.pop(context, ''), child: const Text('Добавить')),
-          ],
-        ),
-      );
-
-      return _PhotoPickerResult(paths: pickedFiles.map((f) => f.path).toList(), caption: caption);
-    } catch (e) {
-      print('Ошибка выбора фото: $e');
-      return null;
-    }
   }
 
   // Settings & Cache
@@ -1610,7 +1561,7 @@ extension on _ChatScreenState {
         if (replyingToMessageData != null) {
           try {
             final message = Message.fromJson(replyingToMessageData);
-            setState(() => _replyingToMessage = message);
+            _setStateIfMounted(() => _replyingToMessage = message);
           } catch (e) {
             print('Ошибка восстановления сообщения для ответа: $e');
           }
@@ -1661,19 +1612,11 @@ extension on _ChatScreenState {
     }
   }
 
-  Future<void> _loadSpecialMessagesSetting() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (!mounted) return;
-    setState(() {
-      _specialMessagesEnabled = prefs.getBool('special_messages_enabled') ?? true;
-    });
-  }
-
   Future<void> _loadEncryptionConfig() async {
     try {
       final config = await ChatEncryptionService.getConfigForChat(widget.chatId);
       if (mounted) {
-        setState(() {
+        _setStateIfMounted(() {
           _encryptionConfigForCurrentChat = config;
           _isEncryptionPasswordSetForCurrentChat = config != null && config.password.isNotEmpty;
           _sendEncryptedForCurrentChat = config?.sendEncrypted ?? true;
@@ -1716,26 +1659,6 @@ extension on _ChatScreenState {
     }
   }
 
-  Future<void> _loadContactIfNeeded(int contactId) async {
-    if (_contactDetailsCache.containsKey(contactId) || _loadingContactIds.contains(contactId)) return;
-    _loadingContactIds.add(contactId);
-
-    try {
-      final contacts = await ApiService.instance.fetchContactsByIds([contactId]);
-      if (contacts.isNotEmpty && mounted) {
-        final contact = contacts.first;
-        _contactDetailsCache[contact.id] = contact;
-        await ChatCacheService().cacheChatContacts(widget.chatId, _contactDetailsCache.values.toList());
-        if (!mounted) return;
-        setState(() {});
-      }
-    } catch (e) {
-      // ignore
-    } finally {
-      _loadingContactIds.remove(contactId);
-    }
-  }
-
   Future<void> _loadGroupParticipants() async {
     try {
       final chatData = ApiService.instance.lastChatsPayload;
@@ -1758,7 +1681,7 @@ extension on _ChatScreenState {
 
       final contacts = await ApiService.instance.fetchContactsByIds(idsToFetch);
       if (contacts.isNotEmpty && mounted) {
-        setState(() {
+        _setStateIfMounted(() {
           for (final contact in contacts) {
             _contactDetailsCache[contact.id] = contact;
           }
@@ -1775,7 +1698,7 @@ extension on _ChatScreenState {
     final cachedContact = ApiService.instance.getCachedContact(widget.contact.id);
     if (cachedContact != null) {
       _currentContact = cachedContact;
-      if (mounted) setState(() {});
+      _setStateIfMounted(() {});
     }
   }
 
@@ -1795,15 +1718,6 @@ extension on _ChatScreenState {
     } catch (e) {
       return null;
     }
-  }
-
-  bool _isCurrentUserAdmin() {
-    final currentChat = _getCurrentGroupChat();
-    if (currentChat != null && _actualMyId != null) {
-      final admins = currentChat['admins'] as List<dynamic>? ?? [];
-      return admins.contains(_actualMyId);
-    }
-    return false;
   }
 
   // Stickers & Media
@@ -1874,7 +1788,7 @@ extension on _ChatScreenState {
           final sticker = stickers.first as Map<String, dynamic>;
           final stickerId = sticker['id'] as int?;
           if (mounted) {
-            setState(() {
+            _setStateIfMounted(() {
               _emptyChatSticker = {...sticker, 'stickerId': stickerId};
             });
           }
@@ -1897,20 +1811,6 @@ extension on _ChatScreenState {
     // После всех неудачных попыток оставляем _emptyChatSticker как null
     // EmptyChatWidget покажет fallback иконку вместо индикатора загрузки
     print('[ChatScreen] Не удалось загрузить стикер после $maxRetries попыток');
-  }
-
-  void _updateCachedPhotos() {
-    final List<Map<String, dynamic>> allPhotos = [];
-    for (final msg in _messages) {
-      for (final attach in msg.attaches) {
-        if (attach['_type'] == 'PHOTO') {
-          final photo = Map<String, dynamic>.from(attach);
-          photo['_messageId'] = msg.id;
-          allPhotos.add(photo);
-        }
-      }
-    }
-    _cachedAllPhotos = allPhotos.reversed.toList();
   }
 
   void _updatePinnedMessage() {
@@ -1977,7 +1877,6 @@ extension on _ChatScreenState {
         onRetry: _isVoiceUploadFailed && _cachedVoicePath != null ? () => _retrySendVoiceMessage() : null,
       ));
     }
-    _updateCachedPhotos();
   }
 
   // Input Helpers
@@ -1988,37 +1887,14 @@ extension on _ChatScreenState {
     }
   }
 
-  void _updateTextSelectionState() {
-    final selection = _textController.selection;
-    final hasSelection = selection.isValid && !selection.isCollapsed && selection.end > selection.start;
-    if (_hasTextSelection != hasSelection) {
-      setState(() => _hasTextSelection = hasSelection);
-    }
-  }
-
-  void _startSelectionCheck() {
-    _stopSelectionCheck();
-    _selectionCheckTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
-      if (!_textFocusNode.hasFocus) {
-        _stopSelectionCheck();
-        return;
-      }
-      _updateTextSelectionState();
-    });
-  }
-
-  void _stopSelectionCheck() {
-    _selectionCheckTimer?.cancel();
-    _selectionCheckTimer = null;
-  }
-
+  // ignore: unused_element
   Future<void> _handleTextChangedForKometColor() async {
     final prefs = await SharedPreferences.getInstance();
     final autoCompleteEnabled = prefs.getBool('komet_auto_complete_enabled') ?? false;
 
     if (!autoCompleteEnabled) {
       if (_showKometColorPicker) {
-        setState(() {
+        _setStateIfMounted(() {
           _showKometColorPicker = false;
           _currentKometColorPrefix = null;
         });
@@ -2061,7 +1937,7 @@ extension on _ChatScreenState {
       final after = text.substring(prefixStartPos + detectedPrefix.length, cursorPos);
       if (after.isEmpty || after.trim().isEmpty) {
         if (!_showKometColorPicker || _currentKometColorPrefix != detectedPrefix) {
-          setState(() {
+          _setStateIfMounted(() {
             _showKometColorPicker = true;
             _currentKometColorPrefix = detectedPrefix;
           });
@@ -2071,7 +1947,7 @@ extension on _ChatScreenState {
     }
 
     if (_showKometColorPicker) {
-      setState(() {
+      _setStateIfMounted(() {
         _showKometColorPicker = false;
         _currentKometColorPrefix = null;
       });
@@ -2096,36 +1972,13 @@ extension on _ChatScreenState {
   }
 
   void _replyToMessage(Message message) {
-    setState(() => _replyingToMessage = message);
+    _setStateIfMounted(() => _replyingToMessage = message);
     _saveInputState();
-  }
-
-  void _cancelReply() {
-    setState(() => _replyingToMessage = null);
-  }
-
-  void _applyTextFormat(String type) {
-    final isEncryptionActive = _encryptionConfigForCurrentChat != null &&
-        _encryptionConfigForCurrentChat!.password.isNotEmpty &&
-        _sendEncryptedForCurrentChat;
-    if (isEncryptionActive) return;
-
-    final selection = _textController.selection;
-    if (!selection.isValid || selection.isCollapsed) return;
-    final from = selection.start;
-    final length = selection.end - selection.start;
-    if (length <= 0) return;
-
-    setState(() {
-      _textController.elements.add({'type': type, 'from': from, 'length': length});
-      _textController.selection = selection;
-    });
   }
 
   // Get sender name from message
   String _getSenderName(Message message) {
     final senderId = message.senderId;
-    if (senderId == null) return 'Неизвестно';
 
     if (_contactDetailsCache.containsKey(senderId)) {
       return _contactDetailsCache[senderId]!.name;
@@ -2136,6 +1989,13 @@ extension on _ChatScreenState {
     }
 
     return 'Пользователь';
+  }
+
+  void _setStateIfMounted(VoidCallback fn) {
+    if (mounted) {
+      // ignore: invalid_use_of_protected_member
+      setState(fn);
+    }
   }
 }
 

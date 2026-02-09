@@ -163,7 +163,7 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
                   Navigator.of(context).pop();
                 }
               },
-              child: Column(
+              child: const Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   RadioListTile<String>(

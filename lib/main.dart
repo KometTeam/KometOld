@@ -25,6 +25,7 @@ import 'services/music_player_service.dart';
 import 'services/whitelist_service.dart';
 import 'services/notification_service.dart';
 import 'services/message_queue_service.dart';
+import 'services/cache_auto_cleanup_service.dart';
 import 'utils/theme_provider.dart';
 import 'utils/device_presets.dart';
 import 'plugins/plugin_service.dart';
@@ -79,6 +80,9 @@ Future<void> main() async {
     ContactLocalNamesService().initialize(),
     MessageQueueService().initialize(),
   ]);
+
+  // Инициализация автоочистки кэша
+  await CacheAutoCleanupService().initialize();
   
   await AccountManager().initialize();
   await AccountManager().migrateOldAccount();
@@ -130,7 +134,7 @@ class MyApp extends StatelessWidget {
             darkDynamic != null;
 
         final Color accentColor = useMaterialYou
-            ? lightDynamic!.primary
+            ? lightDynamic.primary
             : themeProvider.accentColor;
 
         final PageTransitionsTheme pageTransitionsTheme = themeProvider.optimization
@@ -150,7 +154,7 @@ class MyApp extends StatelessWidget {
               );
 
         final ColorScheme lightScheme = useMaterialYou
-            ? lightDynamic!
+            ? lightDynamic
             : ColorScheme.fromSeed(
                 seedColor: accentColor,
                 brightness: Brightness.light,
@@ -173,7 +177,7 @@ class MyApp extends StatelessWidget {
         );
 
         final ColorScheme darkScheme = useMaterialYou
-            ? darkDynamic!
+            ? darkDynamic
             : ColorScheme.fromSeed(
                 seedColor: accentColor,
                 brightness: Brightness.dark,

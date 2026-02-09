@@ -48,9 +48,13 @@ class ChatMessageItem extends StatelessWidget {
                 contactId: message.senderId,
                 originalAvatarUrl: senderContact?.photoBaseUrl,
                 radius: 18,
-                fallbackText: senderContact?.name?.isNotEmpty == true 
-                    ? senderContact!.name![0].toUpperCase() 
-                    : '?',
+                fallbackText: () {
+                  final name = senderContact?.name;
+                  if (name != null && name.isNotEmpty) {
+                    return name[0].toUpperCase();
+                  }
+                  return '?';
+                }(),
               ),
             )
           else if (!isMe && isGroupChat)
@@ -150,9 +154,10 @@ class _MessageContent extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               // Text content
-              if (message.text?.isNotEmpty ?? false)
+              if (message.text.isNotEmpty)
                 SelectableText(
-                  message.text!,
+                  message.text,
+                  key: ValueKey('msg_text_${message.id}'),
                   style: TextStyle(
                     color: textColor,
                     fontSize: 16,

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../../../utils/theme_provider.dart';
 import '../../controllers/chat_input_controller.dart';
 
 /// Упрощенная панель ввода сообщений
@@ -19,7 +18,6 @@ class ChatInputBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final themeProvider = context.watch<ThemeProvider>();
     
     return Consumer<ChatInputController>(
       builder: (context, controller, child) {

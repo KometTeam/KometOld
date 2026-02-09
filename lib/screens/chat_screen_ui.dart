@@ -435,9 +435,9 @@ extension on _ChatScreenState {
 
     // Use wallpaper from ThemeProvider
     switch (provider.chatWallpaperType) {
-      case 'solid':
+      case ChatWallpaperType.solid:
         return Container(color: provider.chatWallpaperColor1);
-      case 'gradient':
+      case ChatWallpaperType.gradient:
         return Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
@@ -450,7 +450,7 @@ extension on _ChatScreenState {
             ),
           ),
         );
-      case 'image':
+      case ChatWallpaperType.image:
         if (provider.chatWallpaperImagePath != null) {
           Widget imageWidget = Image.file(
             File(provider.chatWallpaperImagePath!),
@@ -469,8 +469,8 @@ extension on _ChatScreenState {
           return imageWidget;
         }
         break;
-      case 'none':
-      default:
+      case ChatWallpaperType.komet:
+      case ChatWallpaperType.video:
         break;
     }
 
@@ -485,7 +485,7 @@ extension on _ChatScreenState {
     }
 
     // Check if video wallpaper
-    if (provider.chatWallpaperType == 'video' &&
+    if (provider.chatWallpaperType == ChatWallpaperType.video &&
         provider.chatWallpaperVideoPath != null &&
         provider.chatWallpaperVideoPath!.isNotEmpty) {
       return _VideoWallpaperBackground(
@@ -661,6 +661,7 @@ extension on _ChatScreenState {
           onPanStart: dragEnabled
               ? (_) {
                   _sendDragReturnController.stop();
+                  // ignore: invalid_use_of_protected_member
                   setState(() {
                     _isSendDragging = true;
                   });
@@ -671,6 +672,7 @@ extension on _ChatScreenState {
                   final nextPull = (_sendDragPullDy + details.delta.dy).clamp(-_ChatScreenState._sendDragVisualThreshold, 0.0);
                   final nextPos = nextPull.clamp(-_ChatScreenState._sendDragThreshold, 0.0);
                   if (nextPull == _sendDragPullDy && nextPos == _sendDragDy) return;
+                  // ignore: invalid_use_of_protected_member
                   setState(() {
                     _sendDragPullDy = nextPull;
                     _sendDragDy = nextPos;
@@ -685,6 +687,7 @@ extension on _ChatScreenState {
                       CurvedAnimation(parent: _sendDragReturnController, curve: Curves.easeOutCubic),
                     );
                     void listener() {
+                      // ignore: invalid_use_of_protected_member
                       setState(() {
                         _sendDragPullDy = tween.value;
                         _sendDragDy = tween.value.clamp(-_ChatScreenState._sendDragThreshold, 0.0);
@@ -698,6 +701,7 @@ extension on _ChatScreenState {
                     _sendDragReturnController.forward().whenComplete(() {
                       _sendDragReturnController.removeListener(listener);
                       if (!mounted) return;
+                      // ignore: invalid_use_of_protected_member
                       setState(() {
                         _sendDragPullDy = 0.0;
                         _sendDragDy = 0.0;
@@ -711,6 +715,7 @@ extension on _ChatScreenState {
                     );
 
                     void listener() {
+                      // ignore: invalid_use_of_protected_member
                       setState(() {
                         _sendDragDy = tween.value;
                         _sendDragPullDy = -_ChatScreenState._sendDragVisualThreshold;
@@ -923,6 +928,7 @@ extension on _ChatScreenState {
                         IconButton(
                           icon: const Icon(Icons.close, size: 20),
                           onPressed: () {
+                            // ignore: invalid_use_of_protected_member
                             setState(() {
                               _replyingToMessage = null;
                             });
@@ -956,6 +962,7 @@ extension on _ChatScreenState {
                         IconButton(
                           icon: const Icon(Icons.close, size: 20),
                           onPressed: () {
+                            // ignore: invalid_use_of_protected_member
                             setState(() {
                               _editingMessage = null;
                               _textController.clear();
@@ -989,6 +996,7 @@ extension on _ChatScreenState {
                           color: Theme.of(context).colorScheme.onSurface,
                         ),
                         onChanged: (text) {
+                          // ignore: invalid_use_of_protected_member
                           setState(() {});
                           _handleChatInputChanged(text);
                         },
@@ -1022,6 +1030,7 @@ extension on _ChatScreenState {
                               final newText = text.substring(0, selection.start) + '\n' + text.substring(selection.end);
                               _textController.text = newText;
                               _textController.selection = TextSelection.collapsed(offset: selection.start + 1);
+                              // ignore: invalid_use_of_protected_member
                               setState(() {});
                               _handleChatInputChanged(_textController.text);
                               return null;
@@ -1043,6 +1052,7 @@ extension on _ChatScreenState {
                             color: Theme.of(context).colorScheme.onSurface,
                           ),
                           onChanged: (text) {
+                            // ignore: invalid_use_of_protected_member
                             setState(() {});
                             _handleChatInputChanged(text);
                           },
@@ -1130,6 +1140,7 @@ extension on _ChatScreenState {
 
   // Search
   void _startSearch() {
+    // ignore: invalid_use_of_protected_member
     setState(() {
       _isSearching = true;
     });
@@ -1139,6 +1150,7 @@ extension on _ChatScreenState {
   }
 
   void _stopSearch() {
+    // ignore: invalid_use_of_protected_member
     setState(() {
       _isSearching = false;
       _searchController.clear();
@@ -1149,6 +1161,7 @@ extension on _ChatScreenState {
 
   void _performSearch(String query) {
     if (query.isEmpty) {
+      // ignore: invalid_use_of_protected_member
       setState(() {
         _searchResults.clear();
         _currentResultIndex = 0;
@@ -1165,6 +1178,7 @@ extension on _ChatScreenState {
       }
     }
 
+    // ignore: invalid_use_of_protected_member
     setState(() {
       _searchResults = results;
       _currentResultIndex = results.isNotEmpty ? 0 : 0;
@@ -1177,6 +1191,7 @@ extension on _ChatScreenState {
 
   void _navigateToNextResult() {
     if (_searchResults.isEmpty) return;
+    // ignore: invalid_use_of_protected_member
     setState(() {
       _currentResultIndex = (_currentResultIndex + 1) % _searchResults.length;
     });
@@ -1185,6 +1200,7 @@ extension on _ChatScreenState {
 
   void _navigateToPreviousResult() {
     if (_searchResults.isEmpty) return;
+    // ignore: invalid_use_of_protected_member
     setState(() {
       _currentResultIndex =
           (_currentResultIndex - 1 + _searchResults.length) % _searchResults.length;
@@ -1214,15 +1230,6 @@ extension on _ChatScreenState {
         curve: Curves.easeInOut,
       );
     }
-  }
-
-  void _scrollToBottom() {
-    if (_chatItems.isEmpty) return;
-    _itemScrollController.scrollTo(
-      index: 0,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeOut,
-    );
   }
 
   void _jumpToBottom() {
@@ -1322,6 +1329,7 @@ extension on _ChatScreenState {
               final apiService = context.read<ApiService>();
               // blockContact method call
               apiService.blockContact(widget.contact.id).then((_) {
+                // ignore: invalid_use_of_protected_member
                 setState(() {
                   _currentContact = Contact(
                     id: _currentContact.id,
@@ -1370,6 +1378,7 @@ extension on _ChatScreenState {
               Navigator.of(context).pop();
               final apiService = context.read<ApiService>();
               apiService.unblockContact(widget.contact.id).then((_) {
+                // ignore: invalid_use_of_protected_member
                 setState(() {
                   _currentContact = Contact(
                     id: _currentContact.id,
@@ -1414,7 +1423,7 @@ extension on _ChatScreenState {
             ),
 
           // Video wallpaper (if any)
-          if (theme.chatWallpaperType == 'video' &&
+          if (theme.chatWallpaperType == ChatWallpaperType.video &&
               theme.chatWallpaperVideoPath != null)
             Positioned.fill(
               child: _buildChatWallpaper(theme),
@@ -1434,6 +1443,7 @@ extension on _ChatScreenState {
                   myId: _actualMyId ?? 0,
                   onTap: _scrollToPinnedMessage,
                   onClose: () {
+                    // ignore: invalid_use_of_protected_member
                     setState(() {
                       _pinnedMessage = null;
                     });
@@ -1472,7 +1482,7 @@ extension on _ChatScreenState {
 
   Widget _buildChatItem(ChatItem item) {
     if (item is MessageItem) {
-      final senderContact = _contactDetailsCache?[item.message.senderId];
+      final senderContact = _contactDetailsCache[item.message.senderId];
       final senderName = senderContact?.name ?? 'ID ${item.message.senderId}';
       
       final isMe = item.message.senderId == _actualMyId;
@@ -1542,6 +1552,7 @@ extension on _ChatScreenState {
               Navigator.of(context).pop();
               final apiService = context.read<ApiService>();
               apiService.clearChatHistory(widget.chatId).then((_) {
+                // ignore: invalid_use_of_protected_member
                 setState(() {
                   _messages.clear();
                   _chatItems.clear();
@@ -1649,114 +1660,6 @@ extension on _ChatScreenState {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  void _showSpecialMessagesPanel() {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Особые сообщения',
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            _SpecialMessageButton(
-              label: 'Цветной текст',
-              template: "komet.color_#'",
-              icon: Icons.color_lens,
-              onTap: () {
-                Navigator.pop(context);
-                Future.microtask(() {
-                  if (!mounted) return;
-                  final currentText = _textController.text;
-                  final cursorPos = _textController.selection.baseOffset.clamp(
-                    0,
-                    currentText.length,
-                  );
-                  final template = "komet.color_#";
-                  final newText =
-                      currentText.substring(0, cursorPos) +
-                          template +
-                          currentText.substring(cursorPos);
-                  _textController.value = TextEditingValue(
-                    text: newText,
-                    selection: TextSelection.collapsed(
-                      offset: cursorPos + template.length - 2,
-                    ),
-                  );
-                });
-              },
-            ),
-            const SizedBox(height: 8),
-            _SpecialMessageButton(
-              label: 'Переливающийся текст',
-              template: "komet.cosmetic.galaxy' ваш текст '",
-              icon: Icons.auto_awesome,
-              onTap: () {
-                Navigator.pop(context);
-                Future.microtask(() {
-                  if (!mounted) return;
-                  final currentText = _textController.text;
-                  final cursorPos = _textController.selection.baseOffset.clamp(
-                    0,
-                    currentText.length,
-                  );
-                  final template = "komet.cosmetic.galaxy' ваш текст '";
-                  final newText =
-                      currentText.substring(0, cursorPos) +
-                          template +
-                          currentText.substring(cursorPos);
-                  _textController.value = TextEditingValue(
-                    text: newText,
-                    selection: TextSelection.collapsed(
-                      offset: cursorPos + template.length - 2,
-                    ),
-                  );
-                });
-              },
-            ),
-            const SizedBox(height: 8),
-            _SpecialMessageButton(
-              label: 'Пульсирующий текст',
-              template: "komet.cosmetic.pulse#",
-              icon: Icons.radio_button_checked,
-              onTap: () {
-                Navigator.pop(context);
-                Future.microtask(() {
-                  if (!mounted) return;
-                  final currentText = _textController.text;
-                  final cursorPos = _textController.selection.baseOffset.clamp(
-                    0,
-                    currentText.length,
-                  );
-                  final template = "komet.cosmetic.pulse#";
-                  final newText =
-                      currentText.substring(0, cursorPos) +
-                          template +
-                          currentText.substring(cursorPos);
-                  _textController.value = TextEditingValue(
-                    text: newText,
-                    selection: TextSelection.collapsed(
-                      offset: cursorPos + template.length,
-                    ),
-                  );
-                });
-              },
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -2169,75 +2072,4 @@ extension on _ChatScreenState {
     }
   }
 
-  Future<_PhotoPickerResult?> _showSendPhotosDialog(List<XFile> images) async {
-    return showDialog<_PhotoPickerResult>(
-      context: context,
-      builder: (context) => _SendPhotosDialog(
-        images: images,
-      ),
-    );
-  }
-
-  Future<void> _sendPhotos(_PhotoPickerResult result) async {
-    // Implementation depends on your API
-    _showInfoSnackBar('Отправка ${result.images.length} фото...');
-  }
-
-  Future<void> _pickFile() async {
-    try {
-      final result = await FilePicker.platform.pickFiles();
-      if (result != null && result.files.isNotEmpty) {
-        _showInfoSnackBar('Отправка файла...');
-        // Implementation depends on your API
-      }
-    } catch (e) {
-      _showErrorSnackBar('Ошибка выбора файла: $e');
-    }
-  }
-
-  // Text formatting
-  void _applyTextFormat(String type) {
-    final text = _textController.text;
-    final selection = _textController.selection;
-
-    if (!selection.isValid || selection.start == selection.end) {
-      _showInfoSnackBar('Выберите текст для форматирования');
-      return;
-    }
-
-    final selectedText = text.substring(selection.start, selection.end);
-    String formattedText;
-
-    switch (type) {
-      case 'bold':
-        formattedText = '**$selectedText**';
-        break;
-      case 'italic':
-        formattedText = '*$selectedText*';
-        break;
-      case 'code':
-        formattedText = '`$selectedText`';
-        break;
-      case 'strikethrough':
-        formattedText = '~~$selectedText~~';
-        break;
-      default:
-        return;
-    }
-
-    final newText = text.replaceRange(selection.start, selection.end, formattedText);
-    _textController.value = TextEditingValue(
-      text: newText,
-      selection: TextSelection.collapsed(
-        offset: selection.start + formattedText.length,
-      ),
-    );
-  }
-
-  // Test animation
-  void _testSlideAnimation() {
-    setState(() {
-      _testAnimationTrigger.value = !_testAnimationTrigger.value;
-    });
-  }
 }

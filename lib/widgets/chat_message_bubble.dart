@@ -496,7 +496,7 @@ class ChatMessageBubble extends StatelessWidget {
                   }
 
                   if (isEncrypted && !isEncryptionPasswordSet) {
-                    return Text(
+                    return const Text(
                       'это зашифрованное сообщение, для его отображения поставьте пароль шифрования на чат.',
                       style: TextStyle(
                         color: Colors.red,
@@ -511,7 +511,7 @@ class ChatMessageBubble extends StatelessWidget {
                       snapshot.hasData &&
                       snapshot.data != null &&
                       decryptedForwardedText == null) {
-                    return Text(
+                    return const Text(
                       'некорректный ключ расшифровки, пароль точно верен?',
                       style: TextStyle(
                         color: Colors.red,
@@ -4489,7 +4489,7 @@ class ChatMessageBubble extends StatelessWidget {
           if (ChatEncryptionService.isEncryptedMessage(message.text) &&
               message.text.length > 1 &&
               !isEncryptionPasswordSet)
-            Text(
+            const Text(
               'это зашифрованное сообщение, для его отображение поставьте пароль шифрования на чат.',
               style: TextStyle(
                 color: Colors.red,
@@ -4501,7 +4501,7 @@ class ChatMessageBubble extends StatelessWidget {
               message.text.length > 1 &&
               isEncryptionPasswordSet &&
               decryptedText == null)
-            Text(
+            const Text(
               'некорректный ключ расшифровки, пароль точно верен?',
               style: TextStyle(
                 color: Colors.red,
@@ -5189,14 +5189,18 @@ class ChatMessageBubble extends StatelessWidget {
       margin: _getMessageMargin(context),
       decoration: decoration,
       child: RepaintBoundary(
-        child: SelectionArea(
-          contextMenuBuilder: (context, selectableRegionState) {
-            return AdaptiveTextSelectionToolbar.buttonItems(
-              anchors: selectableRegionState.contextMenuAnchors,
-              buttonItems: [],
+        child: Builder(
+          builder: (context) {
+            return SelectionArea(
+              contextMenuBuilder: (context, selectableRegionState) {
+                return AdaptiveTextSelectionToolbar.buttonItems(
+                  anchors: selectableRegionState.contextMenuAnchors,
+                  buttonItems: [],
+                );
+              },
+              child: content,
             );
           },
-          child: content,
         ),
       ),
     );

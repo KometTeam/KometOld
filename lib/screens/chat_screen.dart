@@ -7,7 +7,8 @@ import 'package:flutter/scheduler.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:gwid/utils/theme_provider.dart';
-import 'package:gwid/theme/theme.dart' show AppTheme, ChatWallpaperType;
+import 'package:gwid/theme/theme_enums.dart';
+
 import 'package:gwid/api/api_service.dart';
 import 'package:flutter/services.dart';
 import 'package:gwid/models/chat.dart';
@@ -25,7 +26,7 @@ import 'package:gwid/services/cache_service.dart';
 import 'package:gwid/services/notification_service.dart';
 import 'package:gwid/services/message_queue_service.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
-import 'package:file_picker/file_picker.dart';
+
 import 'package:gwid/screens/group_settings_screen.dart';
 
 import 'package:gwid/screens/contact_selection_screen.dart';
@@ -419,8 +420,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   List<ChatItem> _chatItems = [];
   final Set<String> _deletingMessageIds = {};
   final Set<String> _messagesToAnimate = {};
-  List<Map<String, dynamic>> _cachedAllPhotos = [];
-  String? _highlightedMessageId;
 
   // Loading states
   bool _isLoadingHistory = true;
@@ -443,7 +442,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   Message? _pinnedMessage;
   Message? _replyingToMessage;
   final Map<int, Contact> _contactDetailsCache = {};
-  final Set<int> _loadingContactIds = {};
   int? _lastPeerReadMessageId;
   String? _lastPeerReadMessageIdStr;
   Map<String, dynamic>? _cachedCurrentGroupChat;
@@ -453,7 +451,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   StreamSubscription<String>? _connectionStatusSub;
   String _connectionStatus = 'connecting';
   int? _actualMyId;
-  bool _isIdReady = false;
   int? _oldestLoadedTime;
   int _maxViewedIndex = 0;
   
@@ -474,7 +471,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   String _mentionQuery = '';
   int? _mentionStartPosition;
   final LayerLink _mentionLayerLink = LayerLink();
-  List<Mention> _mentions = [];
+  final List<Mention> _mentions = [];
 
   // Encryption
   bool _isEncryptionPasswordSetForCurrentChat = false;
@@ -482,8 +479,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   bool _sendEncryptedForCurrentChat = true;
 
   // UI States
-  bool _specialMessagesEnabled = true;
-  bool _hasTextSelection = false;
   Timer? _selectionCheckTimer;
   bool _showKometColorPicker = false;
   String? _currentKometColorPrefix;
@@ -493,10 +488,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   // Additional UI states
   Message? _editingMessage;
-  bool _isSendingMessage = false;
-  int? _mentionQueryStart;
-  Color? _kometColor;
-  bool _showSpecialMessagesPanelState = false;
   final ValueNotifier<bool> _testAnimationTrigger = ValueNotifier(false);
 
   // Scroll states
@@ -590,7 +581,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     
     print('🔘 _init: вызываем _loadEncryptionConfig...');
     _loadEncryptionConfig();
-    _loadSpecialMessagesSetting();
 
     // Initial height calculation for drafts
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -616,9 +606,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       } else {
         _stopSelectionCheck();
         if (!mounted) return;
-        setState(() {
-          _hasTextSelection = false;
-        });
         _saveInputState();
 
         if (_showMentionDropdown) {
@@ -714,16 +701,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     );
   }
 
-  // Copy message method
-  Future<void> _copyMessage(Message message) async {
-    await Clipboard.setData(ClipboardData(text: message.text ?? ''));
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Message copied to clipboard')),
-      );
-    }
-  }
-
   // Helper method to show error snackbar
   void _showErrorSnackBar(String message) {
     if (!mounted) return;
@@ -768,6 +745,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     // Implemented in logic file
   }
 
-  // Методы _initializeChat, _loadEncryptionConfig, _loadSpecialMessagesSetting, _loadMore
+  // Методы _initializeChat, _loadEncryptionConfig, _loadMore
   // реализованы в chat_screen_logic.dart как part of этого файла
 }

@@ -145,19 +145,19 @@ class _ChatNotificationSettingsDialogState
             RadioGroup<VibrationMode>(
               groupValue: _vibrationMode,
               onChanged: (v) => Navigator.of(context).pop(v),
-              child: Column(
+              child: const Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   RadioListTile<VibrationMode>(
-                    title: const Text('Без вибрации'),
+                    title: Text('Без вибрации'),
                     value: VibrationMode.none,
                   ),
                   RadioListTile<VibrationMode>(
-                    title: const Text('Короткая'),
+                    title: Text('Короткая'),
                     value: VibrationMode.short,
                   ),
                   RadioListTile<VibrationMode>(
-                    title: const Text('Длинная'),
+                    title: Text('Длинная'),
                     value: VibrationMode.long,
                   ),
                 ],

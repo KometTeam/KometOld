@@ -955,7 +955,7 @@ class MessageHandler {
     Chat channel, [
     Map<String, dynamic>? chatFromPayload,
   ]) {
-    final channelName = channel.title ?? channel.displayTitle ?? 'Канал';
+    final channelName = channel.displayTitle;
     final avatarUrl = channel.baseIconUrl;
 
     print('🔔 [MessageHandler] Показываем уведомление канала: $channelName');

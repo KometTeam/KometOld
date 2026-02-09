@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:gwid/services/cache_service.dart';
+import 'package:gwid/services/cache_settings_service.dart';
 
 class AvatarCacheService {
   static final AvatarCacheService _instance = AvatarCacheService._internal();
@@ -19,13 +20,18 @@ class AvatarCacheService {
   final Map<String, DateTime> _imageCacheTimestamps = {};
   final Map<String, ImageProvider> _cachedImageProviders = {};
 
-  static const Duration _imageTTL = Duration(days: 7);
   static const int _maxMemoryImages = 50;
   static const int _maxImageSizeMB = 5;
 
+  final CacheSettingsService _settingsService = CacheSettingsService();
+
+  // TTL берется из настроек
+  Duration get _imageTTL => _settingsService.currentSettings.avatarsTTL;
+
   Future<void> initialize() async {
     await _cacheService.initialize();
-    print('AvatarCacheService инициализирован');
+    await _settingsService.initialize();
+    print('✅ AvatarCacheService инициализирован');
   }
 
   Future<ImageProvider?> getAvatar(String? avatarUrl, {int? userId}) async {

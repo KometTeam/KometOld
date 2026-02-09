@@ -131,6 +131,10 @@ class _MessageListViewState extends State<_MessageListView> {
       itemCount: widget.messages.length + (widget.isLoadingMore ? 1 : 0),
       reverse: true,
       padding: const EdgeInsets.symmetric(vertical: 8),
+      minCacheExtent: 200.0,
+      addRepaintBoundaries: true,
+      addAutomaticKeepAlives: false,
+      addSemanticIndexes: false,
       itemBuilder: (context, index) {
         if (index == widget.messages.length) {
           return const Center(

@@ -51,7 +51,6 @@ class ChatInputController extends ChangeNotifier {
   Duration get recordingDuration => _recordingDuration;
   
   Timer? _recordingTimer;
-  String? _recordingPath;
   
   // Mentions
   final List<MentionDraft> _mentions = [];
@@ -155,7 +154,6 @@ class ChatInputController extends ChangeNotifier {
     _recordingTimer?.cancel();
     _voiceState = VoiceRecordingState.idle;
     _recordingDuration = Duration.zero;
-    _recordingPath = null;
     _notifyListenersSafe();
   }
   
@@ -176,7 +174,6 @@ class ChatInputController extends ChangeNotifier {
       
       _voiceState = VoiceRecordingState.idle;
       _recordingDuration = Duration.zero;
-      _recordingPath = null;
     } catch (e) {
       _voiceState = VoiceRecordingState.error;
     } finally {
@@ -188,7 +185,6 @@ class ChatInputController extends ChangeNotifier {
   Future<void> sendMessage() async {
     if (!canSend) return;
     
-    final text = textController.text.trim();
     _sendState = SendState.sending;
     _notifyListenersSafe();
     

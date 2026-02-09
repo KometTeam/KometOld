@@ -15,7 +15,7 @@ import 'package:gwid/models/message.dart';
 import 'package:gwid/models/profile.dart';
 import 'package:gwid/models/chat_folder.dart';
 import 'package:gwid/utils/theme_provider.dart';
-import 'package:gwid/theme/theme.dart' show AppTheme, DrawerBackgroundType, FolderTabsBackgroundType, AppBarBackgroundType, ChatPreviewMode;
+import 'package:gwid/theme/theme.dart' show DrawerBackgroundType, FolderTabsBackgroundType, AppBarBackgroundType, ChatPreviewMode;
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gwid/screens/join_group_screen.dart';
@@ -44,6 +44,7 @@ import 'package:gwid/screens/chat/dialogs/read_settings_dialog.dart';
 import 'package:gwid/screens/chat/screens/calls_screen.dart';
 import 'package:gwid/screens/chat/screens/sferum_webview_panel.dart';
 import 'package:gwid/screens/chat/handlers/message_handler.dart';
+import 'package:gwid/widgets/optimized/optimized_widgets.dart';
 
 class ChatsScreen extends StatefulWidget {
   final void Function(
@@ -71,7 +72,7 @@ class ChatsScreen extends StatefulWidget {
 }
 
 class _ChatsScreenState extends State<ChatsScreen>
-    with AutomaticKeepAliveClientMixin, TickerProviderStateMixin {
+    with TickerProviderStateMixin, AutomaticKeepAliveClientMixin, OptimizedStateMixin<ChatsScreen> {
   late Future<Map<String, dynamic>> _chatsFuture;
   StreamSubscription? _apiSubscription;
   List<Chat> _allChats = [];
@@ -81,7 +82,7 @@ class _ChatsScreenState extends State<ChatsScreen>
   Map<int, Contact> _contacts = {};
   bool _isSearchExpanded = false;
   String _searchQuery = '';
-  Timer? _searchDebounceTimer;
+  // Используем Debouncer из OptimizedStateMixin вместо Timer
   List<SearchResult> _searchResults = [];
   String _searchFilter = 'all';
   bool _hasRequestedBlockedContacts = false;
@@ -122,22 +123,21 @@ class _ChatsScreenState extends State<ChatsScreen>
     super.initState();
     _initializePrefs();
     _loadMyProfile();
-    _chatsFuture = (() async {
-      try {
-        await ApiService.instance.waitUntilOnline();
-        final result = await ApiService.instance.getChatsAndContacts();
-        return result;
-      } catch (e) {
-        print('Ошибка получения чатов: $e');
-        if (e.toString().contains('Auth token not found') ||
-            e.toString().contains('FAIL_WRONG_PASSWORD')) {
-          _showTokenExpiredDialog(
-            'Токен авторизации недействителен. Требуется повторная авторизация.',
-          );
-        }
-        rethrow;
-      }
-    })();
+    
+    // Проверяем, есть ли уже данные в кэше (например, после авторизации)
+    // Если данные есть и сессия готова, используем их сразу без повторной загрузки
+    final cachedData = ApiService.instance.lastChatsPayload;
+    if (cachedData != null && 
+        cachedData['chats'] != null && 
+        ApiService.instance.isOnline &&
+        ApiService.instance.isSessionReady) {
+      print('ChatsScreen: используем кэшированные данные из lastChatsPayload');
+      _chatsFuture = Future.value(cachedData);
+      _chatsLoaded = false; // Сбрасываем флаг, чтобы данные обработались в build
+    } else {
+      // Данных нет или сессия не готова - загружаем с таймаутом
+      _chatsFuture = _loadChatsWithTimeout();
+    }
 
     _searchAnimationController = AnimationController(
       duration: const Duration(milliseconds: 300),
@@ -170,6 +170,57 @@ class _ChatsScreenState extends State<ChatsScreen>
             print("🔄 ChatsScreen: Обновление чатов запущено");
           }
         });
+  }
+
+  /// Загружает чаты с таймаутом и обработкой ошибок
+  Future<Map<String, dynamic>> _loadChatsWithTimeout() async {
+    try {
+      // Ждем подключения с таймаутом 15 секунд
+      await ApiService.instance.waitUntilOnline().timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          print('ChatsScreen: таймаут ожидания подключения');
+          throw TimeoutException('Таймаут подключения к серверу');
+        },
+      );
+      
+      // Загружаем чаты с таймаутом 20 секунд
+      final result = await ApiService.instance.getChatsAndContacts().timeout(
+        const Duration(seconds: 20),
+        onTimeout: () {
+          print('ChatsScreen: таймаут загрузки чатов');
+          throw TimeoutException('Таймаут загрузки чатов');
+        },
+      );
+      
+      // Предзагружаем сообщения из топ-чатов для быстрого открытия
+      final chats = result['chats'] as List<dynamic>? ?? [];
+      if (chats.isNotEmpty) {
+        final topChatIds = chats
+            .take(5) // Первые 5 чатов
+            .where((c) => c is Map<String, dynamic>)
+            .map((c) => c['id'] as int?)
+            .where((id) => id != null)
+            .cast<int>()
+            .toList();
+        
+        if (topChatIds.isNotEmpty) {
+          // Запускаем предзагрузку в фоне без ожидания
+          unawaited(ApiService.instance.preloadChatMessages(topChatIds, messageCount: 7));
+        }
+      }
+      
+      return result;
+    } catch (e) {
+      print('ChatsScreen: Ошибка загрузки чатов: $e');
+      if (e.toString().contains('Auth token not found') ||
+          e.toString().contains('FAIL_WRONG_PASSWORD')) {
+        _showTokenExpiredDialog(
+          'Токен авторизации недействителен. Требуется повторная авторизация.',
+        );
+      }
+      rethrow;
+    }
   }
 
   @override
@@ -403,7 +454,29 @@ class _ChatsScreenState extends State<ChatsScreen>
   }
 
   void _refreshChats() {
-    _chatsFuture = ApiService.instance.getChatsAndContacts(force: true);
+    _chatsFuture = (() async {
+      final result = await ApiService.instance.getChatsAndContacts(force: true);
+      
+      // Предзагружаем сообщения из топ-чатов для быстрого открытия
+      final chats = result['chats'] as List<dynamic>? ?? [];
+      if (chats.isNotEmpty) {
+        final topChatIds = chats
+            .take(5) // Первые 5 чатов
+            .where((c) => c is Map<String, dynamic>)
+            .map((c) => c['id'] as int?)
+            .where((id) => id != null)
+            .cast<int>()
+            .toList();
+        
+        if (topChatIds.isNotEmpty) {
+          // Запускаем предзагрузку в фоне без ожидания
+          unawaited(ApiService.instance.preloadChatMessages(topChatIds, messageCount: 7));
+        }
+      }
+      
+      return result;
+    })();
+    
     _chatsFuture.then((data) {
       if (mounted) {
         final chats = data['chats'] as List<dynamic>;
@@ -534,7 +607,7 @@ class _ChatsScreenState extends State<ChatsScreen>
                   backgroundColor: Theme.of(
                     context,
                   ).colorScheme.primaryContainer,
-                  child: Icon(Icons.download, color: Colors.white),
+                  child: const Icon(Icons.download, color: Colors.white),
                 ),
                 title: const Text('Загрузки'),
                 subtitle: const Text('Скачанные файлы'),
@@ -861,10 +934,9 @@ class _ChatsScreenState extends State<ChatsScreen>
     final query = _searchController.text;
     _searchQuery = query;
 
-    _searchDebounceTimer?.cancel();
-    _searchDebounceTimer = Timer(const Duration(milliseconds: 300), () {
-      _performSearch();
-    });
+    // Используем debouncedSetState для оптимизации
+    debouncedSetState('search', delay: const Duration(milliseconds: 300));
+    _performSearch();
   }
 
   void _onSearchFocusChanged() {
@@ -1705,7 +1777,7 @@ class _ChatsScreenState extends State<ChatsScreen>
                                                       context,
                                                     ).showSnackBar(
                                                       SnackBar(
-                                                        content: Text(
+                                                        content: const Text(
                                                           'Аккаунт недействителен. Требуется повторная авторизация.',
                                                         ),
                                                         backgroundColor:
@@ -2521,7 +2593,7 @@ class _ChatsScreenState extends State<ChatsScreen>
       Tab(
         child: GestureDetector(
           onLongPress: () {},
-          child: Row(
+          child: const Row(
             mainAxisSize: MainAxisSize.min,
             children: [Text('Все чаты', style: TextStyle(fontSize: 14))],
           ),
@@ -3208,17 +3280,17 @@ class _ChatsScreenState extends State<ChatsScreen>
                     }
                   });
                 },
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(
                     horizontal: 16,
                     vertical: 10,
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.refresh),
-                      const SizedBox(width: 8),
-                      const Text('Обновить список чатов'),
+                      Icon(Icons.refresh),
+                      SizedBox(width: 8),
+                      Text('Обновить список чатов'),
                     ],
                   ),
                 ),
@@ -3423,7 +3495,7 @@ class _ChatsScreenState extends State<ChatsScreen>
                   tooltip: 'Сферум',
                 ),
               IconButton(
-                icon: Icon(Icons.download, color: Colors.white),
+                icon: const Icon(Icons.download, color: Colors.white),
                 onPressed: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(
@@ -3998,7 +4070,7 @@ class _ChatsScreenState extends State<ChatsScreen>
           overflow: TextOverflow.ellipsis,
           text: TextSpan(
             children: [
-              TextSpan(
+              const TextSpan(
                 text: 'Черновик:',
                 style: TextStyle(
                   color: Colors.white,
@@ -4080,7 +4152,7 @@ class _ChatsScreenState extends State<ChatsScreen>
   Widget _buildPhotoAttachmentPreview(Message message) {
     final photoUrl = _extractFirstPhotoUrl(message.attaches);
     if (photoUrl == null) {
-      return Text('Вложение', maxLines: 1, overflow: TextOverflow.ellipsis);
+      return const Text('Вложение', maxLines: 1, overflow: TextOverflow.ellipsis);
     }
 
     return Row(
@@ -4130,7 +4202,7 @@ class _ChatsScreenState extends State<ChatsScreen>
   Widget _buildContactAttachmentPreview(Message message) {
     final contactData = _extractFirstContactData(message.attaches);
     if (contactData == null) {
-      return Text('Контакт', maxLines: 1, overflow: TextOverflow.ellipsis);
+      return const Text('Контакт', maxLines: 1, overflow: TextOverflow.ellipsis);
     }
 
     final name = contactData['name']!;
@@ -4692,7 +4764,7 @@ class _ChatsScreenState extends State<ChatsScreen>
             child: _typingChats.contains(chat.id)
                 ? TypingDots(color: colors.primary, size: 20)
                 : (_onlineChats.contains(chat.id)
-                ? PresenceDot(isOnline: true, size: 12)
+                ? const PresenceDot(isOnline: true, size: 12)
                 : const SizedBox.shrink()),
           ),
         ],
@@ -4751,7 +4823,7 @@ class _ChatsScreenState extends State<ChatsScreen>
     _messageHandler?.listen()?.cancel();
     _searchController.dispose();
     _searchFocusNode.dispose();
-    _searchDebounceTimer?.cancel();
+    // Debouncer очищается автоматически в dispose миксина
     _searchAnimationController.dispose();
     _folderTabController.dispose();
     super.dispose();

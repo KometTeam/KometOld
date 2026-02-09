@@ -82,7 +82,7 @@ class _ProfileMenuDialogState extends State<ProfileMenuDialog> {
                     const SizedBox(height: 8),
                     Container(
                       decoration: BoxDecoration(
-                        color: Color(0x0ff33333),
+                        color: const Color(0x0ff33333),
                         borderRadius: BorderRadius.circular(24),
                       ),
                       padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),

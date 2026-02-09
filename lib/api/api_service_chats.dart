@@ -606,47 +606,71 @@ extension ApiServiceChats on ApiService {
     print("Единичные запросы отправлены.");
   }
 
+  /// Загружает историю сообщений с инкрементальной подгрузкой.
+  /// Сначала загружает [initialLimit] сообщений для быстрого отображения,
+  /// затем в фоне подгружает остальные до [maxMessages].
   Future<List<Message>> getMessageHistory(
       int chatId, {
         bool force = false,
+        int initialLimit = 10,
+        int maxMessages = 30,
+        Function(List<Message> initialMessages)? onInitialLoaded,
+        Function(List<Message> allMessages)? onCompleteLoaded,
       }) async {
     await _ensureCacheServicesInitialized();
 
+    // Проверяем кэш в памяти
     if (!force && _messageCache.containsKey(chatId)) {
-      print("Загружаем сообщения для чата $chatId из кэша.");
-      return _messageCache[chatId]!;
+      final cached = _messageCache[chatId]!;
+      print("Загружаем сообщения для чата $chatId из кэша (${cached.length} шт).");
+      // Если в кэше уже достаточно сообщений, возвращаем сразу
+      if (cached.length >= initialLimit) {
+        // Вызываем коллбэки для обновления UI
+        onInitialLoaded?.call(cached);
+        onCompleteLoaded?.call(cached);
+        return cached;
+      }
     }
 
+    // Проверяем кэш на диске
     if (!force) {
       final cachedMessages = await _chatCacheService.getCachedChatMessages(
         chatId,
       );
       if (cachedMessages != null && cachedMessages.isNotEmpty) {
         print(
-          "История сообщений для чата $chatId загружена из ChatCacheService.",
+          "История сообщений для чата $chatId загружена из ChatCacheService (${cachedMessages.length} шт).",
         );
         _messageCache[chatId] = cachedMessages;
-        return cachedMessages;
+        if (cachedMessages.length >= initialLimit) {
+          // Вызываем коллбэки для обновления UI
+          onInitialLoaded?.call(cachedMessages);
+          onCompleteLoaded?.call(cachedMessages);
+          return cachedMessages;
+        }
       }
     }
 
     await waitUntilOnline();
-    print("Запрашиваем историю для чата $chatId с сервера.");
-    final payload = {
+    
+    // Шаг 1: Быстрая загрузка первых [initialLimit] сообщений
+    print("📨 Быстрая загрузка для чата $chatId: первые $initialLimit сообщений...");
+    final initialPayload = {
       "chatId": chatId,
       "from": DateTime.now()
           .add(const Duration(days: 1))
           .millisecondsSinceEpoch,
       "forward": 0,
-      "backward": 30,
+      "backward": initialLimit,
       "getMessages": true,
     };
 
     try {
-      final response = await sendRequest(49, payload).timeout(const Duration(seconds: 15));
+      final initialResponse = await sendRequest(49, initialPayload)
+          .timeout(const Duration(seconds: 5));
 
-      if (response['cmd'] == 3) {
-        final error = response['payload'];
+      if (initialResponse['cmd'] == 3) {
+        final error = initialResponse['payload'];
         print('Ошибка получения истории сообщений: $error');
 
         if (error['error'] == 'proto.state') {
@@ -656,49 +680,187 @@ extension ApiServiceChats on ApiService {
           await reconnect();
           await waitUntilOnline();
 
-          return getMessageHistory(chatId, force: true);
+          return getMessageHistory(chatId, force: true, initialLimit: initialLimit, maxMessages: maxMessages);
         }
         throw Exception('Ошибка получения истории: ${error['message']}');
       }
 
-      final List<dynamic> messagesJson = response['payload']?['messages'] ?? [];
-      final messagesList =
-      messagesJson.map((json) => Message.fromJson(json)).toList()
+      final List<dynamic> initialMessagesJson = initialResponse['payload']?['messages'] ?? [];
+      final initialMessages = initialMessagesJson
+          .map((json) => Message.fromJson(json))
+          .toList()
         ..sort((a, b) => a.time.compareTo(b.time));
 
-      final contactIds = <int>[];
-      for (final message in messagesList) {
-        for (final attach in message.attaches) {
-          if (attach['_type'] == 'CONTACT') {
-            final contactIdValue = attach['contactId'];
-            final int? contactId = contactIdValue is int
-                ? contactIdValue
-                : (contactIdValue is String
-                ? int.tryParse(contactIdValue)
-                : null);
-            if (contactId != null) {
-              final cachedContact = getCachedContact(contactId);
-              if (cachedContact == null && !contactIds.contains(contactId)) {
-                contactIds.add(contactId);
-              }
-            }
-          }
-        }
-      }
-      if (contactIds.isNotEmpty) {
-        unawaited(fetchContactsByIds(contactIds));
+      // Сохраняем в кэш и уведомляем
+      if (initialMessages.isNotEmpty) {
+        _messageCache[chatId] = initialMessages;
+        _preloadMessageImages(initialMessages);
+        unawaited(_updateMessagesCacheIfNewer(chatId, initialMessages));
       }
 
-      _messageCache[chatId] = messagesList;
-      _preloadMessageImages(messagesList);
+      print("✅ Быстрая загрузка для чата $chatId: ${initialMessages.length} сообщений");
+      onInitialLoaded?.call(initialMessages);
 
-      unawaited(_updateMessagesCacheIfNewer(chatId, messagesList));
+      // Шаг 2: Фоновая загрузка оставшихся сообщений (если нужно)
+      if (initialMessages.length >= initialLimit && maxMessages > initialLimit) {
+        unawaited(_loadRemainingMessages(
+          chatId,
+          initialMessages,
+          maxMessages: maxMessages,
+          onComplete: onCompleteLoaded,
+        ));
+      } else {
+        // Если фоновая загрузка не требуется, вызываем onCompleteLoaded сразу
+        onCompleteLoaded?.call(initialMessages);
+      }
 
-      return messagesList;
+      return initialMessages;
     } catch (e) {
       print('Ошибка при получении истории сообщений: $e');
+      return _messageCache[chatId] ?? [];
+    }
+  }
 
-      return [];
+  /// Фоновая загрузка оставшихся сообщений
+  Future<void> _loadRemainingMessages(
+      int chatId,
+      List<Message> existingMessages, {
+        required int maxMessages,
+        Function(List<Message> allMessages)? onComplete,
+      }) async {
+    try {
+      print("🔄 Фоновая загрузка для чата $chatId: до $maxMessages сообщений...");
+      
+      final oldestMessage = existingMessages.first;
+      final payload = {
+        "chatId": chatId,
+        "from": oldestMessage.time,
+        "forward": 0,
+        "backward": maxMessages - existingMessages.length,
+        "getMessages": true,
+      };
+
+      final response = await sendRequest(49, payload)
+          .timeout(const Duration(seconds: 15));
+
+      if (response['cmd'] == 3) {
+        print('⚠️ Фоновая загрузка: ошибка получения истории');
+        // Всё равно вызываем onComplete с текущими сообщениями
+        onComplete?.call(existingMessages);
+        return;
+      }
+
+      final List<dynamic> messagesJson = response['payload']?['messages'] ?? [];
+      if (messagesJson.isEmpty) {
+        print("📭 Фоновая загрузка для чата $chatId: нет дополнительных сообщений");
+        // Всё равно вызываем onComplete с текущими сообщениями
+        onComplete?.call(existingMessages);
+        return;
+      }
+
+      final newMessages = messagesJson
+          .map((json) => Message.fromJson(json))
+          .toList();
+
+      // Объединяем с существующими, избегая дубликатов
+      final existingIds = existingMessages.map((m) => m.id).toSet();
+      final uniqueNewMessages = newMessages.where((m) => !existingIds.contains(m.id)).toList();
+
+      final allMessages = [...existingMessages, ...uniqueNewMessages]
+        ..sort((a, b) => a.time.compareTo(b.time));
+
+      if (uniqueNewMessages.isNotEmpty) {
+        _messageCache[chatId] = allMessages;
+        _preloadMessageImages(uniqueNewMessages);
+        unawaited(_updateMessagesCacheIfNewer(chatId, allMessages));
+
+        // Уведомляем через стрим о новых сообщениях
+        _messageController.add({
+          'type': 'messages_loaded',
+          'chatId': chatId,
+          'messages': allMessages,
+          'newCount': uniqueNewMessages.length,
+        });
+
+        print("✅ Фоновая загрузка для чата $chatId: +${uniqueNewMessages.length} сообщений (всего: ${allMessages.length})");
+      } else {
+        print("📭 Фоновая загрузка для чата $chatId: нет новых сообщений");
+      }
+      
+      // Всегда вызываем onComplete с полным списком сообщений
+      onComplete?.call(allMessages);
+    } catch (e) {
+      print('⚠️ Ошибка фоновой загрузки сообщений для чата $chatId: $e');
+      // Всё равно вызываем onComplete с текущими сообщениями при ошибке
+      onComplete?.call(existingMessages);
+    }
+  }
+
+  /// Предзагружает сообщения из указанных чатов в фоне.
+  /// Полезно для подготовки данных до открытия чата.
+  Future<void> preloadChatMessages(
+      List<int> chatIds, {
+        int messageCount = 7,
+      }) async {
+    if (chatIds.isEmpty) return;
+    
+    print("🔄 Предзагрузка сообщений для ${chatIds.length} чатов...");
+    
+    for (final chatId in chatIds) {
+      // Пропускаем если уже в кэше
+      if (_messageCache.containsKey(chatId) && _messageCache[chatId]!.length >= messageCount) {
+        continue;
+      }
+
+      // Проверяем дисковый кэш
+      final cachedMessages = await _chatCacheService.getCachedChatMessages(chatId);
+      if (cachedMessages != null && cachedMessages.length >= messageCount) {
+        _messageCache[chatId] = cachedMessages;
+        continue;
+      }
+
+      // Загружаем с сервера в фоне
+      unawaited(_fetchMessagesForPreload(chatId, messageCount));
+      
+      // Небольшая задержка чтобы не перегружать сервер
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+  }
+
+  Future<void> _fetchMessagesForPreload(int chatId, int count) async {
+    try {
+      if (!isActuallyConnected) return;
+
+      final payload = {
+        "chatId": chatId,
+        "from": DateTime.now()
+            .add(const Duration(days: 1))
+            .millisecondsSinceEpoch,
+        "forward": 0,
+        "backward": count,
+        "getMessages": true,
+      };
+
+      final response = await sendRequest(49, payload)
+          .timeout(const Duration(seconds: 10));
+
+      if (response['cmd'] == 3) return;
+
+      final List<dynamic> messagesJson = response['payload']?['messages'] ?? [];
+      if (messagesJson.isEmpty) return;
+
+      final messages = messagesJson
+          .map((json) => Message.fromJson(json))
+          .toList()
+        ..sort((a, b) => a.time.compareTo(b.time));
+
+      _messageCache[chatId] = messages;
+      _preloadMessageImages(messages);
+      unawaited(_updateMessagesCacheIfNewer(chatId, messages));
+
+      print("✅ Предзагружено ${messages.length} сообщений для чата $chatId");
+    } catch (e) {
+      print('⚠️ Ошибка предзагрузки для чата $chatId: $e');
     }
   }
 

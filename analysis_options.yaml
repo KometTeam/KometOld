@@ -22,7 +22,6 @@ linter:
     avoid_unused_constructor_parameters: true
     
     # Безопасность
-    avoid_empty_catch: true
     cancel_subscriptions: true
     close_sinks: true
     

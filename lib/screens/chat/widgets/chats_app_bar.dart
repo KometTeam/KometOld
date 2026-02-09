@@ -119,7 +119,7 @@ class ChatsAppBarBuilder {
                   tooltip: 'Сферум',
                 ),
               IconButton(
-                icon: Icon(Icons.download, color: Colors.white),
+                icon: const Icon(Icons.download, color: Colors.white),
                 onPressed: onDownloadsPressed,
                 tooltip: 'Загрузки',
               ),

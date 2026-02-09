@@ -35,6 +35,7 @@ class ThemeProvider with ChangeNotifier {
   bool _optimization = false;
   bool _showFpsOverlay = false;
   int _maxFrameRate = 60;
+  bool _chatCompactMode = false;
   
   // Cache
   CustomThemePreset? _savedThemeBeforeOptimization;
@@ -185,6 +186,7 @@ class ThemeProvider with ChangeNotifier {
   List<CustomThemePreset> get savedThemes => _savedThemes;
   CustomThemePreset get activeTheme => _activeTheme;
   bool get materialYouEnabled => _activeTheme.appTheme == AppTheme.system;
+  bool get chatCompactMode => _chatCompactMode;
 
   ThemeProvider() {
     loadSettings();
@@ -254,6 +256,7 @@ class ThemeProvider with ChangeNotifier {
     _showFpsOverlay = prefs.getBool('show_fps_overlay') ?? false;
     _maxFrameRate = prefs.getInt('max_frame_rate') ?? 60;
     _showSeconds = prefs.getBool('show_seconds') ?? false;
+    _chatCompactMode = prefs.getBool('chat_compact_mode') ?? false;
 
     await loadChatSpecificWallpapers();
     notifyListeners();
@@ -622,6 +625,13 @@ class ThemeProvider with ChangeNotifier {
     _chatPreviewMode = mode;
     SharedPreferences.getInstance().then((p) => 
         p.setInt('chat_preview_mode', mode.index));
+    notifyListeners();
+  }
+
+  void setChatCompactMode(bool value) {
+    _chatCompactMode = value;
+    SharedPreferences.getInstance().then((p) => 
+        p.setBool('chat_compact_mode', value));
     notifyListeners();
   }
 

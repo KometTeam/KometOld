@@ -834,7 +834,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
             const SizedBox(height: 8),
           ],
 
-          // Should check for admin permissions but currently i dont know how :P
+          // TODO: Добавить проверку прав администратора
           if (canEditInfo) ...[
               SizedBox(
                     width: double.infinity,
@@ -1132,7 +1132,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
             ),
           ),
           trailing: isOwner
-              ? Icon(Icons.star, color: Colors.amber, size: 20)
+              ? const Icon(Icons.star, color: Colors.amber, size: 20)
               : isAdmin
               ? Icon(
                   Icons.admin_panel_settings,

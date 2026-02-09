@@ -31,11 +31,10 @@ class ChatController extends ChangeNotifier {
   final List<Message> _messages = [];
   MessageLoadingState _loadingState = MessageLoadingState.initial;
   String? _errorMessage;
-  bool _hasMoreMessages = true;
+  final bool _hasMoreMessages = true;
   int? _oldestLoadedTime;
   
   // Pagination
-  static const int _pageSize = 50;
   int _maxViewedIndex = 0;
   
   // Contact cache
@@ -85,7 +84,7 @@ class ChatController extends ChangeNotifier {
     
     try {
       // TODO: Загрузка с API
-      await Future.delayed(const Duration(milliseconds: 500)); // Заглушка
+      await Future.delayed(const Duration(milliseconds: 500)); // Имитация задержки API
       
       // Загрузить контакты отправителей для группового чата
       if ((isGroupChat || isChannel) && _messages.isNotEmpty) {
@@ -118,7 +117,7 @@ class ChatController extends ChangeNotifier {
     
     try {
       // TODO: Загрузка старых сообщений с API
-      await Future.delayed(const Duration(milliseconds: 500)); // Заглушка
+      await Future.delayed(const Duration(milliseconds: 500)); // Имитация задержки API
       
       _loadingState = MessageLoadingState.loaded;
     } catch (e) {
@@ -216,7 +215,7 @@ class ChatController extends ChangeNotifier {
       //   _contactCache[contact.id] = contact;
       // }
       // _notifyListenersSafe();
-      await Future.delayed(const Duration(milliseconds: 300)); // Заглушка
+      await Future.delayed(const Duration(milliseconds: 300)); // Имитация задержки API
     } finally {
       _loadingContactIds.removeAll(idsToLoad);
     }

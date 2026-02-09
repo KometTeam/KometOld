@@ -373,18 +373,18 @@ class _SocketLogScreenState extends State<SocketLogScreen>
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: Colors.blue.withValues(alpha: 0.2),
-                  border: Border(
+                  border: const Border(
                     bottom: BorderSide(color: Colors.blue, width: 2),
                   ),
                 ),
-                child: Row(
+                child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.arrow_upward, color: Colors.blue),
-                    const SizedBox(width: 8),
+                    Icon(Icons.arrow_upward, color: Colors.blue),
+                    SizedBox(width: 8),
                     Text(
-                      'Отправлено (${filteredSent.length})',
-                      style: const TextStyle(
+                      'Отправлено',
+                      style: TextStyle(
                         fontWeight: FontWeight.bold,
                         color: Colors.blue,
                       ),
@@ -424,18 +424,18 @@ class _SocketLogScreenState extends State<SocketLogScreen>
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: Colors.green.withValues(alpha: 0.2),
-                  border: Border(
+                  border: const Border(
                     bottom: BorderSide(color: Colors.green, width: 2),
                   ),
                 ),
-                child: Row(
+                child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.arrow_downward, color: Colors.green),
-                    const SizedBox(width: 8),
+                    Icon(Icons.arrow_downward, color: Colors.green),
+                    SizedBox(width: 8),
                     Text(
-                      'Получено (${filteredReceived.length})',
-                      style: const TextStyle(
+                      'Получено',
+                      style: TextStyle(
                         fontWeight: FontWeight.bold,
                         color: Colors.green,
                       ),

@@ -217,7 +217,7 @@ class _CustomSettingTile extends StatelessWidget {
       leading: Icon(icon, color: colors.onSurface),
       title: Text(
         title,
-        style: TextStyle(
+        style: const TextStyle(
           fontWeight: FontWeight.w500,
           fontSize: 16,
         ),
@@ -263,7 +263,7 @@ class _DropdownSettingTile<T> extends StatelessWidget {
       leading: Icon(icon, color: colors.onSurface),
       title: Text(
         title,
-        style: TextStyle(
+        style: const TextStyle(
           fontWeight: FontWeight.w500,
           fontSize: 16,
         ),

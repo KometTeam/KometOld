@@ -27,7 +27,7 @@ extension on _ChatScreenState {
 
     try {
       await _audioRecorder.start(
-        RecordConfig(
+        const RecordConfig(
           encoder: AudioEncoder.aacLc,
           bitRate: 128000,
           sampleRate: 44100,
@@ -42,6 +42,7 @@ extension on _ChatScreenState {
       return;
     }
 
+    // ignore: invalid_use_of_protected_member
     setState(() {
       _isVoiceRecordingUi = true;
       _isVoiceRecordingPaused = false;
@@ -56,6 +57,7 @@ extension on _ChatScreenState {
       if (!mounted) return;
       if (!_isVoiceRecordingUi) return;
       if (_isVoiceRecordingPaused) return;
+      // ignore: invalid_use_of_protected_member
       setState(() {
         _voiceRecordingDuration += const Duration(seconds: 1);
       });
@@ -80,6 +82,7 @@ extension on _ChatScreenState {
     }
 
     if (!mounted) return;
+    // ignore: invalid_use_of_protected_member
     setState(() {
       _isVoiceRecordingUi = false;
       _isVoiceRecordingPaused = false;
@@ -102,6 +105,7 @@ extension on _ChatScreenState {
     }
 
     if (!mounted) return;
+    // ignore: invalid_use_of_protected_member
     setState(() {
       _isVoiceRecordingPaused = !_isVoiceRecordingPaused;
       _recordCancelDragDx = 0.0;
@@ -159,6 +163,7 @@ extension on _ChatScreenState {
 
     // Единый setState с проверкой mounted
     if (mounted) {
+      // ignore: invalid_use_of_protected_member
       setState(() {
         _isVoiceRecordingUi = false;
         _isVoiceRecordingPaused = false;
@@ -182,6 +187,7 @@ extension on _ChatScreenState {
         senderId: _actualMyId,
         onProgress: (progress) {
           if (mounted) {
+            // ignore: invalid_use_of_protected_member
             setState(() {
               _isVoiceUploading = progress < 1.0;
               _voiceUploadProgress = progress;
@@ -192,6 +198,7 @@ extension on _ChatScreenState {
 
       print('✅ Голосовое сообщение успешно отправлено');
       if (mounted) {
+        // ignore: invalid_use_of_protected_member
         setState(() {
           _isVoiceUploading = false;
           _voiceUploadProgress = 0.0;
@@ -212,6 +219,7 @@ extension on _ChatScreenState {
       print('❌ Ошибка отправки голосового сообщения: $e');
       print(stackTrace);
       if (mounted) {
+        // ignore: invalid_use_of_protected_member
         setState(() {
           _isVoiceUploading = false;
           _voiceUploadProgress = 0.0;
@@ -237,6 +245,7 @@ extension on _ChatScreenState {
     final duration = _voiceRecordingDuration;
 
     if (mounted) {
+      // ignore: invalid_use_of_protected_member
       setState(() {
         _isVoiceUploadFailed = false;
         _isVoiceUploading = true;
@@ -253,6 +262,7 @@ extension on _ChatScreenState {
         senderId: _actualMyId,
         onProgress: (progress) {
           if (mounted) {
+            // ignore: invalid_use_of_protected_member
             setState(() {
               _isVoiceUploading = progress < 1.0;
               _voiceUploadProgress = progress;
@@ -262,6 +272,7 @@ extension on _ChatScreenState {
       );
 
       if (mounted) {
+        // ignore: invalid_use_of_protected_member
         setState(() {
           _isVoiceUploading = false;
           _voiceUploadProgress = 0.0;
@@ -280,6 +291,7 @@ extension on _ChatScreenState {
     } catch (e) {
       print('❌ Ошибка повторной отправки голосового сообщения: $e');
       if (mounted) {
+        // ignore: invalid_use_of_protected_member
         setState(() {
           _isVoiceUploading = false;
           _voiceUploadProgress = 0.0;
@@ -417,7 +429,7 @@ extension on _ChatScreenState {
           },
           child: _isVoiceRecordingPaused
               ? SizedBox(key: const ValueKey<String>('trash'), child: trashButton)
-              : const SizedBox(key: const ValueKey<String>('trashSpacer'), width: 32, height: 32),
+              : const SizedBox(key: ValueKey<String>('trashSpacer'), width: 32, height: 32),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -430,8 +442,8 @@ extension on _ChatScreenState {
                 return FadeTransition(opacity: animation, child: child);
               },
               child: _isVoiceRecordingPaused
-                  ? SizedBox(
-                key: const ValueKey<String>('waveform'),
+                  ? const SizedBox(
+                key: ValueKey<String>('waveform'),
                 height: 24,
                 child: _FakeWaveform(),
               )
@@ -455,7 +467,7 @@ extension on _ChatScreenState {
           ),
         ),
         const SizedBox(width: 12),
-        SizedBox(width: _ChatScreenState._recordSendButtonSpace + _ChatScreenState._recordButtonGap + _ChatScreenState._recordPauseButtonSpace),
+        const SizedBox(width: _ChatScreenState._recordSendButtonSpace + _ChatScreenState._recordButtonGap + _ChatScreenState._recordPauseButtonSpace)
       ],
     );
 
@@ -482,6 +494,7 @@ extension on _ChatScreenState {
   void _handleRecordCancelDragUpdate(DragUpdateDetails details) {
     final next = (_recordCancelDragDx + details.delta.dx).clamp(-_ChatScreenState._recordCancelThreshold * 1.25, 0.0);
     if (next == _recordCancelDragDx) return;
+    // ignore: invalid_use_of_protected_member
     setState(() {
       _recordCancelDragDx = next;
     });
@@ -498,6 +511,7 @@ extension on _ChatScreenState {
       CurvedAnimation(parent: _recordCancelReturnController, curve: Curves.easeOutCubic),
     );
     void listener() {
+      // ignore: invalid_use_of_protected_member
       setState(() {
         _recordCancelDragDx = tween.value;
       });

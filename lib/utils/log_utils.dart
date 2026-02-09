@@ -20,7 +20,7 @@ T? safeExecute<T>(String context, T Function() action) {
   }
 }
 
-//Потому что заебало блять на пол консоли один запрос
+/// Обрезает длинные payload для логирования
 String truncatePayloadForLog(String payload) {
   if (payload.length <= AppLimits.maxLogPayloadLength) {
     return payload;

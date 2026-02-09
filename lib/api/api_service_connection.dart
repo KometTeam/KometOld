@@ -257,7 +257,6 @@ extension ApiServiceConnection on ApiService {
 
   Future<void> reconnect() async {
     _reconnectAttempts = 0;
-    _currentUrlIndex = 0;
 
     _connectionStatusController.add("connecting");
     try {
@@ -354,6 +353,7 @@ extension ApiServiceConnection on ApiService {
         _isSessionOnline = false;
         _isSessionReady = false;
         _socketConnected = false;
+        _pendingManager.clearAll(reason: 'Socket error: $error');
         _healthMonitor.onError(error.toString());
         _updateConnectionState(
           conn_state.ConnectionState.error,
@@ -366,6 +366,7 @@ extension ApiServiceConnection on ApiService {
         _isSessionOnline = false;
         _isSessionReady = false;
         _socketConnected = false;
+        _pendingManager.clearAll(reason: 'Connection closed');
         _stopHealthMonitoring();
         _updateConnectionState(
           conn_state.ConnectionState.disconnected,
@@ -457,7 +458,7 @@ extension ApiServiceConnection on ApiService {
         }
       }
 
-      if ((decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
+      if (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768) {
         final error = decodedMessage['payload'];
         final errorMsg = error?['message'] ?? error?['error'] ?? 'server_error';
         print('← ERROR: $errorMsg');
@@ -771,6 +772,9 @@ extension ApiServiceConnection on ApiService {
     _socketSubscription?.cancel();
     _socketSubscription = null;
 
+    // Очищаем все pending requests при переподключении
+    _pendingManager.clearAll(reason: 'Reconnecting');
+
     if (_socket != null) {
       try {
         _socket!.close();
@@ -788,8 +792,6 @@ extension ApiServiceConnection on ApiService {
       _onlineCompleter = Completer<void>();
     }
     _chatsFetchedInThisSession = false;
-
-    _currentUrlIndex = 0;
 
     _reconnectDelaySeconds = (_reconnectDelaySeconds * 2).clamp(1, 30);
     final jitter = (DateTime.now().millisecondsSinceEpoch % 1000) / 1000.0;
@@ -897,13 +899,15 @@ extension ApiServiceConnection on ApiService {
     }
     _socketConnected = false;
 
+    // Очищаем все pending requests при принудительном переподключении
+    _pendingManager.clearAll(reason: 'Force reconnect');
+
     _isReconnecting = false;
     _reconnectAttempts = 0;
     _reconnectDelaySeconds = 2;
     _isSessionOnline = false;
     _isSessionReady = false;
     _chatsFetchedInThisSession = false;
-    _currentUrlIndex = 0;
     if (_onlineCompleter?.isCompleted ?? false) {
       _onlineCompleter = Completer<void>();
     }
@@ -936,6 +940,9 @@ extension ApiServiceConnection on ApiService {
       }
       _socketConnected = false;
 
+      // Очищаем все pending requests при полном переподключении
+      _pendingManager.clearAll(reason: 'Full reconnection');
+
       _isReconnecting = false;
       _reconnectAttempts = 0;
       _reconnectDelaySeconds = 2;
@@ -943,7 +950,6 @@ extension ApiServiceConnection on ApiService {
       _isSessionReady = false;
       _handshakeSent = false;
       _chatsFetchedInThisSession = false;
-      _currentUrlIndex = 0;
       if (_onlineCompleter?.isCompleted ?? false) {
         _onlineCompleter = Completer<void>();
       }
@@ -984,6 +990,9 @@ extension ApiServiceConnection on ApiService {
       conn_state.ConnectionState.disconnected,
       message: 'Отключено пользователем',
     );
+
+    // Очищаем все pending requests при отключении
+    _pendingManager.clearAll(reason: 'Disconnected by user');
 
     _socket?.close();
     _socket = null;

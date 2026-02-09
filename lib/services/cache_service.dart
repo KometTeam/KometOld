@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:es_compression/lz4.dart';
 import 'package:gwid/utils/fresh_mode_helper.dart';
+import 'package:gwid/services/cache_settings_service.dart';
 
 class CacheService {
   static final CacheService _instance = CacheService._internal();
@@ -28,6 +29,8 @@ class CacheService {
 
   static final _clearLock = Object();
 
+  final CacheSettingsService _settingsService = CacheSettingsService();
+
   Future<T> _synchronized<T>(
     Object lock,
     Future<T> Function() operation,
@@ -37,6 +40,10 @@ class CacheService {
 
   Future<void> initialize() async {
     _prefs = await FreshModeHelper.getSharedPreferences();
+    
+    // Инициализируем настройки кэша
+    await _settingsService.initialize();
+    
     if (FreshModeHelper.isEnabled) {
       _cacheDirectory = null;
       return;
@@ -57,7 +64,7 @@ class CacheService {
       );
     }
 
-    print('CacheService инициализирован');
+    print('✅ CacheService инициализирован (TTL level: ${_settingsService.currentLevel})');
   }
 
   Future<void> _createCacheDirectories() async {
@@ -264,6 +271,8 @@ class CacheService {
             await existingFile.writeAsBytes(compressedData);
           } catch (e) {
             print('⚠️ Ошибка сжатия файла $url, сохраняем без сжатия: $e');
+            _lz4Available = false;
+            _lz4Codec = null;
             await existingFile.writeAsBytes(response.bodyBytes);
           }
         } else {
@@ -363,6 +372,8 @@ class CacheService {
           print(
             '⚠️ Ошибка декомпрессии файла $url, пробуем прочитать как обычный файл: $e',
           );
+          _lz4Available = false;
+          _lz4Codec = null;
           return fileData;
         }
       } else {
@@ -493,6 +504,8 @@ class CacheService {
             print(
               '⚠️ Ошибка сжатия аудио файла $url, сохраняем без сжатия: $e',
             );
+            _lz4Available = false;
+            _lz4Codec = null;
             await existingFile.writeAsBytes(response.bodyBytes);
           }
         } else {
@@ -565,6 +578,8 @@ class CacheService {
           print(
             '⚠️ Ошибка декомпрессии аудио файла $url, пробуем прочитать как обычный файл: $e',
           );
+          _lz4Available = false;
+          _lz4Codec = null;
           return fileData;
         }
       } else {
@@ -635,6 +650,8 @@ class CacheService {
             await existingFile.writeAsBytes(compressedData);
           } catch (e) {
             print('⚠️ Ошибка сжатия стикера $url, сохраняем без сжатия: $e');
+            _lz4Available = false;
+            _lz4Codec = null;
             await existingFile.writeAsBytes(response.bodyBytes);
           }
         } else {
@@ -708,6 +725,8 @@ class CacheService {
           print(
             '⚠️ Ошибка декомпрессии стикера, пробуем прочитать как обычный файл: $e',
           );
+          _lz4Available = false;
+          _lz4Codec = null;
           return fileData;
         }
       } else {

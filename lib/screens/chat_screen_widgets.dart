@@ -1,68 +1,5 @@
 part of 'chat_screen.dart';
 
-// Special Message Button
-class _SpecialMessageButton extends StatelessWidget {
-  final String label;
-  final String template;
-  final IconData icon;
-  final VoidCallback onTap;
-
-  const _SpecialMessageButton({
-    required this.label,
-    required this.template,
-    required this.icon,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: colors.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: colors.primary),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: colors.onSurface,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    template,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: colors.onSurfaceVariant,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Icon(Icons.arrow_forward_ios, size: 16, color: colors.onSurfaceVariant),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 // ============================================================================
 // АНИМАЦИИ
 // ============================================================================
@@ -71,7 +8,7 @@ class _SpecialMessageButton extends StatelessWidget {
 class _NewMessageAnimation extends StatefulWidget {
   final Widget child;
 
-  const _NewMessageAnimation({super.key, required this.child});
+  const _NewMessageAnimation({required this.child});
 
   @override
   State<_NewMessageAnimation> createState() => _NewMessageAnimationState();
@@ -573,59 +510,6 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
   }
 }
 
-// Mention Dropdown
-class _MentionDropdown extends StatelessWidget {
-  final LayerLink layerLink;
-  final List<Contact> users;
-  final Function(Contact) onUserSelected;
-
-  const _MentionDropdown({
-    required this.layerLink,
-    required this.users,
-    required this.onUserSelected,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return CompositedTransformFollower(
-      link: layerLink,
-      targetAnchor: Alignment.bottomLeft,
-      followerAnchor: Alignment.topLeft,
-      offset: const Offset(0, 4),
-      child: Material(
-        elevation: 8,
-        borderRadius: BorderRadius.circular(8),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 200, maxWidth: 300),
-          child: _buildUserList(context),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildUserList(BuildContext context) {
-    if (users.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(16),
-        child: Text('Нет совпадений'),
-      );
-    }
-
-    return ListView.builder(
-      shrinkWrap: true,
-      itemCount: users.length,
-      itemBuilder: (context, index) {
-        final user = users[index];
-        return ListTile(
-          leading: ContactAvatarWidget(contactId: user.id, radius: 16),
-          title: Text(user.name),
-          onTap: () => onUserSelected(user),
-        );
-      },
-    );
-  }
-}
-
 // Bot Commands Panel
 class _BotCommandsPanel extends StatelessWidget {
   final bool isLoading;
@@ -730,12 +614,10 @@ class _BotCommandsPanel extends StatelessWidget {
 
 // Komet Color Picker Bar
 class _KometColorPickerBar extends StatefulWidget {
-  final String? currentPrefix;
   final Function(String) onPrefixSelected;
   final VoidCallback onClose;
 
   const _KometColorPickerBar({
-    this.currentPrefix,
     required this.onPrefixSelected,
     required this.onClose,
   });

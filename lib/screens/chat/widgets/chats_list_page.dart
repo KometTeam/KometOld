@@ -90,6 +90,9 @@ class _ChatsListPageState extends State<ChatsListPage>
         itemCount: chatsForFolder.length,
         itemExtent: 72.0,
         cacheExtent: 500.0,
+        addRepaintBoundaries: true,
+        addAutomaticKeepAlives: true,
+        addSemanticIndexes: false,
         itemBuilder: (context, index) {
           return widget.buildChatListItem(
             chatsForFolder[index],
