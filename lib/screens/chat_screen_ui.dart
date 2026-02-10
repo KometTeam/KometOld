@@ -54,25 +54,25 @@ extension on _ChatScreenState {
       elevation: theme.useGlassPanels ? 0 : null,
       flexibleSpace: theme.useGlassPanels
           ? ClipRect(
-        child: BackdropFilter(
-          filter: ImageFilter.blur(
-            sigmaX: theme.topBarBlur,
-            sigmaY: theme.topBarBlur,
-          ),
-          child: Container(
-            color: Theme.of(
-              context,
-            ).colorScheme.surface.withValues(alpha: theme.topBarOpacity),
-          ),
-        ),
-      )
+              child: BackdropFilter(
+                filter: ImageFilter.blur(
+                  sigmaX: theme.topBarBlur,
+                  sigmaY: theme.topBarBlur,
+                ),
+                child: Container(
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.surface.withValues(alpha: theme.topBarOpacity),
+                ),
+              ),
+            )
           : null,
       leading: widget.isDesktopMode
           ? null
           : IconButton(
-        icon: const Icon(Icons.arrow_back),
-        onPressed: () => Navigator.of(context).pop(),
-      ),
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
       actions: [
         if (widget.isGroupChat)
           IconButton(
@@ -89,26 +89,26 @@ extension on _ChatScreenState {
                       ),
                   transitionsBuilder:
                       (context, animation, secondaryAnimation, child) {
-                    return SlideTransition(
-                      position:
-                      Tween<Offset>(
-                        begin: const Offset(1.0, 0.0),
-                        end: Offset.zero,
-                      ).animate(
-                        CurvedAnimation(
-                          parent: animation,
-                          curve: Curves.easeOutCubic,
-                        ),
-                      ),
-                      child: FadeTransition(
-                        opacity: CurvedAnimation(
-                          parent: animation,
-                          curve: Curves.easeOut,
-                        ),
-                        child: child,
-                      ),
-                    );
-                  },
+                        return SlideTransition(
+                          position:
+                              Tween<Offset>(
+                                begin: const Offset(1.0, 0.0),
+                                end: Offset.zero,
+                              ).animate(
+                                CurvedAnimation(
+                                  parent: animation,
+                                  curve: Curves.easeOutCubic,
+                                ),
+                              ),
+                          child: FadeTransition(
+                            opacity: CurvedAnimation(
+                              parent: animation,
+                              curve: Curves.easeOut,
+                            ),
+                            child: child,
+                          ),
+                        );
+                      },
                   transitionDuration: const Duration(milliseconds: 350),
                 ),
               );
@@ -140,13 +140,13 @@ extension on _ChatScreenState {
             } else if (value == 'encryption_password') {
               Navigator.of(context)
                   .push(
-                MaterialPageRoute(
-                  builder: (context) => ChatEncryptionSettingsScreen(
-                    chatId: widget.chatId,
-                    isPasswordSet: _isEncryptionPasswordSetForCurrentChat,
-                  ),
-                ),
-              )
+                    MaterialPageRoute(
+                      builder: (context) => ChatEncryptionSettingsScreen(
+                        chatId: widget.chatId,
+                        isPasswordSet: _isEncryptionPasswordSetForCurrentChat,
+                      ),
+                    ),
+                  )
                   .then((_) => _loadEncryptionConfig());
             } else if (value == 'media') {
               Navigator.of(context).push(
@@ -328,24 +328,24 @@ extension on _ChatScreenState {
               tag: 'contact_avatar_${widget.contact.id}',
               child: widget.chatId == 0
                   ? CircleAvatar(
-                radius: 18,
-                backgroundColor: Theme.of(
-                  context,
-                ).colorScheme.primaryContainer,
-                child: Icon(
-                  Icons.bookmark,
-                  size: 20,
-                  color: Theme.of(context).colorScheme.onPrimaryContainer,
-                ),
-              )
+                      radius: 18,
+                      backgroundColor: Theme.of(
+                        context,
+                      ).colorScheme.primaryContainer,
+                      child: Icon(
+                        Icons.bookmark,
+                        size: 20,
+                        color: Theme.of(context).colorScheme.onPrimaryContainer,
+                      ),
+                    )
                   : ContactAvatarWidget(
-                contactId: widget.contact.id,
-                originalAvatarUrl: widget.contact.photoBaseUrl,
-                radius: 18,
-                fallbackText: widget.contact.name.isNotEmpty
-                    ? widget.contact.name[0].toUpperCase()
-                    : '?',
-              ),
+                      contactId: widget.contact.id,
+                      originalAvatarUrl: widget.contact.photoBaseUrl,
+                      radius: 18,
+                      fallbackText: widget.contact.name.isNotEmpty
+                          ? widget.contact.name[0].toUpperCase()
+                          : '?',
+                    ),
             ),
           ),
           const SizedBox(width: 8),
@@ -428,9 +428,7 @@ extension on _ChatScreenState {
   // Chat Background
   Widget _buildChatBackground(ThemeProvider provider) {
     if (!provider.useCustomChatWallpaper) {
-      return Container(
-        color: Theme.of(context).scaffoldBackgroundColor,
-      );
+      return Container(color: Theme.of(context).scaffoldBackgroundColor);
     }
 
     // Use wallpaper from ThemeProvider
@@ -474,9 +472,7 @@ extension on _ChatScreenState {
         break;
     }
 
-    return Container(
-      color: Theme.of(context).scaffoldBackgroundColor,
-    );
+    return Container(color: Theme.of(context).scaffoldBackgroundColor);
   }
 
   Widget _buildChatWallpaper(ThemeProvider provider) {
@@ -507,10 +503,7 @@ extension on _ChatScreenState {
       height: isConnected ? 0 : 32,
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            Colors.orange.shade700,
-            Colors.orange.shade600,
-          ],
+          colors: [Colors.orange.shade700, Colors.orange.shade600],
         ),
         boxShadow: [
           BoxShadow(
@@ -523,31 +516,34 @@ extension on _ChatScreenState {
       child: isConnected
           ? const SizedBox.shrink()
           : Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const SizedBox(
-            width: 12,
-            height: 12,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  'Нет соединения...',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
             ),
-          ),
-          const SizedBox(width: 12),
-          Text(
-            'Нет соединения...',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Colors.white,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
     );
   }
 
   // Send or Mic Button
-  Widget _buildSendOrMicButton({required bool isBlocked, required bool isSmall}) {
+  Widget _buildSendOrMicButton({
+    required bool isBlocked,
+    required bool isSmall,
+  }) {
     final colors = Theme.of(context).colorScheme;
 
     return ValueListenableBuilder(
@@ -559,7 +555,10 @@ extension on _ChatScreenState {
             borderRadius: BorderRadius.circular(24),
             onTap: _sendVoiceMessage,
             child: Container(
-              decoration: BoxDecoration(color: colors.primary, shape: BoxShape.circle),
+              decoration: BoxDecoration(
+                color: colors.primary,
+                shape: BoxShape.circle,
+              ),
               child: Padding(
                 padding: padding,
                 child: Icon(
@@ -599,19 +598,31 @@ extension on _ChatScreenState {
           };
         }
 
-        final dragProgress = (_sendDragPullDy.abs() / _ChatScreenState._sendDragVisualThreshold).clamp(0.0, 1.0);
+        final dragProgress =
+            (_sendDragPullDy.abs() / _ChatScreenState._sendDragVisualThreshold)
+                .clamp(0.0, 1.0);
 
-        final sendColor = showSend ? iconColor : iconColor.withValues(alpha: 0.4);
+        final sendColor = showSend
+            ? iconColor
+            : iconColor.withValues(alpha: 0.4);
         icon = Stack(
           alignment: Alignment.center,
           children: [
             Opacity(
               opacity: 1.0 - dragProgress,
-              child: Icon(Icons.send_rounded, color: sendColor, size: isSmall ? 20 : 24),
+              child: Icon(
+                Icons.send_rounded,
+                color: sendColor,
+                size: isSmall ? 20 : 24,
+              ),
             ),
             Opacity(
               opacity: dragProgress,
-              child: Icon(Icons.mic_rounded, color: iconColor, size: isSmall ? 20 : 24),
+              child: Icon(
+                Icons.mic_rounded,
+                color: iconColor,
+                size: isSmall ? 20 : 24,
+              ),
             ),
           ],
         );
@@ -625,7 +636,10 @@ extension on _ChatScreenState {
 
         final button = Container(
           key: ValueKey<String>(showSend ? 'send' : 'mic'),
-          decoration: BoxDecoration(color: backgroundColor, shape: BoxShape.circle),
+          decoration: BoxDecoration(
+            color: backgroundColor,
+            shape: BoxShape.circle,
+          ),
           child: Material(
             color: Colors.transparent,
             child: InkWell(
@@ -650,10 +664,7 @@ extension on _ChatScreenState {
           ),
         );
 
-        final scaled = Transform.scale(
-          scale: scale,
-          child: button,
-        );
+        final scaled = Transform.scale(scale: scale, child: button);
 
         final dragEnabled = !isBlocked;
 
@@ -670,9 +681,16 @@ extension on _ChatScreenState {
               : null,
           onPanUpdate: dragEnabled
               ? (details) {
-                  final nextPull = (_sendDragPullDy + details.delta.dy).clamp(-_ChatScreenState._sendDragVisualThreshold, 0.0);
-                  final nextPos = nextPull.clamp(-_ChatScreenState._sendDragThreshold, 0.0);
-                  if (nextPull == _sendDragPullDy && nextPos == _sendDragDy) return;
+                  final nextPull = (_sendDragPullDy + details.delta.dy).clamp(
+                    -_ChatScreenState._sendDragVisualThreshold,
+                    0.0,
+                  );
+                  final nextPos = nextPull.clamp(
+                    -_ChatScreenState._sendDragThreshold,
+                    0.0,
+                  );
+                  if (nextPull == _sendDragPullDy && nextPos == _sendDragDy)
+                    return;
                   // ignore: invalid_use_of_protected_member
                   setState(() {
                     _sendDragPullDy = nextPull;
@@ -682,16 +700,24 @@ extension on _ChatScreenState {
               : null,
           onPanEnd: dragEnabled
               ? (_) {
-                  final reached = _sendDragDy <= -_ChatScreenState._sendDragThreshold;
+                  final reached =
+                      _sendDragDy <= -_ChatScreenState._sendDragThreshold;
                   if (!reached) {
-                    final tween = Tween<double>(begin: _sendDragPullDy, end: 0.0).animate(
-                      CurvedAnimation(parent: _sendDragReturnController, curve: Curves.easeOutCubic),
-                    );
+                    final tween =
+                        Tween<double>(begin: _sendDragPullDy, end: 0.0).animate(
+                          CurvedAnimation(
+                            parent: _sendDragReturnController,
+                            curve: Curves.easeOutCubic,
+                          ),
+                        );
                     void listener() {
                       // ignore: invalid_use_of_protected_member
                       setState(() {
                         _sendDragPullDy = tween.value;
-                        _sendDragDy = tween.value.clamp(-_ChatScreenState._sendDragThreshold, 0.0);
+                        _sendDragDy = tween.value.clamp(
+                          -_ChatScreenState._sendDragThreshold,
+                          0.0,
+                        );
                       });
                     }
 
@@ -710,16 +736,23 @@ extension on _ChatScreenState {
                       });
                     });
                   } else {
-                    _sendDragReturnController.duration = const Duration(milliseconds: 320);
-                    final tween = Tween<double>(begin: _sendDragDy, end: 0.0).animate(
-                      CurvedAnimation(parent: _sendDragReturnController, curve: Curves.easeOutCubic),
+                    _sendDragReturnController.duration = const Duration(
+                      milliseconds: 320,
                     );
+                    final tween = Tween<double>(begin: _sendDragDy, end: 0.0)
+                        .animate(
+                          CurvedAnimation(
+                            parent: _sendDragReturnController,
+                            curve: Curves.easeOutCubic,
+                          ),
+                        );
 
                     void listener() {
                       // ignore: invalid_use_of_protected_member
                       setState(() {
                         _sendDragDy = tween.value;
-                        _sendDragPullDy = -_ChatScreenState._sendDragVisualThreshold;
+                        _sendDragPullDy =
+                            -_ChatScreenState._sendDragVisualThreshold;
                       });
                     }
 
@@ -730,7 +763,9 @@ extension on _ChatScreenState {
                     _sendDragReturnController.forward().whenComplete(() {
                       _sendDragReturnController.removeListener(listener);
                       if (!mounted) return;
-                      _sendDragReturnController.duration = const Duration(milliseconds: 180);
+                      _sendDragReturnController.duration = const Duration(
+                        milliseconds: 180,
+                      );
                       _startVoiceRecordingUi();
                     });
                   }
@@ -744,17 +779,17 @@ extension on _ChatScreenState {
               switchOutCurve: Curves.easeInCubic,
               transitionBuilder: (child, animation) {
                 return ScaleTransition(
-                  scale: Tween<double>(begin: 0.85, end: 1.0).animate(animation),
+                  scale: Tween<double>(
+                    begin: 0.85,
+                    end: 1.0,
+                  ).animate(animation),
                   child: FadeTransition(opacity: animation, child: child),
                 );
               },
               child: Stack(
                 alignment: Alignment.center,
                 clipBehavior: Clip.none,
-                children: [
-                  if (dragProgress > 0.0) ring,
-                  scaled,
-                ],
+                children: [if (dragProgress > 0.0) ring, scaled],
               ),
             ),
           ),
@@ -777,7 +812,10 @@ extension on _ChatScreenState {
         clipBehavior: Clip.none,
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 12.0,
+              vertical: 10.0,
+            ),
             decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.surface,
               borderRadius: BorderRadius.circular(24),
@@ -792,7 +830,10 @@ extension on _ChatScreenState {
             child: SafeArea(
               top: false,
               bottom: false,
-              child: _buildVoiceRecordingBar(isBlocked: isBlocked, isGlass: false),
+              child: _buildVoiceRecordingBar(
+                isBlocked: isBlocked,
+                isGlass: false,
+              ),
             ),
           ),
           Positioned(
@@ -812,12 +853,18 @@ extension on _ChatScreenState {
                   : null,
               child: Align(
                 alignment: Alignment.centerRight,
-                child: _buildSendOrMicButton(isBlocked: isBlocked, isSmall: false),
+                child: _buildSendOrMicButton(
+                  isBlocked: isBlocked,
+                  isSmall: false,
+                ),
               ),
             ),
           ),
           Positioned(
-            right: 12 + _ChatScreenState._recordSendButtonSpace + _ChatScreenState._recordButtonGap,
+            right:
+                12 +
+                _ChatScreenState._recordSendButtonSpace +
+                _ChatScreenState._recordButtonGap,
             top: 0,
             bottom: 0,
             child: Align(
@@ -833,7 +880,9 @@ extension on _ChatScreenState {
                   child: Padding(
                     padding: const EdgeInsets.all(6),
                     child: Icon(
-                      _isVoiceRecordingPaused ? Icons.play_arrow_rounded : Icons.pause_rounded,
+                      _isVoiceRecordingPaused
+                          ? Icons.play_arrow_rounded
+                          : Icons.pause_rounded,
                       color: Theme.of(context).colorScheme.onPrimary,
                       size: 16,
                     ),
@@ -848,7 +897,10 @@ extension on _ChatScreenState {
       return _wrapInputWithPanels(inputBar);
     }
 
-    final sendButton = _buildSendOrMicButton(isBlocked: isBlocked, isSmall: false);
+    final sendButton = _buildSendOrMicButton(
+      isBlocked: isBlocked,
+      isSmall: false,
+    );
 
     Widget inputBar = Container(
       decoration: BoxDecoration(
@@ -874,6 +926,20 @@ extension on _ChatScreenState {
             onPressed: _onAttachPressed,
             tooltip: 'Прикрепить файл',
           ),
+          CompositedTransformTarget(
+            link: _sparkleLayerLink,
+            child: IconButton(
+              key: _sparkleButtonKey,
+              icon: Icon(
+                Icons.auto_awesome_outlined,
+                color: _sparkleMenuOverlay != null
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.onSurface,
+              ),
+              onPressed: _toggleKometSpecialMenu,
+              tooltip: 'Специальные эффекты',
+            ),
+          ),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -884,7 +950,9 @@ extension on _ChatScreenState {
                     margin: const EdgeInsets.only(bottom: 8, left: 8, right: 8),
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Row(
@@ -905,10 +973,13 @@ extension on _ChatScreenState {
                             children: [
                               Text(
                                 _getSenderName(_replyingToMessage!),
-                                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                  color: Theme.of(context).colorScheme.primary,
-                                ),
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.primary,
+                                    ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
@@ -954,10 +1025,11 @@ extension on _ChatScreenState {
                         Expanded(
                           child: Text(
                             'Редактирование сообщения',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Colors.blue,
-                              fontWeight: FontWeight.w500,
-                            ),
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: Colors.blue,
+                                  fontWeight: FontWeight.w500,
+                                ),
                           ),
                         ),
                         IconButton(
@@ -981,73 +1053,18 @@ extension on _ChatScreenState {
                   ),
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   child: _isMobilePlatform
-                    ? TextField(
-                        controller: _textController,
-                        focusNode: _textFocusNode,
-                        maxLines: null,
-                        textInputAction: TextInputAction.newline,
-                        decoration: InputDecoration(
-                          hintText: 'Сообщение',
-                          border: InputBorder.none,
-                          hintStyle: TextStyle(
-                            color: Theme.of(context).colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                        onChanged: (text) {
-                          // ignore: invalid_use_of_protected_member
-                          setState(() {});
-                          _handleChatInputChanged(text);
-                        },
-                      )
-                    : FocusableActionDetector(
-                        focusNode: _textFocusNode,
-                        shortcuts: {
-                          // Enter - отправить сообщение
-                          const SingleActivator(LogicalKeyboardKey.enter): const SendMessageIntent(),
-                          // Shift+Enter - новая строка
-                          const SingleActivator(LogicalKeyboardKey.enter, shift: true): const NewLineIntent(),
-                        },
-                        actions: {
-                          SendMessageIntent: CallbackAction<SendMessageIntent>(
-                            onInvoke: (_) {
-                              final text = _textController.text;
-                              if (text.trim().isNotEmpty) {
-                                if (_editingMessage != null) {
-                                  _editMessage(_editingMessage!);
-                                } else {
-                                  _sendMessage();
-                                }
-                              }
-                              return null;
-                            },
-                          ),
-                          NewLineIntent: CallbackAction<NewLineIntent>(
-                            onInvoke: (_) {
-                              final text = _textController.text;
-                              final selection = _textController.selection;
-                              final newText = text.substring(0, selection.start) + '\n' + text.substring(selection.end);
-                              _textController.text = newText;
-                              _textController.selection = TextSelection.collapsed(offset: selection.start + 1);
-                              // ignore: invalid_use_of_protected_member
-                              setState(() {});
-                              _handleChatInputChanged(_textController.text);
-                              return null;
-                            },
-                          ),
-                        },
-                        child: TextField(
+                      ? TextField(
                           controller: _textController,
+                          focusNode: _textFocusNode,
                           maxLines: null,
-                          textInputAction: TextInputAction.send,
+                          textInputAction: TextInputAction.newline,
                           decoration: InputDecoration(
-                            hintText: 'Сообщение (Enter - отправить, Shift+Enter - новая строка)',
+                            hintText: 'Сообщение',
                             border: InputBorder.none,
                             hintStyle: TextStyle(
-                              color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
-                              fontSize: 13,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
                             ),
                           ),
                           style: TextStyle(
@@ -1058,8 +1075,80 @@ extension on _ChatScreenState {
                             setState(() {});
                             _handleChatInputChanged(text);
                           },
+                        )
+                      : FocusableActionDetector(
+                          focusNode: _textFocusNode,
+                          shortcuts: {
+                            // Enter - отправить сообщение
+                            const SingleActivator(LogicalKeyboardKey.enter):
+                                const SendMessageIntent(),
+                            // Shift+Enter - новая строка
+                            const SingleActivator(
+                              LogicalKeyboardKey.enter,
+                              shift: true,
+                            ): const NewLineIntent(),
+                          },
+                          actions: {
+                            SendMessageIntent:
+                                CallbackAction<SendMessageIntent>(
+                                  onInvoke: (_) {
+                                    final text = _textController.text;
+                                    if (text.trim().isNotEmpty) {
+                                      if (_editingMessage != null) {
+                                        _editMessage(_editingMessage!);
+                                      } else {
+                                        _sendMessage();
+                                      }
+                                    }
+                                    return null;
+                                  },
+                                ),
+                            NewLineIntent: CallbackAction<NewLineIntent>(
+                              onInvoke: (_) {
+                                final text = _textController.text;
+                                final selection = _textController.selection;
+                                final newText =
+                                    text.substring(0, selection.start) +
+                                    '\n' +
+                                    text.substring(selection.end);
+                                _textController.text = newText;
+                                _textController.selection =
+                                    TextSelection.collapsed(
+                                      offset: selection.start + 1,
+                                    );
+                                // ignore: invalid_use_of_protected_member
+                                setState(() {});
+                                _handleChatInputChanged(_textController.text);
+                                return null;
+                              },
+                            ),
+                          },
+                          child: TextField(
+                            controller: _textController,
+                            maxLines: null,
+                            textInputAction: TextInputAction.send,
+                            decoration: InputDecoration(
+                              hintText:
+                                  'Сообщение (Enter - отправить, Shift+Enter - новая строка)',
+                              border: InputBorder.none,
+                              hintStyle: TextStyle(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant
+                                    .withValues(alpha: 0.4),
+                                fontSize: 13,
+                              ),
+                            ),
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.onSurface,
+                            ),
+                            onChanged: (text) {
+                              // ignore: invalid_use_of_protected_member
+                              setState(() {});
+                              _handleChatInputChanged(text);
+                            },
+                          ),
                         ),
-                      ),
                 ),
               ],
             ),
@@ -1073,6 +1162,28 @@ extension on _ChatScreenState {
   }
 
   Widget _wrapInputWithPanels(Widget inputBar) {
+    if (_showKometColorPicker) {
+      inputBar = Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _KometColorPickerBar(
+            onPrefixSelected: (prefix) {
+              _openColorPickerDialog(
+                _currentKometColorPrefix ?? 'komet.color_#',
+              );
+            },
+            onClose: () {
+              _setStateIfMounted(() {
+                _showKometColorPicker = false;
+                _currentKometColorPrefix = null;
+              });
+            },
+          ),
+          inputBar,
+        ],
+      );
+    }
+
     if (_showBotCommandsPanel) {
       final query = _textController.text.toLowerCase();
       final filteredCommands = _botCommands.where((cmd) {
@@ -1205,7 +1316,8 @@ extension on _ChatScreenState {
     // ignore: invalid_use_of_protected_member
     setState(() {
       _currentResultIndex =
-          (_currentResultIndex - 1 + _searchResults.length) % _searchResults.length;
+          (_currentResultIndex - 1 + _searchResults.length) %
+          _searchResults.length;
     });
     _scrollToResult();
   }
@@ -1216,30 +1328,7 @@ extension on _ChatScreenState {
     _scrollToMessage(targetMessage.id);
   }
 
-  // Scroll operations
-  void _scrollToMessage(String messageId) {
-    final index = _chatItems.indexWhere((item) {
-      if (item is MessageItem) {
-        return item.message.id == messageId;
-      }
-      return false;
-    });
-
-    if (index != -1 && _itemScrollController.isAttached) {
-      // Преобразуем индекс для reverse списка
-      // В ScrollablePositionedList с reverse=true индекс 0 соответствует последнему элементу
-      final visualIndex = _chatItems.length - 1 - index;
-      
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || !_itemScrollController.isAttached) return;
-        _itemScrollController.scrollTo(
-          index: visualIndex,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeInOut,
-        );
-      });
-    }
-  }
+  // Scroll operations handled in logic.dart
 
   void _jumpToBottom() {
     if (_chatItems.isEmpty) return;
@@ -1267,7 +1356,7 @@ extension on _ChatScreenState {
     if (targetChatItemIndex == null) return;
     if (!_itemScrollController.isAttached) return;
 
-    final visualIndex = _chatItems.length - 1 - targetChatItemIndex;
+    final visualIndex = _getVisualIndex(targetChatItemIndex);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_itemScrollController.isAttached) return;
@@ -1313,10 +1402,8 @@ extension on _ChatScreenState {
   void _showComplaintDialog(String messageId) {
     showDialog(
       context: context,
-      builder: (context) => ComplaintDialog(
-        messageId: messageId,
-        chatId: widget.chatId,
-      ),
+      builder: (context) =>
+          ComplaintDialog(messageId: messageId, chatId: widget.chatId),
     );
   }
 
@@ -1338,27 +1425,30 @@ extension on _ChatScreenState {
               Navigator.of(context).pop();
               final apiService = context.read<ApiService>();
               // blockContact method call
-              apiService.blockContact(widget.contact.id).then((_) {
-                // ignore: invalid_use_of_protected_member
-                setState(() {
-                  _currentContact = Contact(
-                    id: _currentContact.id,
-                    name: _currentContact.name,
-                    firstName: _currentContact.firstName,
-                    lastName: _currentContact.lastName,
-                    description: _currentContact.description,
-                    photoBaseUrl: _currentContact.photoBaseUrl,
-                    isBlocked: _currentContact.isBlocked,
-                    isBlockedByMe: true,
-                    accountStatus: _currentContact.accountStatus,
-                    status: _currentContact.status,
-                  );
-                });
-                _showInfoSnackBar('Пользователь заблокирован');
-                widget.onChatUpdated?.call();
-              }).catchError((error) {
-                _showErrorSnackBar('Ошибка блокировки');
-              });
+              apiService
+                  .blockContact(widget.contact.id)
+                  .then((_) {
+                    // ignore: invalid_use_of_protected_member
+                    setState(() {
+                      _currentContact = Contact(
+                        id: _currentContact.id,
+                        name: _currentContact.name,
+                        firstName: _currentContact.firstName,
+                        lastName: _currentContact.lastName,
+                        description: _currentContact.description,
+                        photoBaseUrl: _currentContact.photoBaseUrl,
+                        isBlocked: _currentContact.isBlocked,
+                        isBlockedByMe: true,
+                        accountStatus: _currentContact.accountStatus,
+                        status: _currentContact.status,
+                      );
+                    });
+                    _showInfoSnackBar('Пользователь заблокирован');
+                    widget.onChatUpdated?.call();
+                  })
+                  .catchError((error) {
+                    _showErrorSnackBar('Ошибка блокировки');
+                  });
             },
             child: const Text(
               'Заблокировать',
@@ -1387,27 +1477,30 @@ extension on _ChatScreenState {
             onPressed: () {
               Navigator.of(context).pop();
               final apiService = context.read<ApiService>();
-              apiService.unblockContact(widget.contact.id).then((_) {
-                // ignore: invalid_use_of_protected_member
-                setState(() {
-                  _currentContact = Contact(
-                    id: _currentContact.id,
-                    name: _currentContact.name,
-                    firstName: _currentContact.firstName,
-                    lastName: _currentContact.lastName,
-                    description: _currentContact.description,
-                    photoBaseUrl: _currentContact.photoBaseUrl,
-                    isBlocked: _currentContact.isBlocked,
-                    isBlockedByMe: false,
-                    accountStatus: _currentContact.accountStatus,
-                    status: _currentContact.status,
-                  );
-                });
-                _showInfoSnackBar('Пользователь разблокирован');
-                widget.onChatUpdated?.call();
-              }).catchError((error) {
-                _showErrorSnackBar('Ошибка разблокировки');
-              });
+              apiService
+                  .unblockContact(widget.contact.id)
+                  .then((_) {
+                    // ignore: invalid_use_of_protected_member
+                    setState(() {
+                      _currentContact = Contact(
+                        id: _currentContact.id,
+                        name: _currentContact.name,
+                        firstName: _currentContact.firstName,
+                        lastName: _currentContact.lastName,
+                        description: _currentContact.description,
+                        photoBaseUrl: _currentContact.photoBaseUrl,
+                        isBlocked: _currentContact.isBlocked,
+                        isBlockedByMe: false,
+                        accountStatus: _currentContact.accountStatus,
+                        status: _currentContact.status,
+                      );
+                    });
+                    _showInfoSnackBar('Пользователь разблокирован');
+                    widget.onChatUpdated?.call();
+                  })
+                  .catchError((error) {
+                    _showErrorSnackBar('Ошибка разблокировки');
+                  });
             },
             child: const Text('Разблокировать'),
           ),
@@ -1428,16 +1521,12 @@ extension on _ChatScreenState {
         children: [
           // Background
           if (theme.useCustomChatWallpaper)
-            Positioned.fill(
-              child: _buildChatBackground(theme),
-            ),
+            Positioned.fill(child: _buildChatBackground(theme)),
 
           // Video wallpaper (if any)
           if (theme.chatWallpaperType == ChatWallpaperType.video &&
               theme.chatWallpaperVideoPath != null)
-            Positioned.fill(
-              child: _buildChatWallpaper(theme),
-            ),
+            Positioned.fill(child: _buildChatWallpaper(theme)),
 
           // Main content
           Column(
@@ -1465,33 +1554,110 @@ extension on _ChatScreenState {
                 child: _isLoadingHistory && _messages.isEmpty
                     ? const Center(child: CircularProgressIndicator())
                     : _messages.isEmpty && !widget.isChannel
-                        ? EmptyChatWidget(
-                            sticker: _emptyChatSticker,
-                            onStickerTap: _sendEmptyChatSticker,
-                          )
-                        : ScrollablePositionedList.builder(
-                            itemCount: _chatItems.length,
-                            itemScrollController: _itemScrollController,
-                            itemPositionsListener: _itemPositionsListener,
-                            reverse: true,
-                            itemBuilder: (context, index) {
-                              final item = _chatItems[_chatItems.length - 1 - index];
-                              return _buildChatItem(item);
-                            },
-                          ),
+                    ? EmptyChatWidget(
+                        sticker: _emptyChatSticker,
+                        onStickerTap: _sendEmptyChatSticker,
+                      )
+                    : ScrollablePositionedList.builder(
+                        itemCount: _chatItems.length,
+                        itemScrollController: _itemScrollController,
+                        itemPositionsListener: _itemPositionsListener,
+                        reverse: true,
+                        itemBuilder: (context, index) {
+                          final item =
+                              _chatItems[_chatItems.length - 1 - index];
+                          return RepaintBoundary(child: _buildChatItem(item));
+                        },
+                      ),
               ),
 
               // Text input
               _buildTextInput(),
             ],
           ),
+
+          // Scroll-to-bottom FAB
+          Positioned(
+            right: 16,
+            bottom: 80,
+            child: ValueListenableBuilder<bool>(
+              valueListenable: _showScrollToBottomNotifier,
+              builder: (context, showButton, child) {
+                return AnimatedScale(
+                  scale: showButton ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 200),
+                  curve: Curves.easeInOut,
+                  child: AnimatedOpacity(
+                    opacity: showButton ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 200),
+                    child: FloatingActionButton.small(
+                      heroTag: 'scroll_to_bottom',
+                      onPressed: _jumpToBottom,
+                      backgroundColor: Theme.of(
+                        context,
+                      ).colorScheme.surfaceContainerHighest,
+                      foregroundColor: Theme.of(context).colorScheme.onSurface,
+                      elevation: 3,
+                      child: const Icon(Icons.keyboard_arrow_down),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSystemMessage(Message message, Map<String, dynamic> control) {
+    String text = '';
+    final event = control['event']?.toString();
+
+    if (event == 'new') {
+      text = 'Чат создан: ${control['title'] ?? ''}';
+    } else if (event == 'join') {
+      text = 'Пользователь присоединился к чату';
+    } else if (event == 'leave') {
+      text = 'Пользователь покинул чат';
+    } else {
+      text = message.text;
+    }
+
+    if (text.isEmpty) return const SizedBox.shrink();
+
+    return Center(
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        decoration: BoxDecoration(
+          color: Theme.of(
+            context,
+          ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.8),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          text,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+          textAlign: TextAlign.center,
+        ),
       ),
     );
   }
 
   Widget _buildChatItem(ChatItem item) {
     if (item is MessageItem) {
+      final controlAttach = item.message.attaches.firstWhere(
+        (a) => (a['_type'] ?? a['type']) == 'CONTROL',
+        orElse: () => {},
+      );
+
+      if (controlAttach.isNotEmpty) {
+        return _buildSystemMessage(item.message, controlAttach);
+      }
+
       final senderContact = _contactDetailsCache[item.message.senderId];
       // Для каналов (senderId == 0) используем имя канала из контакта
       // Для групп и личных чатов - имя отправителя или ID
@@ -1503,13 +1669,38 @@ extension on _ChatScreenState {
       } else {
         senderName = 'ID ${item.message.senderId}';
       }
-      
+
       final isMe = item.message.senderId == _actualMyId;
-      
-      // Для пересланных сообщений добавляем информацию о текущем пользователе (кто пересылает)
-      final String? forwardedFrom = item.message.isForwarded ? _currentContact.name : null;
-      final String? forwardedFromAvatarUrl = item.message.isForwarded ? _currentContact.photoBaseUrl : null;
-      
+
+      MessageReadStatus? readStatus;
+      if (isMe) {
+        if (item.message.status == 'READ') {
+          readStatus = MessageReadStatus.read;
+        } else if (item.message.status == 'SENT') {
+          readStatus = MessageReadStatus.sent;
+        } else if (item.message.status == 'SENDING' ||
+            item.message.id.startsWith('local_')) {
+          readStatus = MessageReadStatus.sending;
+        }
+      }
+
+      final isHighlighted = _highlightedMessageId == item.message.id;
+
+      // Ensure name is loaded
+      if (item.message.senderId != 0 &&
+          !_contactDetailsCache.containsKey(item.message.senderId)) {
+        _ensureContactsCached([item.message.senderId]);
+      }
+
+      // Ensure forwarded author is loaded
+      if (item.message.isForwarded && item.message.link != null) {
+        final fwdMsg = item.message.link!['message'] as Map?;
+        final fwdSender = fwdMsg?['sender'] as int?;
+        if (fwdSender != null && !_contactDetailsCache.containsKey(fwdSender)) {
+          _ensureContactsCached([fwdSender]);
+        }
+      }
+
       return ChatMessageBubble(
         key: ValueKey(item.message.id),
         message: item.message,
@@ -1520,11 +1711,11 @@ extension on _ChatScreenState {
         isGrouped: item.isGrouped,
         isGroupChat: widget.isGroupChat,
         isChannel: widget.isChannel,
-        senderName: senderName,
-        forwardedFrom: forwardedFrom,
-        forwardedFromAvatarUrl: forwardedFromAvatarUrl,
+        senderName: (item.isFirstInGroup) ? senderName : null,
         myUserId: _actualMyId ?? 0,
         chatId: widget.chatId,
+        readStatus: readStatus,
+        isHighlighted: isHighlighted,
         canDeleteForAll: isMe && item.message.canEdit(_actualMyId ?? 0),
         canEditMessage: isMe && item.message.canEdit(_actualMyId ?? 0),
         onReply: () => _replyToMessage(item.message),
@@ -1534,7 +1725,9 @@ extension on _ChatScreenState {
         onDelete: () => _removeMessages([item.message.id]),
         onComplain: () => _showComplaintDialog(item.message.id),
         onDeleteForMe: () => _removeMessages([item.message.id]),
-        onDeleteForAll: isMe && item.message.canEdit(_actualMyId ?? 0) ? () => _deleteMessageForAll(item.message.id) : null,
+        onDeleteForAll: isMe && item.message.canEdit(_actualMyId ?? 0)
+            ? () => _deleteMessageForAll(item.message.id)
+            : null,
         onReaction: (emoji) => _sendReaction(item.message.id, emoji),
         onRemoveReaction: () => _removeReaction(item.message.id),
       );
@@ -1578,17 +1771,20 @@ extension on _ChatScreenState {
             onPressed: () {
               Navigator.of(context).pop();
               final apiService = context.read<ApiService>();
-              apiService.clearChatHistory(widget.chatId).then((_) {
-                // ignore: invalid_use_of_protected_member
-                setState(() {
-                  _messages.clear();
-                  _chatItems.clear();
-                });
-                _showInfoSnackBar('История очищена');
-                widget.onLastMessageChanged?.call(null);
-              }).catchError((error) {
-                _showErrorSnackBar('Ошибка очистки истории');
-              });
+              apiService
+                  .clearChatHistory(widget.chatId)
+                  .then((_) {
+                    // ignore: invalid_use_of_protected_member
+                    setState(() {
+                      _messages.clear();
+                      _chatItems.clear();
+                    });
+                    _showInfoSnackBar('История очищена');
+                    widget.onLastMessageChanged?.call(null);
+                  })
+                  .catchError((error) {
+                    _showErrorSnackBar('Ошибка очистки истории');
+                  });
             },
             child: const Text(
               'Очистить',
@@ -1617,18 +1813,18 @@ extension on _ChatScreenState {
             onPressed: () {
               Navigator.of(context).pop();
               final apiService = context.read<ApiService>();
-              apiService.clearChatHistory(widget.chatId).then((_) {
-                widget.onChatRemoved?.call();
-                Navigator.of(context).pop();
-                _showInfoSnackBar('Чат удалён');
-              }).catchError((error) {
-                _showErrorSnackBar('Ошибка удаления чата');
-              });
+              apiService
+                  .clearChatHistory(widget.chatId)
+                  .then((_) {
+                    widget.onChatRemoved?.call();
+                    Navigator.of(context).pop();
+                    _showInfoSnackBar('Чат удалён');
+                  })
+                  .catchError((error) {
+                    _showErrorSnackBar('Ошибка удаления чата');
+                  });
             },
-            child: const Text(
-              'Удалить',
-              style: TextStyle(color: Colors.red),
-            ),
+            child: const Text('Удалить', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -1672,7 +1868,9 @@ extension on _ChatScreenState {
                 if (mounted) {
                   Navigator.of(context).pop();
                   _showInfoSnackBar(
-                    widget.isChannel ? 'Вы покинули канал' : 'Вы вышли из группы',
+                    widget.isChannel
+                        ? 'Вы покинули канал'
+                        : 'Вы вышли из группы',
                   );
                 }
               } catch (error) {
@@ -1798,10 +1996,10 @@ extension on _ChatScreenState {
                           onPressed: () async {
                             final isEncryptionActive =
                                 _encryptionConfigForCurrentChat != null &&
-                                    _encryptionConfigForCurrentChat!
-                                        .password
-                                        .isNotEmpty &&
-                                    _sendEncryptedForCurrentChat;
+                                _encryptionConfigForCurrentChat!
+                                    .password
+                                    .isNotEmpty &&
+                                _sendEncryptedForCurrentChat;
                             if (isEncryptionActive) {
                               if (mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
@@ -1852,10 +2050,10 @@ extension on _ChatScreenState {
                           onPressed: () async {
                             final isEncryptionActive =
                                 _encryptionConfigForCurrentChat != null &&
-                                    _encryptionConfigForCurrentChat!
-                                        .password
-                                        .isNotEmpty &&
-                                    _sendEncryptedForCurrentChat;
+                                _encryptionConfigForCurrentChat!
+                                    .password
+                                    .isNotEmpty &&
+                                _sendEncryptedForCurrentChat;
                             if (isEncryptionActive) {
                               if (mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
@@ -1901,11 +2099,11 @@ extension on _ChatScreenState {
                             Navigator.of(ctx).pop();
                             final selectedContact = await Navigator.of(context)
                                 .push(
-                              MaterialPageRoute(
-                                builder: (context) =>
-                                const ContactSelectionScreen(),
-                              ),
-                            );
+                                  MaterialPageRoute(
+                                    builder: (context) =>
+                                        const ContactSelectionScreen(),
+                                  ),
+                                );
                             if (selectedContact != null && mounted) {
                               await ApiService.instance.sendContactMessage(
                                 widget.chatId,
@@ -1938,8 +2136,8 @@ extension on _ChatScreenState {
     } else {
       final isEncryptionActive =
           _encryptionConfigForCurrentChat != null &&
-              _encryptionConfigForCurrentChat!.password.isNotEmpty &&
-              _sendEncryptedForCurrentChat;
+          _encryptionConfigForCurrentChat!.password.isNotEmpty &&
+          _sendEncryptedForCurrentChat;
       if (isEncryptionActive) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -2098,5 +2296,4 @@ extension on _ChatScreenState {
       return null;
     }
   }
-
 }

@@ -9,10 +9,10 @@ class ThemeProvider with ChangeNotifier {
   // State
   CustomThemePreset _activeTheme = CustomThemePreset.createDefault();
   List<CustomThemePreset> _savedThemes = [];
-  
+
   // Debounce timers
   final Map<String, Timer> _saveTimers = {};
-  
+
   // Additional settings not in preset
   bool _showSeconds = false;
   Color? _myBubbleColorLight;
@@ -20,14 +20,14 @@ class ThemeProvider with ChangeNotifier {
   Color? _myBubbleColorDark;
   Color? _theirBubbleColorDark;
   final Map<int, String> _chatSpecificWallpapers = {};
-  
+
   // Debug settings
   bool _debugShowPerformanceOverlay = false;
   bool _debugShowChatsRefreshPanel = false;
   bool _debugShowMessageCount = false;
   bool _debugReadOnEnter = true;
   bool _debugReadOnAction = true;
-  
+
   // Feature flags
   bool _blockBypass = false;
   bool _highQualityPhotos = true;
@@ -36,16 +36,20 @@ class ThemeProvider with ChangeNotifier {
   bool _showFpsOverlay = false;
   int _maxFrameRate = 60;
   bool _chatCompactMode = false;
-  
+
   // Cache
   CustomThemePreset? _savedThemeBeforeOptimization;
   AppTheme _lastNonSystemTheme = AppTheme.dark;
+
+  // Komet features
+  bool _kometAutoCompleteEnabled = false;
+  bool _specialMessagesEnabled = true;
 
   // Getters - Theme
   AppTheme get appTheme => _activeTheme.appTheme;
   AppTheme get lastNonSystemTheme => _lastNonSystemTheme;
   Color get accentColor => _activeTheme.accentColor;
-  
+
   ThemeMode get themeMode => switch (_activeTheme.appTheme) {
     AppTheme.system => ThemeMode.system,
     AppTheme.light => ThemeMode.light,
@@ -64,7 +68,8 @@ class ThemeProvider with ChangeNotifier {
   double get chatWallpaperImageBlur => _activeTheme.chatWallpaperImageBlur;
 
   // Getters - Glass panels
-  bool get useGlassPanels => _optimization ? false : _activeTheme.useGlassPanels;
+  bool get useGlassPanels =>
+      _optimization ? false : _activeTheme.useGlassPanels;
   double get topBarBlur => _activeTheme.topBarBlur;
   double get topBarOpacity => _activeTheme.topBarOpacity;
   double get bottomBarBlur => _activeTheme.bottomBarBlur;
@@ -110,9 +115,9 @@ class ThemeProvider with ChangeNotifier {
   };
 
   // Getters - Debug
-  bool get debugShowBottomBar => 
+  bool get debugShowBottomBar =>
       uiMode == UIMode.both || uiMode == UIMode.panelOnly;
-  bool get debugShowBurgerMenu => 
+  bool get debugShowBurgerMenu =>
       uiMode == UIMode.both || uiMode == UIMode.burgerOnly;
   bool get debugShowPerformanceOverlay => _debugShowPerformanceOverlay;
   bool get debugShowChatsRefreshPanel => _debugShowChatsRefreshPanel;
@@ -121,29 +126,29 @@ class ThemeProvider with ChangeNotifier {
   bool get debugReadOnAction => _debugReadOnAction;
 
   // Getters - Transitions (optimization aware)
-  TransitionOption get chatTransition => 
-      (_optimization || _activeTheme.ultraOptimizeChats) 
-          ? TransitionOption.systemDefault 
-          : _activeTheme.chatTransition;
-  TransitionOption get tabTransition => 
-      (_optimization || _activeTheme.ultraOptimizeChats) 
-          ? TransitionOption.systemDefault 
-          : _activeTheme.tabTransition;
-  TransitionOption get messageTransition => 
-      (_optimization || _activeTheme.ultraOptimizeChats) 
-          ? TransitionOption.systemDefault 
-          : _activeTheme.messageTransition;
-  TransitionOption get extraTransition => 
-      (_optimization || _activeTheme.ultraOptimizeChats) 
-          ? TransitionOption.systemDefault 
-          : _activeTheme.extraTransition;
+  TransitionOption get chatTransition =>
+      (_optimization || _activeTheme.ultraOptimizeChats)
+      ? TransitionOption.systemDefault
+      : _activeTheme.chatTransition;
+  TransitionOption get tabTransition =>
+      (_optimization || _activeTheme.ultraOptimizeChats)
+      ? TransitionOption.systemDefault
+      : _activeTheme.tabTransition;
+  TransitionOption get messageTransition =>
+      (_optimization || _activeTheme.ultraOptimizeChats)
+      ? TransitionOption.systemDefault
+      : _activeTheme.messageTransition;
+  TransitionOption get extraTransition =>
+      (_optimization || _activeTheme.ultraOptimizeChats)
+      ? TransitionOption.systemDefault
+      : _activeTheme.extraTransition;
   double get messageSlideDistance => _activeTheme.messageSlideDistance;
   double get extraAnimationStrength => _activeTheme.extraAnimationStrength;
-  bool get animatePhotoMessages => 
-      (_optimization || _activeTheme.ultraOptimizeChats) 
-          ? false 
-          : _activeTheme.animatePhotoMessages;
-  
+  bool get animatePhotoMessages =>
+      (_optimization || _activeTheme.ultraOptimizeChats)
+      ? false
+      : _activeTheme.animatePhotoMessages;
+
   // Getters - Optimization
   bool get optimizeChats => _activeTheme.optimizeChats;
   bool get ultraOptimizeChats => _activeTheme.ultraOptimizeChats;
@@ -154,24 +159,31 @@ class ThemeProvider with ChangeNotifier {
 
   // Getters - Gradients
   bool get useGradientForChatsList => _activeTheme.useGradientForChatsList;
-  ChatsListBackgroundType get chatsListBackgroundType => _activeTheme.chatsListBackgroundType;
+  ChatsListBackgroundType get chatsListBackgroundType =>
+      _activeTheme.chatsListBackgroundType;
   String? get chatsListImagePath => _activeTheme.chatsListImagePath;
   bool get useGradientForDrawer => _activeTheme.useGradientForDrawer;
-  DrawerBackgroundType get drawerBackgroundType => _activeTheme.drawerBackgroundType;
+  DrawerBackgroundType get drawerBackgroundType =>
+      _activeTheme.drawerBackgroundType;
   String? get drawerImagePath => _activeTheme.drawerImagePath;
-  bool get useGradientForAddAccountButton => _activeTheme.useGradientForAddAccountButton;
+  bool get useGradientForAddAccountButton =>
+      _activeTheme.useGradientForAddAccountButton;
   bool get useGradientForAppBar => _activeTheme.useGradientForAppBar;
-  AppBarBackgroundType get appBarBackgroundType => _activeTheme.appBarBackgroundType;
+  AppBarBackgroundType get appBarBackgroundType =>
+      _activeTheme.appBarBackgroundType;
   String? get appBarImagePath => _activeTheme.appBarImagePath;
   bool get useGradientForFolderTabs => _activeTheme.useGradientForFolderTabs;
-  FolderTabsBackgroundType get folderTabsBackgroundType => _activeTheme.folderTabsBackgroundType;
+  FolderTabsBackgroundType get folderTabsBackgroundType =>
+      _activeTheme.folderTabsBackgroundType;
   String? get folderTabsImagePath => _activeTheme.folderTabsImagePath;
   Color get chatsListGradientColor1 => _activeTheme.chatsListGradientColor1;
   Color get chatsListGradientColor2 => _activeTheme.chatsListGradientColor2;
   Color get drawerGradientColor1 => _activeTheme.drawerGradientColor1;
   Color get drawerGradientColor2 => _activeTheme.drawerGradientColor2;
-  Color get addAccountButtonGradientColor1 => _activeTheme.addAccountButtonGradientColor1;
-  Color get addAccountButtonGradientColor2 => _activeTheme.addAccountButtonGradientColor2;
+  Color get addAccountButtonGradientColor1 =>
+      _activeTheme.addAccountButtonGradientColor1;
+  Color get addAccountButtonGradientColor2 =>
+      _activeTheme.addAccountButtonGradientColor2;
   Color get appBarGradientColor1 => _activeTheme.appBarGradientColor1;
   Color get appBarGradientColor2 => _activeTheme.appBarGradientColor2;
   Color get folderTabsGradientColor1 => _activeTheme.folderTabsGradientColor1;
@@ -187,6 +199,8 @@ class ThemeProvider with ChangeNotifier {
   CustomThemePreset get activeTheme => _activeTheme;
   bool get materialYouEnabled => _activeTheme.appTheme == AppTheme.system;
   bool get chatCompactMode => _chatCompactMode;
+  bool get kometAutoCompleteEnabled => _kometAutoCompleteEnabled;
+  bool get specialMessagesEnabled => _specialMessagesEnabled;
 
   ThemeProvider() {
     loadSettings();
@@ -212,7 +226,8 @@ class ThemeProvider with ChangeNotifier {
       _savedThemes.add(CustomThemePreset.createDefault());
     }
 
-    final activeId = prefs.getString('active_theme_id') ?? _savedThemes.first.id;
+    final activeId =
+        prefs.getString('active_theme_id') ?? _savedThemes.first.id;
     _activeTheme = _savedThemes.firstWhere(
       (t) => t.id == activeId,
       orElse: () => _savedThemes.first,
@@ -227,8 +242,12 @@ class ThemeProvider with ChangeNotifier {
     }
 
     // Load last non-system theme
-    final storedLastNonSystemIndex = prefs.getInt('last_non_system_theme') ?? AppTheme.dark.index;
-    _lastNonSystemTheme = _getValidTheme(storedLastNonSystemIndex, AppTheme.dark);
+    final storedLastNonSystemIndex =
+        prefs.getInt('last_non_system_theme') ?? AppTheme.dark.index;
+    _lastNonSystemTheme = _getValidTheme(
+      storedLastNonSystemIndex,
+      AppTheme.dark,
+    );
     if (_lastNonSystemTheme == AppTheme.system) {
       _lastNonSystemTheme = AppTheme.dark;
     }
@@ -243,20 +262,26 @@ class ThemeProvider with ChangeNotifier {
 
     // Load debug settings
     _debugShowPerformanceOverlay = prefs.getBool('debug_perf_overlay') ?? false;
-    _debugShowChatsRefreshPanel = prefs.getBool('debug_show_chats_refresh_panel') ?? false;
+    _debugShowChatsRefreshPanel =
+        prefs.getBool('debug_show_chats_refresh_panel') ?? false;
     _debugShowMessageCount = prefs.getBool('debug_show_message_count') ?? false;
     _debugReadOnEnter = prefs.getBool('debug_read_on_enter') ?? true;
     _debugReadOnAction = prefs.getBool('debug_read_on_action') ?? true;
-    
+
     // Load feature flags
     _highQualityPhotos = prefs.getBool('high_quality_photos') ?? true;
     _blockBypass = prefs.getBool('block_bypass') ?? false;
-    _chatPreviewMode = _getValidChatPreviewMode(prefs.getInt('chat_preview_mode'));
+    _chatPreviewMode = _getValidChatPreviewMode(
+      prefs.getInt('chat_preview_mode'),
+    );
     _optimization = prefs.getBool('optimization') ?? false;
     _showFpsOverlay = prefs.getBool('show_fps_overlay') ?? false;
     _maxFrameRate = prefs.getInt('max_frame_rate') ?? 60;
     _showSeconds = prefs.getBool('show_seconds') ?? false;
     _chatCompactMode = prefs.getBool('chat_compact_mode') ?? false;
+    _kometAutoCompleteEnabled =
+        prefs.getBool('komet_auto_complete_enabled') ?? false;
+    _specialMessagesEnabled = prefs.getBool('special_messages_enabled') ?? true;
 
     await loadChatSpecificWallpapers();
     notifyListeners();
@@ -319,29 +344,28 @@ class ThemeProvider with ChangeNotifier {
   }
 
   // ==================== THEME MANAGEMENT ====================
-  
+
   void toggleTheme() {
     final newTheme = switch (_activeTheme.appTheme) {
       AppTheme.light => AppTheme.dark,
       AppTheme.dark => AppTheme.light,
       AppTheme.black => AppTheme.light,
-      AppTheme.system => _lastNonSystemTheme == AppTheme.light 
-          ? AppTheme.dark 
-          : AppTheme.light,
+      AppTheme.system =>
+        _lastNonSystemTheme == AppTheme.light ? AppTheme.dark : AppTheme.light,
     };
     setTheme(newTheme);
   }
 
   void setTheme(AppTheme theme) {
     if (theme == _activeTheme.appTheme) return;
-    
+
     if (theme != AppTheme.system) {
       _lastNonSystemTheme = theme;
       SharedPreferences.getInstance().then((prefs) {
         prefs.setInt('last_non_system_theme', theme.index);
       });
     }
-    
+
     _activeTheme = _activeTheme.copyWith(appTheme: theme);
     _saveActiveTheme();
     notifyListeners();
@@ -349,7 +373,7 @@ class ThemeProvider with ChangeNotifier {
 
   void setAccentColor(Color color) {
     if (color == _activeTheme.accentColor) return;
-    
+
     _activeTheme = _activeTheme.copyWith(accentColor: color);
     _updateBubbleColorsFromAccent(color);
     _activeTheme = _activeTheme.copyWith(
@@ -375,7 +399,7 @@ class ThemeProvider with ChangeNotifier {
   }
 
   // ==================== PRESET MANAGEMENT ====================
-  
+
   Future<void> saveCurrentThemeAs(String name) async {
     await saveCurrentAsPreset(name);
   }
@@ -401,12 +425,12 @@ class ThemeProvider with ChangeNotifier {
       orElse: () => _savedThemes.first,
     );
     _activeTheme = preset;
-    
+
     _myBubbleColorLight = preset.myBubbleColorLight;
     _theirBubbleColorLight = preset.theirBubbleColorLight;
     _myBubbleColorDark = preset.myBubbleColorDark;
     _theirBubbleColorDark = preset.theirBubbleColorDark;
-    
+
     await _saveActiveTheme();
     notifyListeners();
   }
@@ -450,7 +474,7 @@ class ThemeProvider with ChangeNotifier {
   }
 
   // ==================== QUICK TOGGLES ====================
-  
+
   void toggleOptimization() {
     setOptimization(!_optimization);
   }
@@ -523,15 +547,16 @@ class ThemeProvider with ChangeNotifier {
   }
 
   // ==================== DEBUG SETTINGS ====================
-  
+
   void toggleDebugPerformanceOverlay() {
     setDebugShowPerformanceOverlay(!_debugShowPerformanceOverlay);
   }
 
   void setDebugShowPerformanceOverlay(bool value) {
     _debugShowPerformanceOverlay = value;
-    SharedPreferences.getInstance().then((p) => 
-        p.setBool('debug_perf_overlay', _debugShowPerformanceOverlay));
+    SharedPreferences.getInstance().then(
+      (p) => p.setBool('debug_perf_overlay', _debugShowPerformanceOverlay),
+    );
     notifyListeners();
   }
 
@@ -541,8 +566,12 @@ class ThemeProvider with ChangeNotifier {
 
   void setDebugShowChatsRefreshPanel(bool value) {
     _debugShowChatsRefreshPanel = value;
-    SharedPreferences.getInstance().then((p) => 
-        p.setBool('debug_show_chats_refresh_panel', _debugShowChatsRefreshPanel));
+    SharedPreferences.getInstance().then(
+      (p) => p.setBool(
+        'debug_show_chats_refresh_panel',
+        _debugShowChatsRefreshPanel,
+      ),
+    );
     notifyListeners();
   }
 
@@ -552,8 +581,9 @@ class ThemeProvider with ChangeNotifier {
 
   void setDebugShowMessageCount(bool value) {
     _debugShowMessageCount = value;
-    SharedPreferences.getInstance().then((p) => 
-        p.setBool('debug_show_message_count', _debugShowMessageCount));
+    SharedPreferences.getInstance().then(
+      (p) => p.setBool('debug_show_message_count', _debugShowMessageCount),
+    );
     notifyListeners();
   }
 
@@ -563,8 +593,9 @@ class ThemeProvider with ChangeNotifier {
 
   void setDebugReadOnEnter(bool value) {
     _debugReadOnEnter = value;
-    SharedPreferences.getInstance().then((p) => 
-        p.setBool('debug_read_on_enter', _debugReadOnEnter));
+    SharedPreferences.getInstance().then(
+      (p) => p.setBool('debug_read_on_enter', _debugReadOnEnter),
+    );
     notifyListeners();
   }
 
@@ -574,21 +605,23 @@ class ThemeProvider with ChangeNotifier {
 
   void setDebugReadOnAction(bool value) {
     _debugReadOnAction = value;
-    SharedPreferences.getInstance().then((p) => 
-        p.setBool('debug_read_on_action', _debugReadOnAction));
+    SharedPreferences.getInstance().then(
+      (p) => p.setBool('debug_read_on_action', _debugReadOnAction),
+    );
     notifyListeners();
   }
 
   // ==================== FEATURE FLAGS ====================
-  
+
   void toggleHighQualityPhotos() {
     setHighQualityPhotos(!_highQualityPhotos);
   }
 
   void setHighQualityPhotos(bool value) {
     _highQualityPhotos = value;
-    SharedPreferences.getInstance().then((p) => 
-        p.setBool('high_quality_photos', _highQualityPhotos));
+    SharedPreferences.getInstance().then(
+      (p) => p.setBool('high_quality_photos', _highQualityPhotos),
+    );
     notifyListeners();
   }
 
@@ -598,8 +631,9 @@ class ThemeProvider with ChangeNotifier {
 
   void setBlockBypass(bool value) {
     _blockBypass = value;
-    SharedPreferences.getInstance().then((p) => 
-        p.setBool('block_bypass', _blockBypass));
+    SharedPreferences.getInstance().then(
+      (p) => p.setBool('block_bypass', _blockBypass),
+    );
     notifyListeners();
   }
 
@@ -609,34 +643,56 @@ class ThemeProvider with ChangeNotifier {
 
   void setShowFpsOverlay(bool value) {
     _showFpsOverlay = value;
-    SharedPreferences.getInstance().then((p) => 
-        p.setBool('show_fps_overlay', _showFpsOverlay));
+    SharedPreferences.getInstance().then(
+      (p) => p.setBool('show_fps_overlay', _showFpsOverlay),
+    );
     notifyListeners();
   }
 
   void setMaxFrameRate(int rate) {
     _maxFrameRate = rate.clamp(30, 144);
-    SharedPreferences.getInstance().then((p) => 
-        p.setInt('max_frame_rate', _maxFrameRate));
+    SharedPreferences.getInstance().then(
+      (p) => p.setInt('max_frame_rate', _maxFrameRate),
+    );
     notifyListeners();
   }
 
   void setChatPreviewMode(ChatPreviewMode mode) {
     _chatPreviewMode = mode;
-    SharedPreferences.getInstance().then((p) => 
-        p.setInt('chat_preview_mode', mode.index));
+    SharedPreferences.getInstance().then(
+      (p) => p.setInt('chat_preview_mode', mode.index),
+    );
     notifyListeners();
   }
 
   void setChatCompactMode(bool value) {
     _chatCompactMode = value;
-    SharedPreferences.getInstance().then((p) => 
-        p.setBool('chat_compact_mode', value));
+    SharedPreferences.getInstance().then(
+      (p) => p.setBool('chat_compact_mode', value),
+    );
+    notifyListeners();
+  }
+
+  void setKometAutoCompleteEnabled(bool value) {
+    _kometAutoCompleteEnabled = value;
+    _debouncedSave('komet_auto_complete_enabled', () async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('komet_auto_complete_enabled', value);
+    });
+    notifyListeners();
+  }
+
+  void setSpecialMessagesEnabled(bool value) {
+    _specialMessagesEnabled = value;
+    _debouncedSave('special_messages_enabled', () async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('special_messages_enabled', value);
+    });
     notifyListeners();
   }
 
   // ==================== BUBBLE COLORS ====================
-  
+
   void setMyBubbleColorLight(Color? color) {
     _myBubbleColorLight = color;
     _activeTheme = _activeTheme.copyWith(myBubbleColorLight: color);
@@ -666,7 +722,7 @@ class ThemeProvider with ChangeNotifier {
   }
 
   // ==================== WALLPAPER SETTINGS ====================
-  
+
   void setUseCustomChatWallpaper(bool value) {
     _activeTheme = _activeTheme.copyWith(useCustomChatWallpaper: value);
     _saveActiveTheme();
@@ -710,7 +766,7 @@ class ThemeProvider with ChangeNotifier {
   }
 
   // ==================== MESSAGE SETTINGS ====================
-  
+
   void setMessageTextOpacity(double value) {
     _activeTheme = _activeTheme.copyWith(messageTextOpacity: value);
     _saveActiveTheme();
@@ -766,7 +822,7 @@ class ThemeProvider with ChangeNotifier {
   }
 
   // ==================== PROFILE DIALOG SETTINGS ====================
-  
+
   void setProfileDialogOpacity(double value) {
     _activeTheme = _activeTheme.copyWith(profileDialogOpacity: value);
     _saveActiveTheme();
@@ -780,7 +836,7 @@ class ThemeProvider with ChangeNotifier {
   }
 
   // ==================== GLASS PANELS SETTINGS ====================
-  
+
   void setTopBarOpacity(double value) {
     _activeTheme = _activeTheme.copyWith(topBarOpacity: value);
     _saveActiveTheme();
@@ -806,7 +862,7 @@ class ThemeProvider with ChangeNotifier {
   }
 
   // ==================== CHATS LIST SETTINGS ====================
-  
+
   void setUseGradientForChatsList(bool value) {
     _activeTheme = _activeTheme.copyWith(useGradientForChatsList: value);
     _saveActiveTheme();
@@ -838,7 +894,7 @@ class ThemeProvider with ChangeNotifier {
   }
 
   // ==================== DRAWER SETTINGS ====================
-  
+
   void setUseGradientForDrawer(bool value) {
     _activeTheme = _activeTheme.copyWith(useGradientForDrawer: value);
     _saveActiveTheme();
@@ -870,7 +926,7 @@ class ThemeProvider with ChangeNotifier {
   }
 
   // ==================== ADD ACCOUNT BUTTON SETTINGS ====================
-  
+
   void setUseGradientForAddAccountButton(bool value) {
     _activeTheme = _activeTheme.copyWith(useGradientForAddAccountButton: value);
     _saveActiveTheme();
@@ -890,7 +946,7 @@ class ThemeProvider with ChangeNotifier {
   }
 
   // ==================== APP BAR SETTINGS ====================
-  
+
   void setUseGradientForAppBar(bool value) {
     _activeTheme = _activeTheme.copyWith(useGradientForAppBar: value);
     _saveActiveTheme();
@@ -922,7 +978,7 @@ class ThemeProvider with ChangeNotifier {
   }
 
   // ==================== FOLDER TABS SETTINGS ====================
-  
+
   void setUseGradientForFolderTabs(bool value) {
     _activeTheme = _activeTheme.copyWith(useGradientForFolderTabs: value);
     _saveActiveTheme();
@@ -954,7 +1010,7 @@ class ThemeProvider with ChangeNotifier {
   }
 
   // ==================== TRANSITION SETTINGS ====================
-  
+
   void setMessageTransition(TransitionOption option) {
     _activeTheme = _activeTheme.copyWith(messageTransition: option);
     _saveActiveTheme();
@@ -1012,7 +1068,7 @@ class ThemeProvider with ChangeNotifier {
   }
 
   // ==================== DESKTOP LAYOUT ====================
-  
+
   void setUseDesktopLayout(bool value) {
     _activeTheme = _activeTheme.copyWith(useDesktopLayout: value);
     _saveActiveTheme();
@@ -1020,7 +1076,7 @@ class ThemeProvider with ChangeNotifier {
   }
 
   // ==================== CHAT-SPECIFIC WALLPAPERS ====================
-  
+
   Future<void> setChatSpecificWallpaper(int chatId, String? path) async {
     await setChatWallpaper(chatId, path);
   }

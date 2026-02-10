@@ -48,7 +48,7 @@ class LinkifyMatch {
   final int end;
   final String text;
   final bool hasProtocol;
-  
+
   LinkifyMatch(this.start, this.end, this.text, this.hasProtocol);
 }
 
@@ -62,20 +62,25 @@ class DomainLinkifier extends Linkifier {
   ) {
     // Регулярка для поиска URL с протоколом и без
     // Требует валидную доменную зону из списка, чтобы избежать ложных срабатываний на обычные слова с точкой
-    final validTlds = r'рф|онлайн|сайт|ру|su|com|net|org|mil|edu|arpa|gov|biz|info|aero|inc|name|app|dev|io|co|shop|club|guru|ninja|xyz|top|store|tech|space|world|today|news|ua|by|kz|uz|ge|az|am|md|tj|tm|kg|lv|lt|ee|pl|cz|sk|hu|ro|bg|rs|hr|si|al|ba|mk|me|ua|cn|jp|kr|tw|hk|sg|my|id|th|vn|ph|in|pk|bd|lk|np|au|nz|ca|us|uk|de|fr|it|es|pt|nl|be|ch|at|se|no|dk|fi|is|ie|uk|gov|edu|mil|int|eu|biz|info|name|museum|coop|aero|jobs|mobi|travel|xxx|post|geo|mail|рф|дети|москва|онлайн|сайт|бел';
-    
+    final validTlds =
+        r'рф|онлайн|сайт|ру|su|com|net|org|mil|edu|arpa|gov|biz|info|aero|inc|name|app|dev|io|co|shop|club|guru|ninja|xyz|top|store|tech|space|world|today|news|ua|by|kz|uz|ge|az|am|md|tj|tm|kg|lv|lt|ee|pl|cz|sk|hu|ro|bg|rs|hr|si|al|ba|mk|me|ua|cn|jp|kr|tw|hk|sg|my|id|th|vn|ph|in|pk|bd|lk|np|au|nz|ca|us|uk|de|fr|it|es|pt|nl|be|ch|at|se|no|dk|fi|is|ie|uk|gov|edu|mil|int|eu|biz|info|name|museum|coop|aero|jobs|mobi|travel|xxx|post|geo|mail|рф|дети|москва|онлайн|сайт|бел';
+
     // URL с протоколом - разрешаем любой домен
     final urlWithProtocolRegex = RegExp(
-      r'(?:https?|ftp|telnet)://(?:[а-яёa-z0-9_-]{1,32}(?::[а-яёa-z0-9_-]{1,32})?@)?(?:[а-яёa-z0-9-]{1,128}\.)+(?:' + validTlds + r')(?::[0-9]{1,5})?(?:/[а-яёa-z0-9.,_@%&?+=~/-]*)?(?:#[^ ]*)?',
+      r'(?:https?|ftp|telnet)://(?:[а-яёa-z0-9_-]{1,32}(?::[а-яёa-z0-9_-]{1,32})?@)?(?:[а-яёa-z0-9-]{1,128}\.)+(?:' +
+          validTlds +
+          r')(?::[0-9]{1,5})?(?:/[а-яёa-z0-9.,_@%&?+=~/-]*)?(?:#[^ ]*)?',
       caseSensitive: false,
     );
-    
+
     // URL без протокола - требуем www. или известную доменную зону
     final urlWithoutProtocolRegex = RegExp(
-      r'(?:www\.)[а-яёa-z0-9-]{1,128}\.(?:' + validTlds + r')(?::[0-9]{1,5})?(?:/[а-яёa-z0-9.,_@%&?+=~/-]*)?(?:#[^ ]*)?',
+      r'(?:www\.)[а-яёa-z0-9-]{1,128}\.(?:' +
+          validTlds +
+          r')(?::[0-9]{1,5})?(?:/[а-яёa-z0-9.,_@%&?+=~/-]*)?(?:#[^ ]*)?',
       caseSensitive: false,
     );
-    
+
     // IP адреса
     final ipRegex = RegExp(
       r'(?:(?:https?|ftp|telnet)://)?(?!0)(?:(?!0[^.]|255)[0-9]{1,3}\.){3}(?!0|255)[0-9]{1,3}(?::[0-9]{1,5})?(?:/[а-яёa-z0-9.,_@%&?+=~/-]*)?(?:#[^ ]*)?',
@@ -88,26 +93,51 @@ class DomainLinkifier extends Linkifier {
       if (element is TextElement) {
         String text = element.text;
         final List<LinkifyMatch> allMatches = [];
-        
+
         // Собираем все совпадения из всех регулярок
         for (final match in urlWithProtocolRegex.allMatches(text)) {
-          allMatches.add(LinkifyMatch(match.start, match.end, text.substring(match.start, match.end), true));
+          allMatches.add(
+            LinkifyMatch(
+              match.start,
+              match.end,
+              text.substring(match.start, match.end),
+              true,
+            ),
+          );
         }
         for (final match in urlWithoutProtocolRegex.allMatches(text)) {
           // Проверяем, что это не пересекается с уже найденными URL с протоколом
-          if (!allMatches.any((m) => match.start >= m.start && match.end <= m.end)) {
-            allMatches.add(LinkifyMatch(match.start, match.end, text.substring(match.start, match.end), false));
+          if (!allMatches.any(
+            (m) => match.start >= m.start && match.end <= m.end,
+          )) {
+            allMatches.add(
+              LinkifyMatch(
+                match.start,
+                match.end,
+                text.substring(match.start, match.end),
+                false,
+              ),
+            );
           }
         }
         for (final match in ipRegex.allMatches(text)) {
-          if (!allMatches.any((m) => match.start >= m.start && match.end <= m.end)) {
-            allMatches.add(LinkifyMatch(match.start, match.end, text.substring(match.start, match.end), true));
+          if (!allMatches.any(
+            (m) => match.start >= m.start && match.end <= m.end,
+          )) {
+            allMatches.add(
+              LinkifyMatch(
+                match.start,
+                match.end,
+                text.substring(match.start, match.end),
+                true,
+              ),
+            );
           }
         }
-        
+
         // Сортируем по позиции
         allMatches.sort((a, b) => a.start.compareTo(b.start));
-        
+
         if (allMatches.isNotEmpty) {
           var lastIndex = 0;
           for (final match in allMatches) {
@@ -153,6 +183,7 @@ class ChatMessageBubble extends StatelessWidget {
   final Message message;
   final bool isMe;
   final MessageReadStatus? readStatus;
+  final bool isHighlighted;
   final bool deferImageLoading;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
@@ -194,6 +225,7 @@ class ChatMessageBubble extends StatelessWidget {
     required this.message,
     required this.isMe,
     this.readStatus,
+    this.isHighlighted = false,
     this.deferImageLoading = false,
     this.onEdit,
     this.onDelete,
@@ -1032,7 +1064,11 @@ class ChatMessageBubble extends StatelessWidget {
       messageContentChildren,
     );
 
-    if (onReaction != null || onReply != null || onForward != null || onComplain != null || (isMe && (onEdit != null || onDelete != null))) {
+    if (onReaction != null ||
+        onReply != null ||
+        onForward != null ||
+        onComplain != null ||
+        (isMe && (onEdit != null || onDelete != null))) {
       if (isMobile) {
         messageContent = _LongPressContextMenuWrapper(
           child: messageContent,
@@ -1053,63 +1089,72 @@ class ChatMessageBubble extends StatelessWidget {
           ? CrossAxisAlignment.end
           : CrossAxisAlignment.start,
       children: [
-        Row(
-          mainAxisAlignment: isMe
-              ? MainAxisAlignment.end
-              : MainAxisAlignment.start,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            if (!isMe && (isGroupChat || isChannel)) ...[
-              SizedBox(
-                width: 40,
-                child: isLastInGroup
-                    ? Transform.translate(
-                        offset: Offset(0, avatarVerticalOffset),
-                        child: _buildSenderAvatar(),
-                      )
-                    : null,
-              ),
-            ],
-            Flexible(child: messageContent),
-            if (message.isDeleted && themeProvider.showDeletedMessages) ...[
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.error.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(messageBorderRadius),
+            color: isHighlighted
+                ? Theme.of(context).colorScheme.primary.withOpacity(0.25)
+                : Colors.transparent,
+          ),
+          child: Row(
+            mainAxisAlignment: isMe
+                ? MainAxisAlignment.end
+                : MainAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              if (!isMe && isGroupChat && !isChannel) ...[
+                SizedBox(
+                  width: 40,
+                  child: isLastInGroup
+                      ? Transform.translate(
+                          offset: Offset(0, avatarVerticalOffset),
+                          child: _buildSenderAvatar(),
+                        )
+                      : null,
                 ),
-                child: Icon(
-                  Icons.delete_outline,
-                  color: Theme.of(context).colorScheme.error,
-                  size: 16,
-                ),
-              ),
-            ],
-            if (message.originalText != null &&
-                themeProvider.viewRedactHistory) ...[
-              const SizedBox(width: 8),
-              GestureDetector(
-                onTap: () => _showRedactHistory(context),
-                child: Container(
+              ],
+              Flexible(child: messageContent),
+              if (message.isDeleted && themeProvider.showDeletedMessages) ...[
+                const SizedBox(width: 8),
+                Container(
                   padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
                     color: Theme.of(
                       context,
-                    ).colorScheme.secondary.withValues(alpha: 0.1),
+                    ).colorScheme.error.withValues(alpha: 0.1),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
-                    Icons.edit_outlined,
-                    color: Theme.of(context).colorScheme.secondary,
+                    Icons.delete_outline,
+                    color: Theme.of(context).colorScheme.error,
                     size: 16,
                   ),
                 ),
-              ),
+              ],
+              if (message.originalText != null &&
+                  themeProvider.viewRedactHistory) ...[
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: () => _showRedactHistory(context),
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.secondary.withValues(alpha: 0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.edit_outlined,
+                      color: Theme.of(context).colorScheme.secondary,
+                      size: 16,
+                    ),
+                  ),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ],
     );
@@ -1274,7 +1319,9 @@ class ChatMessageBubble extends StatelessWidget {
                       : CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if ((isGroupChat || isChannel) && !isMe && senderName != null)
+                    if ((isGroupChat || isChannel) &&
+                        !isMe &&
+                        senderName != null)
                       Padding(
                         padding: const EdgeInsets.only(left: 2.0, bottom: 0.0),
                         child: Text(
@@ -1291,7 +1338,9 @@ class ChatMessageBubble extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                    if ((isGroupChat || isChannel) && !isMe && senderName != null)
+                    if ((isGroupChat || isChannel) &&
+                        !isMe &&
+                        senderName != null)
                       const SizedBox(height: 2),
 
                     Text(
@@ -1797,7 +1846,10 @@ class ChatMessageBubble extends StatelessWidget {
         : const Color(0xFF6b7280);
 
     final showNameHeader =
-        videos.length == 1 && (isGroupChat || isChannel) && !isMe && senderName != null;
+        videos.length == 1 &&
+        (isGroupChat || isChannel) &&
+        !isMe &&
+        senderName != null;
 
     Widget videoContent = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
@@ -1993,7 +2045,10 @@ class ChatMessageBubble extends StatelessWidget {
         : const Color(0xFF6b7280);
 
     final showNameHeader =
-        files.length == 1 && (isGroupChat || isChannel) && !isMe && senderName != null;
+        files.length == 1 &&
+        (isGroupChat || isChannel) &&
+        !isMe &&
+        senderName != null;
 
     Widget fileContent = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
@@ -4453,7 +4508,8 @@ class ChatMessageBubble extends StatelessWidget {
           ),
         ),
 
-      if ((isGroupChat || isChannel) && !isMe && senderName != null) const SizedBox(height: 2),
+      if ((isGroupChat || isChannel) && !isMe && senderName != null)
+        const SizedBox(height: 2),
       // Показываем кто переслал сообщение
       if (message.isForwarded && forwardedFrom != null)
         Padding(
@@ -4498,7 +4554,7 @@ class ChatMessageBubble extends StatelessWidget {
               isUltraOptimized,
               messageBorderRadius,
             ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 2),
         ],
         if (attachesToShow.isNotEmpty) ...[
           ..._buildCallsWithCaption(
@@ -4817,13 +4873,13 @@ class ChatMessageBubble extends StatelessWidget {
         );
         index = safeEnd;
       } else if (markerType == "galaxy") {
-        const prefix = "komet.cosmetic.galaxy'";
+        const prefix = "komet.cosmetic.galaxy''";
         final textStart = nextMarker + prefix.length;
-        final quoteIndex = text.indexOf("'", textStart);
+        final quoteIndex = text.indexOf("''", textStart);
         if (quoteIndex != -1) {
           final segmentText = text.substring(textStart, quoteIndex);
           segments.add(KometSegment(segmentText, KometSegmentType.galaxy));
-          index = quoteIndex + 1;
+          index = quoteIndex + 2;
           continue;
         }
 
@@ -5044,9 +5100,7 @@ class ChatMessageBubble extends StatelessWidget {
         return Container(
           decoration: BoxDecoration(
             color: bg,
-            border: Border(
-              left: BorderSide(color: border, width: 3),
-            ),
+            border: Border(left: BorderSide(color: border, width: 3)),
             borderRadius: BorderRadius.circular(8),
           ),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -5073,10 +5127,7 @@ class ChatMessageBubble extends StatelessWidget {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
-        children:
-            children
-                .where((w) => w is! SizedBox)
-                .toList(),
+        children: children.where((w) => w is! SizedBox).toList(),
       );
     }
 
@@ -5550,61 +5601,64 @@ class _VideoPreviewWidgetState extends State<_VideoPreviewWidget>
       ),
       child: GestureDetector(
         onTap: widget.onTap,
-        child: AspectRatio(
-          aspectRatio: 16 / 9,
-          child: ClipRRect(
-            borderRadius: widget.showNameHeader
-                ? const BorderRadius.only(
-                    bottomLeft: Radius.circular(12),
-                    bottomRight: Radius.circular(12),
-                  )
-                : BorderRadius.circular(12),
-            child: Stack(
-              alignment: Alignment.center,
-              fit: StackFit.expand,
-              children: [
-                (widget.highQualityUrl != null &&
-                            widget.highQualityUrl!.isNotEmpty) ||
-                        (widget.lowQualityBytes != null)
-                    ? _ProgressiveNetworkImage(
-                        key: ValueKey(
-                          'video_preview_image_${widget.messageId}_${widget.videoId}',
-                        ),
-                        url: widget.highQualityUrl ?? '',
-                        previewBytes: widget.lowQualityBytes,
-                        width: 220,
-                        height: 160,
-                        fit: BoxFit.cover,
-                        keepAlive: true,
-                      )
-                    : Container(
-                        color: Colors.black26,
-                        child: const Center(
-                          child: Icon(
-                            Icons.video_library_outlined,
-                            color: Colors.white,
-                            size: 40,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 300, maxWidth: 400),
+          child: AspectRatio(
+            aspectRatio: 16 / 9,
+            child: ClipRRect(
+              borderRadius: widget.showNameHeader
+                  ? const BorderRadius.only(
+                      bottomLeft: Radius.circular(12),
+                      bottomRight: Radius.circular(12),
+                    )
+                  : BorderRadius.circular(12),
+              child: Stack(
+                alignment: Alignment.center,
+                fit: StackFit.expand,
+                children: [
+                  (widget.highQualityUrl != null &&
+                              widget.highQualityUrl!.isNotEmpty) ||
+                          (widget.lowQualityBytes != null)
+                      ? _ProgressiveNetworkImage(
+                          key: ValueKey(
+                            'video_preview_image_${widget.messageId}_${widget.videoId}',
+                          ),
+                          url: widget.highQualityUrl ?? '',
+                          previewBytes: widget.lowQualityBytes,
+                          width: 220,
+                          height: 160,
+                          fit: BoxFit.cover,
+                          keepAlive: true,
+                        )
+                      : Container(
+                          color: Colors.black26,
+                          child: const Center(
+                            child: Icon(
+                              Icons.video_library_outlined,
+                              color: Colors.white,
+                              size: 40,
+                            ),
                           ),
                         ),
-                      ),
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.15),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.15),
+                    ),
+                    child: Icon(
+                      Icons.play_circle_filled_outlined,
+                      color: Colors.white.withValues(alpha: 0.95),
+                      size: 50,
+                      shadows: const [
+                        Shadow(
+                          color: Colors.black38,
+                          blurRadius: 4,
+                          offset: Offset(0, 2),
+                        ),
+                      ],
+                    ),
                   ),
-                  child: Icon(
-                    Icons.play_circle_filled_outlined,
-                    color: Colors.white.withValues(alpha: 0.95),
-                    size: 50,
-                    shadows: const [
-                      Shadow(
-                        color: Colors.black38,
-                        blurRadius: 4,
-                        offset: Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

@@ -272,10 +272,7 @@ class GroupProfileDraggableDialog extends StatelessWidget {
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   children: [
-                    ContactAvatarWidget(
-                      contactId: contact.id,
-                      radius: 50,
-                    ),
+                    ContactAvatarWidget(contactId: contact.id, radius: 50),
                     const SizedBox(height: 12),
                     Text(
                       contact.name,
@@ -350,7 +347,9 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
     super.initState();
     _loadLocalDescription();
 
-    _changesSubscription = ContactLocalNamesService().changes.listen((contactId) {
+    _changesSubscription = ContactLocalNamesService().changes.listen((
+      contactId,
+    ) {
       if (contactId == widget.contact.id && mounted) {
         _loadLocalDescription();
       }
@@ -358,7 +357,9 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
   }
 
   Future<void> _loadLocalDescription() async {
-    final localData = ContactLocalNamesService().getContactData(widget.contact.id);
+    final localData = ContactLocalNamesService().getContactData(
+      widget.contact.id,
+    );
     if (mounted) {
       setState(() {
         _localDescription = localData?['notes'] as String?;
@@ -374,21 +375,25 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
 
   void _openChatWithContact(BuildContext context) async {
     try {
-      final chatId = await ApiService.instance.getChatIdByUserId(widget.contact.id);
+      final chatId = await ApiService.instance.getChatIdByUserId(
+        widget.contact.id,
+      );
       if (chatId == null) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Не удалось найти чат с пользователем')),
+            const SnackBar(
+              content: Text('Не удалось найти чат с пользователем'),
+            ),
           );
         }
         return;
       }
 
       if (!context.mounted) return;
-      
+
       // Закрываем диалог профиля
       Navigator.of(context).pop();
-      
+
       // Открываем чат
       Navigator.of(context).push(
         MaterialPageRoute(
@@ -404,9 +409,9 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
       );
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Ошибка: $e')));
       }
     }
   }
@@ -415,7 +420,7 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
   void _openGroupOrChannel(BuildContext context) {
     // Закрываем диалог профиля
     Navigator.of(context).pop();
-    
+
     // Открываем группу/канал напрямую
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -434,7 +439,7 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
   /// Строит кнопки действий в зависимости от типа контакта
   Widget _buildActionButtons(BuildContext context, ColorScheme colors) {
     final isGroupOrChannel = widget.contact.id < 0;
-    
+
     if (isGroupOrChannel) {
       // Для групп и каналов показываем только релевантные кнопки
       return Row(
@@ -460,7 +465,7 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
         ],
       );
     }
-    
+
     // Для личных чатов - стандартные кнопки
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -487,7 +492,9 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
           onPressed: () {
             // TODO: Показать полную информацию о контакте
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Подробная информация скоро будет доступна')),
+              const SnackBar(
+                content: Text('Подробная информация скоро будет доступна'),
+              ),
             );
           },
           colors: colors,
@@ -506,7 +513,7 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
       originalLastName: widget.contact.lastName,
     );
     final String description =
-    (_localDescription != null && _localDescription!.isNotEmpty)
+        (_localDescription != null && _localDescription!.isNotEmpty)
         ? _localDescription!
         : (widget.contact.description ?? '');
 
@@ -671,10 +678,7 @@ class _ProfileActionButton extends StatelessWidget {
         const SizedBox(height: 8),
         Text(
           label,
-          style: TextStyle(
-            fontSize: 12,
-            color: colors.onSurfaceVariant,
-          ),
+          style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
         ),
       ],
     );
@@ -714,70 +718,72 @@ class _BotCommandsPanel extends StatelessWidget {
         constraints: const BoxConstraints(maxHeight: 140),
         child: isLoading
             ? Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(colors.primary),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Text(
-                'Загрузка команд…',
-                style: TextStyle(color: colors.onSurfaceVariant),
-              ),
-            ],
-          ),
-        )
-            : (commands.isEmpty
-            ? const Padding(
-          padding: EdgeInsets.all(12),
-          child: Center(child: Text('Нет доступных команд')),
-        )
-            : ListView.builder(
-          shrinkWrap: true,
-          padding: const EdgeInsets.all(4),
-          itemCount: commands.length,
-          itemBuilder: (context, index) {
-            final cmd = commands[index];
-            return InkWell(
-              onTap: () => onCommandTap(cmd),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 8,
-                ),
-                child: RichText(
-                  text: TextSpan(
-                    children: [
-                      TextSpan(
-                        text: cmd.slashCommand,
-                        style: TextStyle(
-                          color: colors.onSurface,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          colors.primary,
                         ),
                       ),
-                      if (cmd.description.isNotEmpty)
-                        TextSpan(
-                          text: ' ${cmd.description}',
-                          style: TextStyle(
-                            color: colors.onSurfaceVariant,
-                            fontSize: 13,
-                          ),
-                        ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      'Загрузка команд…',
+                      style: TextStyle(color: colors.onSurfaceVariant),
+                    ),
+                  ],
                 ),
-              ),
-            );
-          },
-        )),
+              )
+            : (commands.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: Center(child: Text('Нет доступных команд')),
+                    )
+                  : ListView.builder(
+                      shrinkWrap: true,
+                      padding: const EdgeInsets.all(4),
+                      itemCount: commands.length,
+                      itemBuilder: (context, index) {
+                        final cmd = commands[index];
+                        return InkWell(
+                          onTap: () => onCommandTap(cmd),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 8,
+                            ),
+                            child: RichText(
+                              text: TextSpan(
+                                children: [
+                                  TextSpan(
+                                    text: cmd.slashCommand,
+                                    style: TextStyle(
+                                      color: colors.onSurface,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                  if (cmd.description.isNotEmpty)
+                                    TextSpan(
+                                      text: ' ${cmd.description}',
+                                      style: TextStyle(
+                                        color: colors.onSurfaceVariant,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    )),
       ),
     );
   }
@@ -798,35 +804,32 @@ class _KometColorPickerBar extends StatefulWidget {
 }
 
 class _KometColorPickerBarState extends State<_KometColorPickerBar> {
-  final List<Map<String, dynamic>> _colorOptions = [
-    {'prefix': 'R', 'color': Colors.red},
-    {'prefix': 'G', 'color': Colors.green},
-    {'prefix': 'B', 'color': Colors.blue},
-    {'prefix': 'Y', 'color': Colors.yellow},
-    {'prefix': 'P', 'color': Colors.purple},
-  ];
+  // Removed unused _colorOptions
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 60,
-      padding: const EdgeInsets.symmetric(horizontal: 8),
+      height: 44,
+      margin: const EdgeInsets.only(bottom: 4, left: 8, right: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4),
+        ],
+      ),
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          ..._colorOptions.map((option) => GestureDetector(
-            onTap: () => widget.onPrefixSelected(option['prefix']),
-            child: Container(
-              width: 40,
-              height: 40,
-              margin: const EdgeInsets.symmetric(horizontal: 4),
-              decoration: BoxDecoration(
-                color: option['color'],
-                shape: BoxShape.circle,
-              ),
-            ),
-          )),
           IconButton(
-            icon: const Icon(Icons.close),
+            icon: const Icon(Icons.colorize, color: Colors.blue),
+            onPressed: () => widget.onPrefixSelected('PICK'),
+            tooltip: 'Выбрать цвет',
+          ),
+          const VerticalDivider(width: 1, indent: 8, endIndent: 8),
+          IconButton(
+            icon: const Icon(Icons.close, size: 20),
             onPressed: widget.onClose,
           ),
         ],
@@ -963,10 +966,7 @@ class _MentionDropdownPanel extends StatelessWidget {
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
-      constraints: const BoxConstraints(
-        maxHeight: 200,
-        maxWidth: 300,
-      ),
+      constraints: const BoxConstraints(maxHeight: 200, maxWidth: 300),
       decoration: BoxDecoration(
         color: colors.surface,
         borderRadius: BorderRadius.circular(12),
@@ -977,10 +977,7 @@ class _MentionDropdownPanel extends StatelessWidget {
             offset: const Offset(0, 4),
           ),
         ],
-        border: Border.all(
-          color: colors.outlineVariant,
-          width: 1,
-        ),
+        border: Border.all(color: colors.outlineVariant, width: 1),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
@@ -1000,10 +997,7 @@ class _MentionDropdownPanel extends StatelessWidget {
                   ),
                   child: Row(
                     children: [
-                      ContactAvatarWidget(
-                        contactId: user.id,
-                        radius: 16,
-                      ),
+                      ContactAvatarWidget(contactId: user.id, radius: 16),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
@@ -1306,6 +1300,66 @@ class _ContactPresenceSubtitleState extends State<_ContactPresenceSubtitle> {
         fontSize: 13,
         color: Theme.of(context).colorScheme.onSurfaceVariant,
       ),
+    );
+  }
+}
+
+class _KometSpecialMenu extends StatelessWidget {
+  final Function(String) onItemSelected;
+
+  const _KometSpecialMenu({required this.onItemSelected});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8, left: 8, right: 8),
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildBtn(
+            context,
+            Icons.color_lens_outlined,
+            'Цветной текст',
+            'komet.color_#',
+          ),
+          _buildBtn(
+            context,
+            Icons.animation,
+            'Пульсация',
+            'komet.cosmetic.pulse#',
+          ),
+          _buildBtn(
+            context,
+            Icons.stars,
+            'Галактика',
+            "komet.cosmetic.galaxy''",
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBtn(
+    BuildContext context,
+    IconData icon,
+    String tooltip,
+    String val,
+  ) {
+    return IconButton(
+      icon: Icon(icon, size: 22, color: Theme.of(context).colorScheme.primary),
+      onPressed: () => onItemSelected(val),
+      tooltip: tooltip,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
     );
   }
 }

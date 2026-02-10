@@ -52,11 +52,8 @@ class ContactLocalNamesService {
       }
 
       _initialized = true;
-      print(
-        '✅ ContactLocalNamesService: загружено ${_cache.length} локальных имен',
-      );
     } catch (e) {
-      print('❌ Ошибка инициализации ContactLocalNamesService: $e');
+      print('Error initializing ContactLocalNamesService: $e');
     }
   }
 
@@ -73,6 +70,11 @@ class ContactLocalNamesService {
     final localData = _cache[contactId];
 
     if (localData != null) {
+      final nickname = localData['nickname'] as String?;
+      if (nickname != null && nickname.isNotEmpty) {
+        return nickname;
+      }
+
       final firstName = localData['firstName'] as String?;
       final lastName = localData['lastName'] as String?;
 
@@ -88,12 +90,14 @@ class ContactLocalNamesService {
     if (originalFirstName != null || originalLastName != null) {
       final fullName = '${originalFirstName ?? ''} ${originalLastName ?? ''}'
           .trim();
-      if (fullName.isNotEmpty) {
-        return fullName;
-      }
+      if (fullName.isNotEmpty) return fullName;
     }
 
-    return originalName ?? 'ID $contactId';
+    if (originalName != null && originalName.isNotEmpty) {
+      return originalName;
+    }
+
+    return contactId.toString();
   }
 
   String? getDisplayDescription({

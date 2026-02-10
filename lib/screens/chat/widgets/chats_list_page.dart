@@ -7,6 +7,7 @@ import 'package:gwid/models/chat_folder.dart';
 class ChatsListPage extends StatefulWidget {
   final ChatFolder? folder;
   final List<Chat> allChats;
+  final int myId;
   final Map<int, Contact> contacts;
   final String searchQuery;
   final Widget Function(Chat, int, ChatFolder?) buildChatListItem;
@@ -17,6 +18,7 @@ class ChatsListPage extends StatefulWidget {
     super.key,
     required this.folder,
     required this.allChats,
+    required this.myId,
     required this.contacts,
     required this.searchQuery,
     required this.buildChatListItem,
@@ -57,12 +59,14 @@ class _ChatsListPageState extends State<ChatsListPage>
           return "избранное".contains(widget.searchQuery.toLowerCase());
         }
         final otherParticipantId = chat.participantIds.firstWhere(
-          (id) => id != chat.ownerId,
+          (id) => id != widget.myId,
           orElse: () => 0,
         );
-        final contactName =
-            widget.contacts[otherParticipantId]?.name.toLowerCase() ?? '';
-        return contactName.contains(widget.searchQuery.toLowerCase());
+        final contact = widget.contacts[otherParticipantId];
+        final contactName = contact?.name.toLowerCase() ?? '';
+        final contactIdStr = otherParticipantId.toString();
+        final query = widget.searchQuery.toLowerCase();
+        return contactName.contains(query) || contactIdStr.contains(query);
       }).toList();
     }
 

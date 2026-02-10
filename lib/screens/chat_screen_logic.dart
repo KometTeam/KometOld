@@ -14,7 +14,9 @@ extension on _ChatScreenState {
     try {
       final theme = context.read<ThemeProvider>();
       if (_currentContact.isBlockedByMe && !theme.blockBypass) {
-        _showErrorSnackBar('Нельзя отправить сообщение заблокированному пользователю');
+        _showErrorSnackBar(
+          'Нельзя отправить сообщение заблокированному пользователю',
+        );
         return;
       }
 
@@ -31,7 +33,11 @@ extension on _ChatScreenState {
         elements.clear();
       }
 
-      final tempMessage = _createTempMessage(text: textToSend, cid: tempCid, elements: elements);
+      final tempMessage = _createTempMessage(
+        text: textToSend,
+        cid: tempCid,
+        elements: elements,
+      );
       _addMessage(tempMessage);
       _clearInputState();
       _sendToServer(text: textToSend, cid: tempCid, elements: elements);
@@ -55,18 +61,17 @@ extension on _ChatScreenState {
         _encryptionConfigForCurrentChat!.password.isNotEmpty &&
         _sendEncryptedForCurrentChat &&
         !ChatEncryptionService.isEncryptedMessage(original)) {
-      return ChatEncryptionService.encryptWithPassword(_encryptionConfigForCurrentChat!.password, original);
+      return ChatEncryptionService.encryptWithPassword(
+        _encryptionConfigForCurrentChat!.password,
+        original,
+      );
     }
     return original;
   }
 
   List<Map<String, dynamic>> _captureMentions() {
     return _mentions.map((m) {
-      return {
-        'entityId': m.entityId,
-        'type': m.type,
-        'length': m.length,
-      };
+      return {'entityId': m.entityId, 'type': m.type, 'length': m.length};
     }).toList();
   }
 
@@ -102,7 +107,8 @@ extension on _ChatScreenState {
 
   Map<String, dynamic>? _buildReplyLink() {
     if (_replyingToMessage == null) return null;
-    final replyId = int.tryParse(_replyingToMessage!.id) ?? _replyingToMessage!.id;
+    final replyId =
+        int.tryParse(_replyingToMessage!.id) ?? _replyingToMessage!.id;
     return {
       'type': 'REPLY',
       'messageId': replyId,
@@ -145,7 +151,9 @@ extension on _ChatScreenState {
   }
 
   void _handleReadReceipts() {
-    ChatReadSettingsService.instance.getSettings(widget.chatId).then((readSettings) {
+    ChatReadSettingsService.instance.getSettings(widget.chatId).then((
+      readSettings,
+    ) {
       final shouldReadOnAction = readSettings != null
           ? (!readSettings.disabled && readSettings.readOnAction)
           : context.read<ThemeProvider>().debugReadOnAction;
@@ -189,7 +197,11 @@ extension on _ChatScreenState {
             _updateMessage(optimistic);
 
             try {
-              await ApiService.instance.editMessage(widget.chatId, message.id, newText.trim());
+              await ApiService.instance.editMessage(
+                widget.chatId,
+                message.id,
+                newText.trim(),
+              );
               widget.onChatUpdated?.call();
             } catch (e) {
               _updateMessage(message);
@@ -255,7 +267,9 @@ extension on _ChatScreenState {
 
   Future<Map<String, dynamic>?> _loadChatsIfNeeded() async {
     try {
-      final result = await ApiService.instance.getChatsAndContacts(force: false);
+      final result = await ApiService.instance.getChatsAndContacts(
+        force: false,
+      );
       if (result['chats'] == null || (result['chats'] as List).isEmpty) {
         return await ApiService.instance.getChatsAndContacts(force: true);
       }
@@ -275,7 +289,6 @@ extension on _ChatScreenState {
     );
   }
 
-
   Future<void> _initializeChat() async {
     print('🔘 _initializeChat: начало для chatId=${widget.chatId}');
     try {
@@ -289,7 +302,9 @@ extension on _ChatScreenState {
       final profileData = ApiService.instance.lastChatsPayload?['profile'];
       final contactProfile = profileData?['contact'] as Map<String, dynamic>?;
 
-      if (contactProfile != null && contactProfile['id'] != null && contactProfile['id'] != 0) {
+      if (contactProfile != null &&
+          contactProfile['id'] != null &&
+          contactProfile['id'] != 0) {
         // Безопасное получение ID из SharedPreferences
         final userIdStr = prefs.getString('userId');
         if (userIdStr != null && userIdStr.isNotEmpty) {
@@ -304,7 +319,9 @@ extension on _ChatScreenState {
             _contactDetailsCache[_actualMyId!] = myContact;
           }
         } catch (e) {
-          print('[ChatScreen] Не удалось добавить собственный профиль в кэш: $e');
+          print(
+            '[ChatScreen] Не удалось добавить собственный профиль в кэш: $e',
+          );
         }
       } else if (_actualMyId == null) {
         // БЕЗОПАСНОЕ ПОЛУЧЕНИЕ ID
@@ -318,7 +335,10 @@ extension on _ChatScreenState {
 
       if (!widget.isGroupChat && !widget.isChannel) {
         final contactsToCache = _contactDetailsCache.values.toList();
-        await ChatCacheService().cacheChatContacts(widget.chatId, contactsToCache);
+        await ChatCacheService().cacheChatContacts(
+          widget.chatId,
+          contactsToCache,
+        );
       }
 
       _loadContactDetails();
@@ -354,7 +374,8 @@ extension on _ChatScreenState {
             (widget.isGroupChat || widget.isChannel) &&
             (msg['opcode'] == 64 || msg['opcode'] == 128)) {
           if (payload['participants'] != null ||
-              (payload['chat'] != null && payload['chat']['participants'] != null)) {
+              (payload['chat'] != null &&
+                  payload['chat']['participants'] != null)) {
             _loadMentionableUsers().then((_) {
               _setStateIfMounted(() {});
             });
@@ -385,22 +406,36 @@ extension on _ChatScreenState {
       _itemPositionsListener.itemPositions.addListener(() {
         final positions = _itemPositionsListener.itemPositions.value;
         if (positions.isNotEmpty) {
-          final bottomItemPosition = positions.firstWhere((p) => p.index == 0, orElse: () => positions.first);
-          final isAtBottom = bottomItemPosition.index == 0 && bottomItemPosition.itemLeadingEdge <= 0.25;
+          final bottomItemPosition = positions.firstWhere(
+            (p) => p.index == 0,
+            orElse: () => positions.first,
+          );
+          final isAtBottom =
+              bottomItemPosition.index == 0 &&
+              bottomItemPosition.itemLeadingEdge <= 0.25;
           _isUserAtBottom = isAtBottom;
           if (isAtBottom) _isScrollingToBottom = false;
-          _showScrollToBottomNotifier.value = !isAtBottom && !_isScrollingToBottom;
+          _showScrollToBottomNotifier.value =
+              !isAtBottom && !_isScrollingToBottom;
 
           if (positions.isNotEmpty && _chatItems.isNotEmpty) {
-            final maxIndex = positions.map((p) => p.index).reduce((a, b) => a > b ? a : b);
+            final maxIndex = positions
+                .map((p) => p.index)
+                .reduce((a, b) => a > b ? a : b);
             if (maxIndex > _maxViewedIndex) _maxViewedIndex = maxIndex;
 
-            final shouldLoadByViewedCount = maxIndex >= _ChatScreenState._loadMoreThreshold &&
-                (maxIndex - _lastLoadedAtViewedIndex) >= _ChatScreenState._loadMoreThreshold;
+            final shouldLoadByViewedCount =
+                maxIndex >= _ChatScreenState._loadMoreThreshold &&
+                (maxIndex - _lastLoadedAtViewedIndex) >=
+                    _ChatScreenState._loadMoreThreshold;
             final threshold = _chatItems.length > 5 ? 3 : 1;
             final isNearTop = maxIndex >= _chatItems.length - threshold;
 
-            if ((isNearTop || shouldLoadByViewedCount) && _hasMore && !_isLoadingMore && _messages.isNotEmpty && _oldestLoadedTime != null) {
+            if ((isNearTop || shouldLoadByViewedCount) &&
+                _hasMore &&
+                !_isLoadingMore &&
+                _messages.isNotEmpty &&
+                _oldestLoadedTime != null) {
               Future.microtask(() {
                 if (mounted && _hasMore && !_isLoadingMore) _loadMore();
               });
@@ -437,6 +472,23 @@ extension on _ChatScreenState {
     }
   }
 
+  Future<void> _ensureContactsCached(List<int> contactIds) async {
+    final idsToFetch = contactIds
+        .where((id) => id != 0 && !_contactDetailsCache.containsKey(id))
+        .toList();
+    if (idsToFetch.isEmpty) return;
+
+    try {
+      final contacts = await ApiService.instance.fetchContactsByIds(idsToFetch);
+      for (final contact in contacts) {
+        _contactDetailsCache[contact.id] = contact;
+      }
+      _setStateIfMounted(() {});
+    } catch (e) {
+      debugPrint('Error fetching missing contacts: $e');
+    }
+  }
+
   void _loadHistoryAndListen() {
     print('🔘 _loadHistoryAndListen: начало для chatId=${widget.chatId}');
     _paginateInitialLoad();
@@ -449,7 +501,7 @@ extension on _ChatScreenState {
 
     _apiSubscription = ApiService.instance.messages.listen((message) {
       if (!mounted) return;
-      
+
       // Обработка события завершения фоновой загрузки сообщений
       final messageType = message['type'];
       if (messageType == 'messages_loaded') {
@@ -459,12 +511,15 @@ extension on _ChatScreenState {
           final newCount = message['newCount'] as int? ?? 0;
           if (messages != null && newCount > 0) {
             print('📥 Фоновая загрузка: получено $newCount новых сообщений');
-            const int preloadedMessagesLimit = _ChatScreenState._historyLoadBatch;
+            const int preloadedMessagesLimit =
+                _ChatScreenState._historyLoadBatch;
             final hydratedMessages = _hydrateLinksSequentially(messages);
             _messages
               ..clear()
               ..addAll(hydratedMessages);
-            _oldestLoadedTime = _messages.isNotEmpty ? _messages.first.time : null;
+            _oldestLoadedTime = _messages.isNotEmpty
+                ? _messages.first.time
+                : null;
             _hasMore = _messages.length >= preloadedMessagesLimit;
             _buildChatItems();
             _setStateIfMounted(() {});
@@ -472,18 +527,24 @@ extension on _ChatScreenState {
         }
         return;
       }
-      
+
       final opcode = message['opcode'];
       final cmd = message['cmd'];
       final seq = message['seq'];
       final payload = message['payload'];
       if (payload is! Map<String, dynamic>) return;
 
-      final dynamic incomingChatId = payload['chatId'] ?? payload['chat']?['id'];
-      final int? chatIdNormalized = incomingChatId is int ? incomingChatId : int.tryParse(incomingChatId?.toString() ?? '');
-      final shouldCheckChatId = opcode != 178 || (opcode == 178 && payload.containsKey('chatId'));
+      final dynamic incomingChatId =
+          payload['chatId'] ?? payload['chat']?['id'];
+      final int? chatIdNormalized = incomingChatId is int
+          ? incomingChatId
+          : int.tryParse(incomingChatId?.toString() ?? '');
+      final shouldCheckChatId =
+          opcode != 178 || (opcode == 178 && payload.containsKey('chatId'));
 
-      if (shouldCheckChatId && (chatIdNormalized == null || chatIdNormalized != widget.chatId)) return;
+      if (shouldCheckChatId &&
+          (chatIdNormalized == null || chatIdNormalized != widget.chatId))
+        return;
 
       if (opcode == 64 && (cmd == 0x100 || cmd == 256)) {
         final messageMap = payload['message'];
@@ -512,18 +573,22 @@ extension on _ChatScreenState {
         if (newMessage.status == 'REMOVED') {
           _removeMessages([newMessage.id]);
         } else {
-          unawaited(ChatCacheService().addMessageToCache(widget.chatId, newMessage));
-          
+          unawaited(
+            ChatCacheService().addMessageToCache(widget.chatId, newMessage),
+          );
+
           // Если идёт загрузка истории, откладываем обработку сообщения
           if (_isLoadingHistory) {
             _pendingMessagesDuringLoad.add(newMessage);
             return;
           }
-          
+
           Future.microtask(() {
             if (!mounted) return;
             final hasSameId = _messages.any((m) => m.id == newMessage.id);
-            final hasSameCid = newMessage.cid != null && _messages.any((m) => m.cid != null && m.cid == newMessage.cid);
+            final hasSameCid =
+                newMessage.cid != null &&
+                _messages.any((m) => m.cid != null && m.cid == newMessage.cid);
             if (hasSameId || hasSameCid) {
               _updateMessage(newMessage);
             } else {
@@ -534,12 +599,17 @@ extension on _ChatScreenState {
       } else if (opcode == 132) {
         final dynamic contactIdAny = payload['contactId'] ?? payload['userId'];
         if (contactIdAny != null) {
-          final int? cid = contactIdAny is int ? contactIdAny : int.tryParse(contactIdAny.toString());
+          final int? cid = contactIdAny is int
+              ? contactIdAny
+              : int.tryParse(contactIdAny.toString());
           if (cid != null) {
             final currentTime = DateTime.now().millisecondsSinceEpoch ~/ 1000;
             final isOnline = payload['online'] == true;
             ApiService.instance.updatePresenceData({
-              cid.toString(): {'seen': currentTime, 'on': isOnline ? 'ON' : 'OFF'},
+              cid.toString(): {
+                'seen': currentTime,
+                'on': isOnline ? 'ON' : 'OFF',
+              },
             });
           }
         }
@@ -557,7 +627,9 @@ extension on _ChatScreenState {
         });
       } else if (opcode == 66 || opcode == 142) {
         final rawMessageIds = payload['messageIds'] as List<dynamic>? ?? [];
-        final deletedMessageIds = rawMessageIds.map((id) => id.toString()).toList();
+        final deletedMessageIds = rawMessageIds
+            .map((id) => id.toString())
+            .toList();
         if (deletedMessageIds.isNotEmpty) {
           Future.microtask(() {
             if (mounted) _handleDeletedMessages(deletedMessageIds);
@@ -600,23 +672,32 @@ extension on _ChatScreenState {
           final int? receiptChatId = _parseChatId(payload['chatId']);
           if (receiptChatId == null || receiptChatId != widget.chatId) return;
 
-          final readerId = payload['userId'] ?? payload['contactId'] ?? payload['uid'] ?? payload['sender'];
+          final readerId =
+              payload['userId'] ??
+              payload['contactId'] ??
+              payload['uid'] ??
+              payload['sender'];
           final int? readerIdInt = _parseMessageId(readerId);
-          if (readerIdInt != null && _actualMyId != null && readerIdInt == _actualMyId) return;
+          if (readerIdInt != null &&
+              _actualMyId != null &&
+              readerIdInt == _actualMyId)
+            return;
 
           final dynamic rawMessageId = payload['messageId'] ?? payload['id'];
           final int? messageId = _parseMessageId(rawMessageId);
           final String? messageIdStr = rawMessageId?.toString();
 
           if (messageId != null) {
-            if (_lastPeerReadMessageId == null || messageId > _lastPeerReadMessageId!) {
+            if (_lastPeerReadMessageId == null ||
+                messageId > _lastPeerReadMessageId!) {
               _setStateIfMounted(() {
                 _lastPeerReadMessageId = messageId;
                 _lastPeerReadMessageIdStr = messageIdStr;
               });
             }
           } else if (messageIdStr != null && messageIdStr.isNotEmpty) {
-            if (_lastPeerReadMessageIdStr == null || messageIdStr.compareTo(_lastPeerReadMessageIdStr!) >= 0) {
+            if (_lastPeerReadMessageIdStr == null ||
+                messageIdStr.compareTo(_lastPeerReadMessageIdStr!) >= 0) {
               _setStateIfMounted(() {
                 _lastPeerReadMessageIdStr = messageIdStr;
               });
@@ -641,7 +722,9 @@ extension on _ChatScreenState {
       opcode: 49,
       payload: {
         "chatId": widget.chatId,
-        "from": DateTime.now().add(const Duration(days: 1)).millisecondsSinceEpoch,
+        "from": DateTime.now()
+            .add(const Duration(days: 1))
+            .millisecondsSinceEpoch,
         "forward": 0,
         "backward": initialLimit,
         "getMessages": true,
@@ -653,7 +736,8 @@ extension on _ChatScreenState {
     MessageQueueService().addToQueue(loadChatQueueItem);
 
     final chatCacheService = ChatCacheService();
-    List<Message>? cachedMessages = await chatCacheService.getCachedChatMessages(widget.chatId);
+    List<Message>? cachedMessages = await chatCacheService
+        .getCachedChatMessages(widget.chatId);
     bool hasCache = cachedMessages != null && cachedMessages.isNotEmpty;
 
     // Если есть кэш - показываем сразу, но всё равно обновляем с сервера
@@ -680,57 +764,62 @@ extension on _ChatScreenState {
     List<Message> allMessages = [];
     try {
       // Загружаем стартовый батч истории и при необходимости догружаем дальше.
-      allMessages = await ApiService.instance.getMessageHistory(
-        widget.chatId,
-        force: true,
-        initialLimit: initialLimit,
-        maxMessages: initialMaxMessages,
-        onInitialLoaded: (initial) {
-          // Вызывается когда загружена первая партия истории
-          if (!mounted) return;
-          print('⚡ Быстрая загрузка: ${initial.length} сообщений показаны моментально');
-          
-          // Обновляем UI только если ещё не показали кэш или кэш пустой
-          if (!hasCache || _messages.isEmpty) {
-            _messages.clear();
-            _messages.addAll(_hydrateLinksSequentially(initial));
-            if (_messages.isNotEmpty) _oldestLoadedTime = _messages.first.time;
-            _hasMore = initial.length >= initialLimit;
-            
-            _buildChatItems();
-            _messagesToAnimate.clear();
-            
-            _setStateIfMounted(() {
-              _isLoadingHistory = false; // Снимаем флаг после быстрой загрузки
-            });
-            
-            _updatePinnedMessage();
-            if (_messages.isEmpty && !widget.isChannel) _loadEmptyChatSticker();
-          }
-        },
-        onCompleteLoaded: (all) {
-          // Вызывается когда загружены все сообщения (до 30)
-          if (!mounted) return;
-          print('✅ Полная загрузка: ${all.length} сообщений');
-          
-          // Обновляем полный список
-          _messages.clear();
-          _messages.addAll(_hydrateLinksSequentially(all));
-          if (_messages.isNotEmpty) _oldestLoadedTime = _messages.first.time;
-          _hasMore = all.length >= initialMaxMessages;
-          
-          _buildChatItems();
-          
-          // Снимаем флаг если ещё не снят
-          if (_isLoadingHistory) {
-            _setStateIfMounted(() => _isLoadingHistory = false);
-          }
-        },
-      ).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () => <Message>[],
-      );
-      
+      allMessages = await ApiService.instance
+          .getMessageHistory(
+            widget.chatId,
+            force: true,
+            initialLimit: initialLimit,
+            maxMessages: initialMaxMessages,
+            onInitialLoaded: (initial) {
+              // Вызывается когда загружена первая партия истории
+              if (!mounted) return;
+              print(
+                '⚡ Быстрая загрузка: ${initial.length} сообщений показаны моментально',
+              );
+
+              // Обновляем UI только если ещё не показали кэш или кэш пустой
+              if (!hasCache || _messages.isEmpty) {
+                _messages.clear();
+                _messages.addAll(_hydrateLinksSequentially(initial));
+                if (_messages.isNotEmpty)
+                  _oldestLoadedTime = _messages.first.time;
+                _hasMore = initial.length >= initialLimit;
+
+                _buildChatItems();
+                _messagesToAnimate.clear();
+
+                _setStateIfMounted(() {
+                  _isLoadingHistory =
+                      false; // Снимаем флаг после быстрой загрузки
+                });
+
+                _updatePinnedMessage();
+                if (_messages.isEmpty && !widget.isChannel)
+                  _loadEmptyChatSticker();
+              }
+            },
+            onCompleteLoaded: (all) {
+              // Вызывается когда загружены все сообщения (до 30)
+              if (!mounted) return;
+              print('✅ Полная загрузка: ${all.length} сообщений');
+
+              // Обновляем полный список
+              _messages.clear();
+              _messages.addAll(_hydrateLinksSequentially(all));
+              if (_messages.isNotEmpty)
+                _oldestLoadedTime = _messages.first.time;
+              _hasMore = all.length >= initialMaxMessages;
+
+              _buildChatItems();
+
+              // Снимаем флаг если ещё не снят
+              if (_isLoadingHistory) {
+                _setStateIfMounted(() => _isLoadingHistory = false);
+              }
+            },
+          )
+          .timeout(const Duration(seconds: 10), onTimeout: () => <Message>[]);
+
       if (allMessages.isNotEmpty) {
         MessageQueueService().removeFromQueue('load_chat_${widget.chatId}');
       }
@@ -747,10 +836,14 @@ extension on _ChatScreenState {
           serverMessageIds.add(msg.id);
         }
 
-        final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+        final themeProvider = Provider.of<ThemeProvider>(
+          context,
+          listen: false,
+        );
         if (themeProvider.showDeletedMessages && hasCache) {
           for (final cachedMsg in _messages) {
-            if (!serverMessageIds.contains(cachedMsg.id) && !cachedMsg.id.startsWith('local_')) {
+            if (!serverMessageIds.contains(cachedMsg.id) &&
+                !cachedMsg.id.startsWith('local_')) {
               messagesMap[cachedMsg.id] = cachedMsg.copyWith(isDeleted: true);
             }
           }
@@ -760,13 +853,18 @@ extension on _ChatScreenState {
           for (final cachedMsg in _messages) {
             final serverMsg = messagesMap[cachedMsg.id];
             if (serverMsg != null) {
-              if (cachedMsg.originalText != null && serverMsg.originalText == null) {
-                messagesMap[cachedMsg.id] = serverMsg.copyWith(originalText: cachedMsg.originalText);
+              if (cachedMsg.originalText != null &&
+                  serverMsg.originalText == null) {
+                messagesMap[cachedMsg.id] = serverMsg.copyWith(
+                  originalText: cachedMsg.originalText,
+                );
               } else if (cachedMsg.text != serverMsg.text &&
                   cachedMsg.text.isNotEmpty &&
                   (serverMsg.isEdited || serverMsg.updateTime != null) &&
                   serverMsg.originalText == null) {
-                messagesMap[cachedMsg.id] = serverMsg.copyWith(originalText: cachedMsg.text);
+                messagesMap[cachedMsg.id] = serverMsg.copyWith(
+                  originalText: cachedMsg.text,
+                );
               }
             }
           }
@@ -787,7 +885,8 @@ extension on _ChatScreenState {
           }
         }
 
-        mergedMessages = messagesMap.values.toList()..sort((a, b) => a.time.compareTo(b.time));
+        mergedMessages = messagesMap.values.toList()
+          ..sort((a, b) => a.time.compareTo(b.time));
       } else {
         mergedMessages = List<Message>.from(_messages);
       }
@@ -803,14 +902,21 @@ extension on _ChatScreenState {
       }
       senderIds.remove(0);
 
-      final idsToFetch = senderIds.where((id) => !_contactDetailsCache.containsKey(id)).toList();
+      final idsToFetch = senderIds
+          .where((id) => !_contactDetailsCache.containsKey(id))
+          .toList();
       if (idsToFetch.isNotEmpty) {
-        final newContacts = await ApiService.instance.fetchContactsByIds(idsToFetch);
+        final newContacts = await ApiService.instance.fetchContactsByIds(
+          idsToFetch,
+        );
         for (final contact in newContacts) {
           _contactDetailsCache[contact.id] = contact;
         }
         if (newContacts.isNotEmpty) {
-          await ChatCacheService().cacheChatContacts(widget.chatId, _contactDetailsCache.values.toList());
+          await ChatCacheService().cacheChatContacts(
+            widget.chatId,
+            _contactDetailsCache.values.toList(),
+          );
         }
       }
 
@@ -826,7 +932,9 @@ extension on _ChatScreenState {
       } else {
         page = _ChatScreenState._pageSize;
       }
-      final slice = mergedMessages.length > page ? mergedMessages.sublist(mergedMessages.length - page) : mergedMessages;
+      final slice = mergedMessages.length > page
+          ? mergedMessages.sublist(mergedMessages.length - page)
+          : mergedMessages;
       final bool hasAnyMessages = mergedMessages.isNotEmpty;
       final bool serverHasMore = allMessages.length >= initialMaxMessages;
       final bool nextHasMore = hasServerData
@@ -839,7 +947,7 @@ extension on _ChatScreenState {
         ..addAll(slice);
       _oldestLoadedTime = _messages.isNotEmpty ? _messages.first.time : null;
       _hasMore = nextHasMore;
-      
+
       _buildChatItems();
       _messagesToAnimate.clear();
 
@@ -847,10 +955,10 @@ extension on _ChatScreenState {
         _setStateIfMounted(() {
           _isLoadingHistory = false;
         });
-        
+
         // Обрабатываем сообщения, пришедшие во время загрузки
         _processPendingMessages();
-        
+
         if (_messages.isNotEmpty) {
           _jumpToBottom();
           _updatePinnedMessage();
@@ -869,7 +977,9 @@ extension on _ChatScreenState {
       }
     }
 
-    final readSettings = await ChatReadSettingsService.instance.getSettings(widget.chatId);
+    final readSettings = await ChatReadSettingsService.instance.getSettings(
+      widget.chatId,
+    );
     final theme = context.read<ThemeProvider>();
     final shouldReadOnEnter = readSettings != null
         ? (!readSettings.disabled && readSettings.readOnEnter)
@@ -883,18 +993,22 @@ extension on _ChatScreenState {
   // Обработка сообщений, пришедших во время загрузки истории
   void _processPendingMessages() {
     if (_pendingMessagesDuringLoad.isEmpty) return;
-    
-    print('[ChatScreen] Обработка ${_pendingMessagesDuringLoad.length} отложенных сообщений');
-    
+
+    print(
+      '[ChatScreen] Обработка ${_pendingMessagesDuringLoad.length} отложенных сообщений',
+    );
+
     final pending = List<Message>.from(_pendingMessagesDuringLoad);
     _pendingMessagesDuringLoad.clear();
-    
+
     for (final newMessage in pending) {
       if (!mounted) return;
-      
+
       final hasSameId = _messages.any((m) => m.id == newMessage.id);
-      final hasSameCid = newMessage.cid != null && _messages.any((m) => m.cid != null && m.cid == newMessage.cid);
-      
+      final hasSameCid =
+          newMessage.cid != null &&
+          _messages.any((m) => m.cid != null && m.cid == newMessage.cid);
+
       if (hasSameId || hasSameCid) {
         _updateMessage(newMessage);
       } else {
@@ -918,11 +1032,12 @@ extension on _ChatScreenState {
     bool shouldRebuild = false;
     bool shouldUpdatePinned = false;
     try {
-      final olderMessages = await ApiService.instance.loadOlderMessagesByTimestamp(
-        widget.chatId,
-        requestFromTimestamp,
-        backward: loadMoreBatchSize,
-      );
+      final olderMessages = await ApiService.instance
+          .loadOlderMessagesByTimestamp(
+            widget.chatId,
+            requestFromTimestamp,
+            backward: loadMoreBatchSize,
+          );
 
       if (!mounted) return;
       if (olderMessages.isEmpty) {
@@ -937,9 +1052,11 @@ extension on _ChatScreenState {
           .map((m) => m.cid!)
           .toSet();
       final newMessages = olderMessages
-          .where((m) =>
-              !existingMessageIds.contains(m.id) &&
-              (m.cid == null || !existingMessageCids.contains(m.cid)))
+          .where(
+            (m) =>
+                !existingMessageIds.contains(m.id) &&
+                (m.cid == null || !existingMessageCids.contains(m.cid)),
+          )
           .toList();
       if (newMessages.isEmpty) {
         final oldestResponseTime = olderMessages.first.time;
@@ -954,7 +1071,10 @@ extension on _ChatScreenState {
         return;
       }
 
-      final hydratedOlder = _hydrateLinksSequentially(newMessages, initialKnown: _buildKnownMessagesMap());
+      final hydratedOlder = _hydrateLinksSequentially(
+        newMessages,
+        initialKnown: _buildKnownMessagesMap(),
+      );
       final oldItemsCount = _chatItems.length;
       _messages.insertAll(0, hydratedOlder);
       _oldestLoadedTime = _messages.first.time;
@@ -979,10 +1099,14 @@ extension on _ChatScreenState {
 
   // Message Updates & Helpers
   void _addMessage(Message message, {bool forceScroll = false}) {
-    final normalizedMessage = _hydrateLinkFromKnown(message, _buildKnownMessagesMap());
+    final normalizedMessage = _hydrateLinkFromKnown(
+      message,
+      _buildKnownMessagesMap(),
+    );
     if (_messages.any((m) => m.id == normalizedMessage.id)) return;
 
-    final allMessages = [..._messages, normalizedMessage]..sort((a, b) => a.time.compareTo(b.time));
+    final allMessages = [..._messages, normalizedMessage]
+      ..sort((a, b) => a.time.compareTo(b.time));
     unawaited(ChatCacheService().cacheChatMessages(widget.chatId, allMessages));
 
     final wasAtBottom = _isUserAtBottom;
@@ -991,29 +1115,48 @@ extension on _ChatScreenState {
     _messages.add(normalizedMessage);
     _messagesToAnimate.add(normalizedMessage.id);
 
-    final currentDate = DateTime.fromMillisecondsSinceEpoch(normalizedMessage.time).toLocal();
-    final lastDate = lastMessage != null ? DateTime.fromMillisecondsSinceEpoch(lastMessage.time).toLocal() : null;
+    final currentDate = DateTime.fromMillisecondsSinceEpoch(
+      normalizedMessage.time,
+    ).toLocal();
+    final lastDate = lastMessage != null
+        ? DateTime.fromMillisecondsSinceEpoch(lastMessage.time).toLocal()
+        : null;
 
     if (lastMessage == null || !_isSameDay(currentDate, lastDate!)) {
       _chatItems.add(DateSeparatorItem(currentDate));
     }
 
-    final lastMessageItem = _chatItems.isNotEmpty && _chatItems.last is MessageItem ? _chatItems.last as MessageItem : null;
-    final isGrouped = _isMessageGrouped(normalizedMessage, lastMessageItem?.message);
+    final lastMessageItem =
+        _chatItems.isNotEmpty && _chatItems.last is MessageItem
+        ? _chatItems.last as MessageItem
+        : null;
+    final isGrouped = _isMessageGrouped(
+      normalizedMessage,
+      lastMessageItem?.message,
+    );
     final isFirstInGroup = lastMessageItem == null || !isGrouped;
     final isLastInGroup = true;
 
     if (isGrouped && lastMessageItem != null) {
       _chatItems.removeLast();
-      _chatItems.add(MessageItem(
-        lastMessageItem.message,
-        isFirstInGroup: lastMessageItem.isFirstInGroup,
-        isLastInGroup: false,
-        isGrouped: lastMessageItem.isGrouped,
-      ));
+      _chatItems.add(
+        MessageItem(
+          lastMessageItem.message,
+          isFirstInGroup: lastMessageItem.isFirstInGroup,
+          isLastInGroup: false,
+          isGrouped: lastMessageItem.isGrouped,
+        ),
+      );
     }
 
-    _chatItems.add(MessageItem(normalizedMessage, isFirstInGroup: isFirstInGroup, isLastInGroup: isLastInGroup, isGrouped: isGrouped));
+    _chatItems.add(
+      MessageItem(
+        normalizedMessage,
+        isFirstInGroup: isFirstInGroup,
+        isLastInGroup: isLastInGroup,
+        isGrouped: isGrouped,
+      ),
+    );
     _updatePinnedMessage();
 
     if (mounted) {
@@ -1021,7 +1164,8 @@ extension on _ChatScreenState {
         if (mounted) {
           _setStateIfMounted(() {});
           _invalidateCache();
-          if ((wasAtBottom || isMyMessage || forceScroll) && _itemScrollController.isAttached) {
+          if ((wasAtBottom || isMyMessage || forceScroll) &&
+              _itemScrollController.isAttached) {
             _itemScrollController.jumpTo(index: 0);
           }
         }
@@ -1032,18 +1176,27 @@ extension on _ChatScreenState {
   void _updateMessage(Message updatedMessage) {
     int? index = _messages.indexWhere((m) => m.id == updatedMessage.id);
     if (index == -1 && updatedMessage.cid != null) {
-      index = _messages.indexWhere((m) => m.cid != null && m.cid == updatedMessage.cid);
+      index = _messages.indexWhere(
+        (m) => m.cid != null && m.cid == updatedMessage.cid,
+      );
     }
 
     if (index != -1 && index < _messages.length) {
       final oldMessage = _messages[index];
-      final hydratedUpdate = _hydrateLinkFromKnown(updatedMessage, _buildKnownMessagesMap());
-      final finalMessage = hydratedUpdate.link != null ? hydratedUpdate : hydratedUpdate.copyWith(link: oldMessage.link);
+      final hydratedUpdate = _hydrateLinkFromKnown(
+        updatedMessage,
+        _buildKnownMessagesMap(),
+      );
+      final finalMessage = hydratedUpdate.link != null
+          ? hydratedUpdate
+          : hydratedUpdate.copyWith(link: oldMessage.link);
 
       final finalMessageWithOriginalText = (() {
         if (finalMessage.originalText != null) return finalMessage;
-        if (oldMessage.originalText != null) return finalMessage.copyWith(originalText: oldMessage.originalText);
-        if ((finalMessage.isEdited || finalMessage.updateTime != null) && finalMessage.text != oldMessage.text) {
+        if (oldMessage.originalText != null)
+          return finalMessage.copyWith(originalText: oldMessage.originalText);
+        if ((finalMessage.isEdited || finalMessage.updateTime != null) &&
+            finalMessage.text != oldMessage.text) {
           return finalMessage.copyWith(originalText: oldMessage.text);
         }
         return finalMessage;
@@ -1056,11 +1209,15 @@ extension on _ChatScreenState {
         _setStateIfMounted(() {});
         _invalidateCache();
       }
-      final chatItemIndex = _chatItems.indexWhere((item) =>
-      item is MessageItem &&
-          (item.message.id == oldMessage.id ||
-              item.message.id == updatedMessage.id ||
-              (updatedMessage.cid != null && item.message.cid != null && item.message.cid == updatedMessage.cid)));
+      final chatItemIndex = _chatItems.indexWhere(
+        (item) =>
+            item is MessageItem &&
+            (item.message.id == oldMessage.id ||
+                item.message.id == updatedMessage.id ||
+                (updatedMessage.cid != null &&
+                    item.message.cid != null &&
+                    item.message.cid == updatedMessage.cid)),
+      );
 
       if (chatItemIndex != -1) {
         final oldItem = _chatItems[chatItemIndex] as MessageItem;
@@ -1076,16 +1233,19 @@ extension on _ChatScreenState {
         _setStateIfMounted(() {});
       }
     } else {
-      ApiService.instance.getMessageHistory(widget.chatId, force: true).then((fresh) {
-        if (!mounted) return;
-        _messages
-          ..clear()
-          ..addAll(fresh);
-        _buildChatItems();
-        Future.microtask(() {
-          _setStateIfMounted(() {});
-        });
-      }).catchError((_) {});
+      ApiService.instance
+          .getMessageHistory(widget.chatId, force: true)
+          .then((fresh) {
+            if (!mounted) return;
+            _messages
+              ..clear()
+              ..addAll(fresh);
+            _buildChatItems();
+            Future.microtask(() {
+              _setStateIfMounted(() {});
+            });
+          })
+          .catchError((_) {});
     }
   }
 
@@ -1116,6 +1276,41 @@ extension on _ChatScreenState {
     }
   }
 
+  int _getVisualIndex(int index) {
+    return _chatItems.length - 1 - index;
+  }
+
+  void _scrollToMessage(String messageId) {
+    if (messageId.isEmpty) return;
+    int index = _chatItems.indexWhere((item) {
+      if (item is MessageItem) return item.message.id == messageId;
+      return false;
+    });
+
+    if (index != -1 && _itemScrollController.isAttached) {
+      // Clear previous highlight
+      _setStateIfMounted(() {
+        _highlightedMessageId = messageId;
+      });
+
+      // Clear highlight after delay
+      Timer(const Duration(seconds: 2), () {
+        if (_highlightedMessageId == messageId) {
+          _setStateIfMounted(() {
+            _highlightedMessageId = null;
+          });
+        }
+      });
+
+      final visualIndex = _getVisualIndex(index);
+      _itemScrollController.scrollTo(
+        index: visualIndex,
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
   void _removeMessages(List<String> messageIds) {
     _deletingMessageIds.addAll(messageIds);
     _setStateIfMounted(() {});
@@ -1128,7 +1323,9 @@ extension on _ChatScreenState {
       if (actuallyRemoved > 0) {
         _deletingMessageIds.removeAll(messageIds);
         for (final messageId in messageIds) {
-          unawaited(ChatCacheService().removeMessageFromCache(widget.chatId, messageId));
+          unawaited(
+            ChatCacheService().removeMessageFromCache(widget.chatId, messageId),
+          );
         }
         _buildChatItems();
         _setStateIfMounted(() {});
@@ -1138,20 +1335,27 @@ extension on _ChatScreenState {
 
   Future<void> _deleteMessageForAll(String messageId) async {
     try {
-      await ApiService.instance.deleteMessage(widget.chatId, messageId, forMe: false);
+      await ApiService.instance.deleteMessage(
+        widget.chatId,
+        messageId,
+        forMe: false,
+      );
       // Локально удаляем сообщение
       _removeMessages([messageId]);
     } catch (e) {
       print('[_deleteMessageForAll] Ошибка удаления сообщения для всех: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка удаления: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Ошибка удаления: $e')));
       }
     }
   }
 
-  void _updateMessageReaction(String messageId, Map<String, dynamic> reactionInfo) {
+  void _updateMessageReaction(
+    String messageId,
+    Map<String, dynamic> reactionInfo,
+  ) {
     final messageIndex = _messages.indexWhere((m) => m.id == messageId);
     if (messageIndex != -1) {
       final message = _messages[messageIndex];
@@ -1173,11 +1377,16 @@ extension on _ChatScreenState {
     if (messageIndex != -1) {
       final message = _messages[messageIndex];
       final currentReactionInfo = message.reactionInfo ?? {};
-      final currentCounters = List<Map<String, dynamic>>.from(currentReactionInfo['counters'] ?? []);
-      final existingCounterIndex = currentCounters.indexWhere((counter) => counter['reaction'] == emoji);
+      final currentCounters = List<Map<String, dynamic>>.from(
+        currentReactionInfo['counters'] ?? [],
+      );
+      final existingCounterIndex = currentCounters.indexWhere(
+        (counter) => counter['reaction'] == emoji,
+      );
 
       if (existingCounterIndex != -1) {
-        currentCounters[existingCounterIndex]['count'] = (currentCounters[existingCounterIndex]['count'] as int) + 1;
+        currentCounters[existingCounterIndex]['count'] =
+            (currentCounters[existingCounterIndex]['count'] as int) + 1;
       } else {
         currentCounters.add({'reaction': emoji, 'count': 1});
       }
@@ -1186,13 +1395,20 @@ extension on _ChatScreenState {
         ...currentReactionInfo,
         'counters': currentCounters,
         'yourReaction': emoji,
-        'totalCount': currentCounters.fold<int>(0, (sum, counter) => sum + (counter['count'] as int)),
+        'totalCount': currentCounters.fold<int>(
+          0,
+          (sum, counter) => sum + (counter['count'] as int),
+        ),
       };
 
-      _messages[messageIndex] = message.copyWith(reactionInfo: updatedReactionInfo);
+      _messages[messageIndex] = message.copyWith(
+        reactionInfo: updatedReactionInfo,
+      );
       _sendingReactions.add(messageId);
       _buildChatItems();
       _setStateIfMounted(() {});
+      // Scroll operations
+      // Removed clashing _scrollToMessage and _getVisualIndex (moved to logic.dart)
     }
   }
 
@@ -1204,8 +1420,12 @@ extension on _ChatScreenState {
       final yourReaction = currentReactionInfo['yourReaction'] as String?;
 
       if (yourReaction != null) {
-        final currentCounters = List<Map<String, dynamic>>.from(currentReactionInfo['counters'] ?? []);
-        final counterIndex = currentCounters.indexWhere((counter) => counter['reaction'] == yourReaction);
+        final currentCounters = List<Map<String, dynamic>>.from(
+          currentReactionInfo['counters'] ?? [],
+        );
+        final counterIndex = currentCounters.indexWhere(
+          (counter) => counter['reaction'] == yourReaction,
+        );
 
         if (counterIndex != -1) {
           final currentCount = currentCounters[counterIndex]['count'] as int;
@@ -1220,10 +1440,15 @@ extension on _ChatScreenState {
           ...currentReactionInfo,
           'counters': currentCounters,
           'yourReaction': null,
-          'totalCount': currentCounters.fold<int>(0, (sum, counter) => sum + (counter['count'] as int)),
+          'totalCount': currentCounters.fold<int>(
+            0,
+            (sum, counter) => sum + (counter['count'] as int),
+          ),
         };
 
-        _messages[messageIndex] = message.copyWith(reactionInfo: updatedReactionInfo);
+        _messages[messageIndex] = message.copyWith(
+          reactionInfo: updatedReactionInfo,
+        );
         _sendingReactions.add(messageId);
         _buildChatItems();
         _setStateIfMounted(() {});
@@ -1233,24 +1458,28 @@ extension on _ChatScreenState {
 
   void _sendReaction(String messageId, String emoji) {
     _updateReactionOptimistically(messageId, emoji);
-    ApiService.instance.sendReaction(widget.chatId, messageId, emoji).catchError((e) {
-      print('[_sendReaction] Ошибка отправки реакции: $e');
-      // Откат оптимистичного обновления при ошибке
-      _removeReactionOptimistically(messageId);
-      return -1;
-    });
+    ApiService.instance
+        .sendReaction(widget.chatId, messageId, emoji)
+        .catchError((e) {
+          print('[_sendReaction] Ошибка отправки реакции: $e');
+          // Откат оптимистичного обновления при ошибке
+          _removeReactionOptimistically(messageId);
+          return -1;
+        });
   }
 
   void _removeReaction(String messageId) {
     final messageIndex = _messages.indexWhere((m) => m.id == messageId);
     if (messageIndex == -1) return;
-    
+
     final message = _messages[messageIndex];
     final currentReaction = message.reactionInfo?['yourReaction'] as String?;
     if (currentReaction == null) return;
-    
+
     _removeReactionOptimistically(messageId);
-    ApiService.instance.removeReaction(widget.chatId, messageId).catchError((e) {
+    ApiService.instance.removeReaction(widget.chatId, messageId).catchError((
+      e,
+    ) {
       print('[_removeReaction] Ошибка удаления реакции: $e');
       // Восстановление реакции при ошибке
       _updateReactionOptimistically(messageId, currentReaction);
@@ -1283,7 +1512,10 @@ extension on _ChatScreenState {
     return map;
   }
 
-  Message _hydrateLinkFromKnown(Message message, Map<String, Message> knownMessages) {
+  Message _hydrateLinkFromKnown(
+    Message message,
+    Map<String, Message> knownMessages,
+  ) {
     final link = message.link;
     if (link == null || link['message'] != null) return message;
 
@@ -1299,8 +1531,13 @@ extension on _ChatScreenState {
     return message.copyWith(link: updatedLink);
   }
 
-  List<Message> _hydrateLinksSequentially(List<Message> messages, {Map<String, Message>? initialKnown}) {
-    final known = initialKnown != null ? Map<String, Message>.from(initialKnown) : <String, Message>{};
+  List<Message> _hydrateLinksSequentially(
+    List<Message> messages, {
+    Map<String, Message>? initialKnown,
+  }) {
+    final known = initialKnown != null
+        ? Map<String, Message>.from(initialKnown)
+        : <String, Message>{};
     final result = <Message>[];
 
     for (final message in messages) {
@@ -1314,15 +1551,22 @@ extension on _ChatScreenState {
   }
 
   bool _isSameDay(DateTime date1, DateTime date2) {
-    return date1.year == date2.year && date1.month == date2.month && date1.day == date2.day;
+    return date1.year == date2.year &&
+        date1.month == date2.month &&
+        date1.day == date2.day;
   }
 
   bool _isMessageGrouped(Message currentMessage, Message? previousMessage) {
     if (previousMessage == null) return false;
-    final currentTime = DateTime.fromMillisecondsSinceEpoch(currentMessage.time);
-    final previousTime = DateTime.fromMillisecondsSinceEpoch(previousMessage.time);
+    final currentTime = DateTime.fromMillisecondsSinceEpoch(
+      currentMessage.time,
+    );
+    final previousTime = DateTime.fromMillisecondsSinceEpoch(
+      previousMessage.time,
+    );
     final timeDifference = currentTime.difference(previousTime).inMinutes;
-    return currentMessage.senderId == previousMessage.senderId && timeDifference <= 5;
+    return currentMessage.senderId == previousMessage.senderId &&
+        timeDifference <= 5;
   }
 
   int? _parseMessageId(dynamic value) {
@@ -1350,7 +1594,10 @@ extension on _ChatScreenState {
     final chatData = ApiService.instance.lastChatsPayload;
     if (chatData != null) {
       final chats = chatData['chats'] as List<dynamic>?;
-      final currentChat = chats?.firstWhere((chat) => chat['id'] == widget.chatId, orElse: () => null);
+      final currentChat = chats?.firstWhere(
+        (chat) => chat['id'] == widget.chatId,
+        orElse: () => null,
+      );
 
       if (currentChat != null) {
         final dynamic participantsData = currentChat['participants'];
@@ -1371,7 +1618,9 @@ extension on _ChatScreenState {
     }
 
     if (participantIds.isEmpty && _contactDetailsCache.isNotEmpty) {
-      participantIds = _contactDetailsCache.keys.where((id) => id != (_actualMyId ?? widget.myId)).toList();
+      participantIds = _contactDetailsCache.keys
+          .where((id) => id != (_actualMyId ?? widget.myId))
+          .toList();
     }
 
     if (participantIds.isEmpty) {
@@ -1379,10 +1628,14 @@ extension on _ChatScreenState {
       return;
     }
 
-    final idsToFetch = participantIds.where((id) => !_contactDetailsCache.containsKey(id)).toList();
+    final idsToFetch = participantIds
+        .where((id) => !_contactDetailsCache.containsKey(id))
+        .toList();
     if (idsToFetch.isNotEmpty) {
       try {
-        final contacts = await ApiService.instance.fetchContactsByIds(idsToFetch);
+        final contacts = await ApiService.instance.fetchContactsByIds(
+          idsToFetch,
+        );
         for (final contact in contacts) {
           _contactDetailsCache[contact.id] = contact;
         }
@@ -1409,11 +1662,14 @@ extension on _ChatScreenState {
         if (text[i] == '@') {
           atPosition = i;
           break;
-        } else if (text[i] == ' ' || text[i] == '\n') break;
+        } else if (text[i] == ' ' || text[i] == '\n')
+          break;
       }
 
       if (atPosition != -1) {
-        _mentionQuery = text.substring(atPosition + 1, cursorPosition).toLowerCase();
+        _mentionQuery = text
+            .substring(atPosition + 1, cursorPosition)
+            .toLowerCase();
         _mentionStartPosition = atPosition;
 
         _filteredMentionableUsers = _mentionableUsers.where((user) {
@@ -1424,7 +1680,8 @@ extension on _ChatScreenState {
             originalFirstName: user.firstName,
             originalLastName: user.lastName,
           ).toLowerCase();
-          return username.startsWith(_mentionQuery) || displayName.startsWith(_mentionQuery);
+          return username.startsWith(_mentionQuery) ||
+              displayName.startsWith(_mentionQuery);
         }).toList();
 
         _filteredMentionableUsers.sort((a, b) {
@@ -1443,8 +1700,12 @@ extension on _ChatScreenState {
             originalLastName: b.lastName,
           ).toLowerCase();
 
-          final aStartsWith = aName.startsWith(_mentionQuery) || aDisplay.startsWith(_mentionQuery);
-          final bStartsWith = bName.startsWith(_mentionQuery) || bDisplay.startsWith(_mentionQuery);
+          final aStartsWith =
+              aName.startsWith(_mentionQuery) ||
+              aDisplay.startsWith(_mentionQuery);
+          final bStartsWith =
+              bName.startsWith(_mentionQuery) ||
+              bDisplay.startsWith(_mentionQuery);
 
           if (aStartsWith && !bStartsWith) return -1;
           if (!aStartsWith && bStartsWith) return 1;
@@ -1474,7 +1735,9 @@ extension on _ChatScreenState {
     if (_mentionStartPosition == null) return;
     if (user.id == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ошибка: не удалось получить ID пользователя')),
+        const SnackBar(
+          content: Text('Ошибка: не удалось получить ID пользователя'),
+        ),
       );
       return;
     }
@@ -1488,15 +1751,19 @@ extension on _ChatScreenState {
 
     _textController.value = TextEditingValue(
       text: newText,
-      selection: TextSelection.collapsed(offset: _mentionStartPosition! + mentionText.length),
+      selection: TextSelection.collapsed(
+        offset: _mentionStartPosition! + mentionText.length,
+      ),
     );
 
-    _mentions.add(Mention(
-      from: _mentionStartPosition!,
-      length: mentionText.length,
-      entityId: user.id,
-      entityName: user.name,
-    ));
+    _mentions.add(
+      Mention(
+        from: _mentionStartPosition!,
+        length: mentionText.length,
+        entityId: user.id,
+        entityName: user.name,
+      ),
+    );
 
     _setStateIfMounted(() {
       _showMentionDropdown = false;
@@ -1529,7 +1796,9 @@ extension on _ChatScreenState {
 
     _setStateIfMounted(() => _isLoadingBotCommands = true);
     try {
-      final seq = await ApiService.instance.sendRawRequest(145, {'botId': botId});
+      final seq = await ApiService.instance.sendRawRequest(145, {
+        'botId': botId,
+      });
       if (seq == -1) throw Exception('Не удалось отправить запрос команд бота');
 
       final resp = await ApiService.instance.messages
@@ -1579,8 +1848,13 @@ extension on _ChatScreenState {
       final state = await ChatCacheService().getChatInputState(widget.chatId);
       if (state != null && mounted) {
         final text = state['text'] as String? ?? '';
-        final elements = (state['elements'] as List<dynamic>?)?.map((e) => e as Map<String, dynamic>).toList() ?? [];
-        final replyingToMessageData = state['replyingToMessage'] as Map<String, dynamic>?;
+        final elements =
+            (state['elements'] as List<dynamic>?)
+                ?.map((e) => e as Map<String, dynamic>)
+                .toList() ??
+            [];
+        final replyingToMessageData =
+            state['replyingToMessage'] as Map<String, dynamic>?;
 
         _textController.text = text;
         _mentions.clear();
@@ -1619,11 +1893,11 @@ extension on _ChatScreenState {
 
       final draftData = text.trim().isNotEmpty
           ? {
-        'text': text,
-        'elements': elements,
-        'replyingToMessage': replyingToMessageData,
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-      }
+              'text': text,
+              'elements': elements,
+              'replyingToMessage': replyingToMessageData,
+              'timestamp': DateTime.now().millisecondsSinceEpoch,
+            }
           : null;
 
       await ChatCacheService().saveChatInputState(
@@ -1639,13 +1913,157 @@ extension on _ChatScreenState {
     }
   }
 
+  void _toggleKometSpecialMenu() {
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    if (!themeProvider.specialMessagesEnabled) return;
+
+    if (_sparkleMenuOverlay != null) {
+      _sparkleMenuOverlay!.remove();
+      _sparkleMenuOverlay = null;
+      _setStateIfMounted(() {});
+      return;
+    }
+
+    final RenderBox? buttonBox =
+        _sparkleButtonKey.currentContext?.findRenderObject() as RenderBox?;
+    if (buttonBox == null) return;
+
+    _sparkleMenuOverlay = OverlayEntry(
+      builder: (context) => Stack(
+        children: [
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _toggleKometSpecialMenu,
+              child: Container(color: Colors.transparent),
+            ),
+          ),
+          CompositedTransformFollower(
+            link: _sparkleLayerLink,
+            showWhenUnlinked: false,
+            followerAnchor: Alignment.bottomCenter,
+            targetAnchor: Alignment.topCenter,
+            offset: const Offset(0, -12),
+            child: Material(
+              color: Colors.transparent,
+              child: IntrinsicWidth(
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 220),
+                  child: _KometSpecialMenu(
+                    onItemSelected: (value) {
+                      _toggleKometSpecialMenu();
+                      if (value.contains('#')) {
+                        _insertKometPrefix(value);
+                        _openColorPickerDialog(value);
+                      } else {
+                        _insertKometPrefix(value);
+                      }
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_sparkleMenuOverlay != null && mounted) {
+        final renderObject = _sparkleButtonKey.currentContext
+            ?.findRenderObject();
+        if (renderObject != null) {
+          Overlay.of(context).insert(_sparkleMenuOverlay!);
+          _setStateIfMounted(() {});
+        } else {
+          _sparkleMenuOverlay = null;
+        }
+      }
+    });
+  }
+
+  void _insertKometPrefix(String prefix) {
+    final text = _textController.text;
+    final selection = _textController.selection;
+    final start = selection.start == -1 ? text.length : selection.start;
+    final end = selection.end == -1 ? text.length : selection.end;
+
+    // Insert only up to # if present
+    final String actualPrefix = prefix.contains('#')
+        ? prefix.substring(0, prefix.indexOf('#') + 1)
+        : prefix;
+
+    final newText =
+        text.substring(0, start) + actualPrefix + text.substring(end);
+    _textController.text = newText;
+    _textController.selection = TextSelection.collapsed(
+      offset: start + actualPrefix.length,
+    );
+    _textFocusNode.requestFocus();
+  }
+
+  void _openColorPickerDialog(String prefix) {
+    Color pickedColor = Colors.white;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Выберите цвет"),
+        content: SingleChildScrollView(
+          child: ColorPicker(
+            pickerColor: pickedColor,
+            onColorChanged: (color) => pickedColor = color,
+            enableAlpha: false,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("Отмена"),
+          ),
+          FilledButton(
+            onPressed: () {
+              final hex = pickedColor.value
+                  .toRadixString(16)
+                  .substring(2)
+                  .toUpperCase();
+              final text = _textController.text;
+              final pos = _textController.selection.baseOffset;
+
+              // Insert hex and "'' "
+              final toInsert = "$hex'' ";
+              final newText =
+                  text.substring(0, pos) + toInsert + text.substring(pos);
+              _textController.text = newText;
+              _textController.selection = TextSelection.collapsed(
+                offset: pos + toInsert.length,
+              );
+
+              _setStateIfMounted(() {
+                _showKometColorPicker = false;
+                _currentKometColorPrefix = null;
+              });
+
+              Navigator.pop(context);
+              _textFocusNode.requestFocus();
+            },
+            child: const Text("Готово"),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _loadEncryptionConfig() async {
     try {
-      final config = await ChatEncryptionService.getConfigForChat(widget.chatId);
+      final config = await ChatEncryptionService.getConfigForChat(
+        widget.chatId,
+      );
       if (mounted) {
         _setStateIfMounted(() {
           _encryptionConfigForCurrentChat = config;
-          _isEncryptionPasswordSetForCurrentChat = config != null && config.password.isNotEmpty;
+          _isEncryptionPasswordSetForCurrentChat =
+              config != null && config.password.isNotEmpty;
           _sendEncryptedForCurrentChat = config?.sendEncrypted ?? true;
         });
       }
@@ -1655,7 +2073,9 @@ extension on _ChatScreenState {
   }
 
   Future<void> _loadCachedContacts() async {
-    final chatContacts = await ChatCacheService().getCachedChatContacts(widget.chatId);
+    final chatContacts = await ChatCacheService().getCachedChatContacts(
+      widget.chatId,
+    );
     if (chatContacts != null && chatContacts.isNotEmpty) {
       for (final contact in chatContacts) {
         _contactDetailsCache[contact.id] = contact;
@@ -1694,16 +2114,25 @@ extension on _ChatScreenState {
       final chats = chatData['chats'] as List<dynamic>?;
       if (chats == null) return;
 
-      final currentChat = chats.firstWhere((chat) => chat['id'] == widget.chatId, orElse: () => null);
+      final currentChat = chats.firstWhere(
+        (chat) => chat['id'] == widget.chatId,
+        orElse: () => null,
+      );
       if (currentChat == null) return;
 
       final participants = currentChat['participants'] as Map<String, dynamic>?;
       if (participants == null || participants.isEmpty) return;
 
-      final participantIds = participants.keys.map((id) => int.tryParse(id)).where((id) => id != null).cast<int>().toList();
+      final participantIds = participants.keys
+          .map((id) => int.tryParse(id))
+          .where((id) => id != null)
+          .cast<int>()
+          .toList();
       if (participantIds.isEmpty) return;
 
-      final idsToFetch = participantIds.where((id) => !_contactDetailsCache.containsKey(id)).toList();
+      final idsToFetch = participantIds
+          .where((id) => !_contactDetailsCache.containsKey(id))
+          .toList();
       if (idsToFetch.isEmpty) return;
 
       final contacts = await ApiService.instance.fetchContactsByIds(idsToFetch);
@@ -1722,7 +2151,9 @@ extension on _ChatScreenState {
 
   void _checkContactCache() {
     if (widget.chatId == 0) return;
-    final cachedContact = ApiService.instance.getCachedContact(widget.contact.id);
+    final cachedContact = ApiService.instance.getCachedContact(
+      widget.contact.id,
+    );
     if (cachedContact != null) {
       _currentContact = cachedContact;
       _setStateIfMounted(() {});
@@ -1740,7 +2171,10 @@ extension on _ChatScreenState {
 
     final chats = chatData['chats'] as List<dynamic>;
     try {
-      _cachedCurrentGroupChat = chats.firstWhere((chat) => chat['id'] == widget.chatId, orElse: () => null);
+      _cachedCurrentGroupChat = chats.firstWhere(
+        (chat) => chat['id'] == widget.chatId,
+        orElse: () => null,
+      );
       return _cachedCurrentGroupChat;
     } catch (e) {
       return null;
@@ -1769,7 +2203,10 @@ extension on _ChatScreenState {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка при отправке стикера: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Ошибка при отправке стикера: $e'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }
@@ -1782,7 +2219,8 @@ extension on _ChatScreenState {
     for (int attempt = 0; attempt < maxRetries; attempt++) {
       try {
         final availableStickerIds = [272821, 295349, 13571];
-        final random = DateTime.now().millisecondsSinceEpoch % availableStickerIds.length;
+        final random =
+            DateTime.now().millisecondsSinceEpoch % availableStickerIds.length;
         final selectedStickerId = availableStickerIds[random];
         final seq = await ApiService.instance.sendRawRequest(28, {
           "type": "STICKER",
@@ -1800,7 +2238,10 @@ extension on _ChatScreenState {
 
         final response = await ApiService.instance.messages
             .firstWhere((msg) => msg['seq'] == seq && msg['opcode'] == 28)
-            .timeout(const Duration(seconds: 5), onTimeout: () => throw TimeoutException('Timeout'));
+            .timeout(
+              const Duration(seconds: 5),
+              onTimeout: () => throw TimeoutException('Timeout'),
+            );
 
         if (response.isEmpty || response['payload'] == null) {
           if (attempt < maxRetries - 1) {
@@ -1828,7 +2269,9 @@ extension on _ChatScreenState {
           }
         }
       } catch (e) {
-        print('[ChatScreen] Ошибка при загрузке стикера для пустого чата (попытка ${attempt + 1}/$maxRetries): $e');
+        print(
+          '[ChatScreen] Ошибка при загрузке стикера для пустого чата (попытка ${attempt + 1}/$maxRetries): $e',
+        );
         if (attempt < maxRetries - 1) {
           await Future.delayed(retryDelay);
         }
@@ -1844,10 +2287,14 @@ extension on _ChatScreenState {
     Message? latestPinned;
     for (int i = _messages.length - 1; i >= 0; i--) {
       final message = _messages[i];
-      final controlAttach = message.attaches.firstWhere((a) => a['_type'] == 'CONTROL', orElse: () => const {});
+      final controlAttach = message.attaches.firstWhere(
+        (a) => a['_type'] == 'CONTROL',
+        orElse: () => const {},
+      );
       if (controlAttach.isNotEmpty && controlAttach['event'] == 'pin') {
         final pinnedMessageData = controlAttach['pinnedMessage'];
-        if (pinnedMessageData != null && pinnedMessageData is Map<String, dynamic>) {
+        if (pinnedMessageData != null &&
+            pinnedMessageData is Map<String, dynamic>) {
           try {
             latestPinned = Message.fromJson(pinnedMessageData);
             break;
@@ -1865,7 +2312,8 @@ extension on _ChatScreenState {
 
   // Chat Items Building
   void _buildChatItems() {
-    if (SchedulerBinding.instance.schedulerPhase == SchedulerPhase.persistentCallbacks) {
+    if (SchedulerBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _buildChatItems();
       });
@@ -1879,7 +2327,9 @@ extension on _ChatScreenState {
       final currentMessage = source[i];
       final previousMessage = (i > 0) ? source[i - 1] : null;
 
-      final currentDate = DateTime.fromMillisecondsSinceEpoch(currentMessage.time).toLocal();
+      final currentDate = DateTime.fromMillisecondsSinceEpoch(
+        currentMessage.time,
+      ).toLocal();
       final previousDate = previousMessage != null
           ? DateTime.fromMillisecondsSinceEpoch(previousMessage.time).toLocal()
           : null;
@@ -1889,20 +2339,35 @@ extension on _ChatScreenState {
       }
 
       final isGrouped = _isMessageGrouped(currentMessage, previousMessage);
-      final isFirstInGroup = previousMessage == null || !_isMessageGrouped(currentMessage, previousMessage);
-      final isLastInGroup = i == source.length - 1 || !_isMessageGrouped(source[i + 1], currentMessage);
+      final isFirstInGroup =
+          previousMessage == null ||
+          !_isMessageGrouped(currentMessage, previousMessage);
+      final isLastInGroup =
+          i == source.length - 1 ||
+          !_isMessageGrouped(source[i + 1], currentMessage);
 
-      items.add(MessageItem(currentMessage, isFirstInGroup: isFirstInGroup, isLastInGroup: isLastInGroup, isGrouped: isGrouped));
+      items.add(
+        MessageItem(
+          currentMessage,
+          isFirstInGroup: isFirstInGroup,
+          isLastInGroup: isLastInGroup,
+          isGrouped: isGrouped,
+        ),
+      );
     }
     _chatItems = items;
 
     if (_isVoiceUploading || _isVoiceUploadFailed) {
-      _chatItems.add(VoicePreviewItem(
-        isUploading: _isVoiceUploading,
-        progress: _voiceUploadProgress,
-        isFailed: _isVoiceUploadFailed,
-        onRetry: _isVoiceUploadFailed && _cachedVoicePath != null ? () => _retrySendVoiceMessage() : null,
-      ));
+      _chatItems.add(
+        VoicePreviewItem(
+          isUploading: _isVoiceUploading,
+          progress: _voiceUploadProgress,
+          isFailed: _isVoiceUploadFailed,
+          onRetry: _isVoiceUploadFailed && _cachedVoicePath != null
+              ? () => _retrySendVoiceMessage()
+              : null,
+        ),
+      );
     }
   }
 
@@ -1916,8 +2381,8 @@ extension on _ChatScreenState {
 
   // ignore: unused_element
   Future<void> _handleTextChangedForKometColor() async {
-    final prefs = await SharedPreferences.getInstance();
-    final autoCompleteEnabled = prefs.getBool('komet_auto_complete_enabled') ?? false;
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    final autoCompleteEnabled = themeProvider.kometAutoCompleteEnabled;
 
     if (!autoCompleteEnabled) {
       if (_showKometColorPicker) {
@@ -1931,6 +2396,8 @@ extension on _ChatScreenState {
 
     final text = _textController.text;
     final cursorPos = _textController.selection.baseOffset;
+    if (cursorPos == -1) return;
+
     const prefix1 = 'komet.color_#';
     const prefix2 = 'komet.cosmetic.pulse#';
 
@@ -1938,39 +2405,28 @@ extension on _ChatScreenState {
     int? prefixStartPos;
 
     for (final prefix in [prefix1, prefix2]) {
-      int searchStart = 0;
-      int lastFound = -1;
-      while (true) {
-        final found = text.indexOf(prefix, searchStart);
-        if (found == -1 || found > cursorPos) break;
-        if (found + prefix.length <= cursorPos) lastFound = found;
-        searchStart = found + 1;
-      }
-
+      int lastFound = text.lastIndexOf(prefix, cursorPos);
       if (lastFound != -1) {
-        final afterPrefix = text.substring(lastFound + prefix.length, cursorPos);
-        if (afterPrefix.isEmpty || afterPrefix.trim().isEmpty) {
-          final afterCursor = cursorPos < text.length ? text.substring(cursorPos) : '';
-          if (afterCursor.length < 7 || !RegExp(r"^[0-9A-Fa-f]{6}'").hasMatch(afterCursor)) {
-            detectedPrefix = prefix;
-            prefixStartPos = lastFound;
-            break;
-          }
+        // Check if cursor is within 7 chars after prefix (e.g. #FFFFFF')
+        final indexInHex = cursorPos - (lastFound + prefix.length);
+
+        if (indexInHex >= 0 && indexInHex <= 7) {
+          detectedPrefix = prefix;
+          prefixStartPos = lastFound;
+          break;
         }
       }
     }
 
     if (detectedPrefix != null && prefixStartPos != null) {
-      final after = text.substring(prefixStartPos + detectedPrefix.length, cursorPos);
-      if (after.isEmpty || after.trim().isEmpty) {
-        if (!_showKometColorPicker || _currentKometColorPrefix != detectedPrefix) {
-          _setStateIfMounted(() {
-            _showKometColorPicker = true;
-            _currentKometColorPrefix = detectedPrefix;
-          });
-        }
-        return;
+      if (!_showKometColorPicker ||
+          _currentKometColorPrefix != detectedPrefix) {
+        _setStateIfMounted(() {
+          _showKometColorPicker = true;
+          _currentKometColorPrefix = detectedPrefix;
+        });
       }
+      return;
     }
 
     if (_showKometColorPicker) {
@@ -2062,10 +2518,16 @@ Future<void> openUserProfileById(BuildContext context, int userId) async {
           },
           transitionsBuilder: (context, animation, secondaryAnimation, child) {
             return FadeTransition(
-              opacity: CurvedAnimation(parent: animation, curve: Curves.easeInOutCubic),
+              opacity: CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeInOutCubic,
+              ),
               child: ScaleTransition(
                 scale: Tween<double>(begin: 0.95, end: 1.0).animate(
-                  CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+                  CurvedAnimation(
+                    parent: animation,
+                    curve: Curves.easeOutCubic,
+                  ),
                 ),
                 child: child,
               ),
@@ -2081,9 +2543,13 @@ Future<void> openUserProfileById(BuildContext context, int userId) async {
       builder: (context) => AlertDialog(
         title: const Text('Ошибка'),
         content: Text('Не удалось загрузить информацию о пользователе $userId'),
-        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('OK'),
+          ),
+        ],
       ),
     );
   }
-
 }

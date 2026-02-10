@@ -3,6 +3,7 @@ import 'dart:math';
 import 'dart:ui';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -26,6 +27,7 @@ import 'package:gwid/services/contact_local_names_service.dart';
 import 'package:gwid/services/notification_service.dart';
 import 'package:gwid/services/message_queue_service.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
+import 'package:gwid/widgets/message_bubble/models/message_read_status.dart';
 
 import 'package:gwid/screens/group_settings_screen.dart';
 
@@ -70,264 +72,12 @@ class NewLineIntent extends Intent {
 
 class ChatDebugSettings {
   static bool showExactDate = false;
-  
+
   static void toggleShowExactDate() {
     showExactDate = !showExactDate;
   }
 }
-
-// Sticker panel widget - referenced by chat_screen_widgets.dart part
-class _StickerPanel extends StatelessWidget {
-  final bool isLoading;
-  final Object? error;
-  final List<Map<String, dynamic>> stickerSets;
-  final Map<int, Map<String, dynamic>> stickersById;
-  final int? selectedSetId;
-  final ValueChanged<int> onSetSelected;
-
-  const _StickerPanel({
-    required this.isLoading,
-    required this.error,
-    required this.stickerSets,
-    required this.stickersById,
-    required this.selectedSetId,
-    required this.onSetSelected,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-
-    final effectiveSelectedSetId =
-        selectedSetId ??
-        ((stickerSets.isNotEmpty && stickerSets.first['id'] is num)
-            ? (stickerSets.first['id'] as num).toInt()
-            : null);
-
-    final Map<String, dynamic>? selectedSet = effectiveSelectedSetId == null
-        ? null
-        : stickerSets.firstWhere(
-            (s) =>
-                (s['id'] is num) &&
-                (s['id'] as num).toInt() == effectiveSelectedSetId,
-            orElse: () => <String, dynamic>{},
-          );
-
-    final selectedStickerIds = (selectedSet != null && selectedSet.isNotEmpty)
-        ? (selectedSet['stickers'] as List?)
-                  ?.whereType<num>()
-                  .map((e) => e.toInt())
-                  .toList() ??
-              const <int>[]
-        : const <int>[];
-
-    return SizedBox(
-      width: 320,
-      height: 450,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: colors.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: colors.outlineVariant),
-          boxShadow: [
-            BoxShadow(
-              color: colors.shadow.withAlpha(40),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(
-                height: 72,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 10,
-                  ),
-                  child: _buildSetsRow(context, colors, effectiveSelectedSetId),
-                ),
-              ),
-              Divider(
-                height: 1,
-                color: colors.outlineVariant.withValues(alpha: 0.6),
-              ),
-              Expanded(child: _buildBody(context, colors, selectedStickerIds)),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSetsRow(
-    BuildContext context,
-    ColorScheme colors,
-    int? effectiveSelectedSetId,
-  ) {
-    if (isLoading && stickerSets.isEmpty) {
-      return Center(
-        child: SizedBox(
-          width: 18,
-          height: 18,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            color: colors.primary,
-          ),
-        ),
-      );
-    }
-
-    if (stickerSets.isEmpty) {
-      return Center(
-        child: Text(
-          error != null ? 'Ошибка загрузки' : 'Нет стикеров',
-          style: TextStyle(color: colors.onSurfaceVariant, fontSize: 13),
-        ),
-      );
-    }
-
-    return ListView.separated(
-      scrollDirection: Axis.horizontal,
-      itemCount: stickerSets.length,
-      separatorBuilder: (_, __) => const SizedBox(width: 8),
-      itemBuilder: (context, index) {
-        final set = stickerSets[index];
-        final id = (set['id'] is num) ? (set['id'] as num).toInt() : null;
-        final iconUrl = set['iconUrl']?.toString();
-
-        final isSelected = id != null && id == effectiveSelectedSetId;
-        return Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(14),
-            onTap: id == null ? null : () => onSetSelected(id),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 150),
-              width: 52,
-              height: 52,
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: isSelected
-                    ? colors.primary.withValues(alpha: 0.12)
-                    : colors.surfaceContainerHighest.withValues(alpha: 0.25),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: isSelected ? colors.primary : colors.outlineVariant,
-                  width: 1,
-                ),
-              ),
-              child: iconUrl != null && iconUrl.isNotEmpty
-                  ? ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: Image.network(
-                        iconUrl,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) {
-                          return Icon(
-                            Icons.sticky_note_2_outlined,
-                            color: colors.onSurfaceVariant,
-                          );
-                        },
-                      ),
-                    )
-                  : Icon(
-                      Icons.sticky_note_2_outlined,
-                      color: colors.onSurfaceVariant,
-                    ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildBody(
-    BuildContext context,
-    ColorScheme colors,
-    List<int> selectedStickerIds,
-  ) {
-    if (isLoading && stickersById.isEmpty) {
-      return Center(
-        child: SizedBox(
-          width: 18,
-          height: 18,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            color: colors.primary,
-          ),
-        ),
-      );
-    }
-
-    if (error != null && stickerSets.isEmpty) {
-      return Center(
-        child: Text(
-          'Ошибка загрузки: ${error.toString()}',
-          style: TextStyle(color: colors.onSurfaceVariant, fontSize: 13),
-          maxLines: 3,
-          overflow: TextOverflow.ellipsis,
-        ),
-      );
-    }
-
-    if (selectedStickerIds.isEmpty) {
-      return Center(
-        child: Text(
-          'Пустой набор',
-          style: TextStyle(color: colors.onSurfaceVariant, fontSize: 13),
-        ),
-      );
-    }
-
-    return GridView.builder(
-      padding: const EdgeInsets.all(10),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 4,
-        mainAxisSpacing: 8,
-        crossAxisSpacing: 8,
-      ),
-      itemCount: selectedStickerIds.length,
-      itemBuilder: (context, index) {
-        final id = selectedStickerIds[index];
-        final sticker = stickersById[id];
-        final url = sticker?['url']?.toString();
-
-        return DecoratedBox(
-          decoration: BoxDecoration(
-            color: colors.surfaceContainerHighest.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: colors.outlineVariant.withValues(alpha: 0.6),
-            ),
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: url != null && url.isNotEmpty
-                ? Image.network(
-                    url,
-                    fit: BoxFit.contain,
-                    errorBuilder: (_, __, ___) {
-                      return Icon(
-                        Icons.sticky_note_2_outlined,
-                        color: colors.onSurfaceVariant,
-                      );
-                    },
-                  )
-                : Icon(
-                    Icons.sticky_note_2_outlined,
-                    color: colors.onSurfaceVariant,
-                  ),
-          ),
-        );
-      },
-    );
-  }
-}
+// End of helper classes
 
 class ChatScreen extends StatefulWidget {
   final int chatId;
@@ -432,7 +182,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   final FormattedTextController _textController = FormattedTextController();
   final FocusNode _textFocusNode = FocusNode();
   final ItemScrollController _itemScrollController = ItemScrollController();
-  final ItemPositionsListener _itemPositionsListener = ItemPositionsListener.create();
+  final ItemPositionsListener _itemPositionsListener =
+      ItemPositionsListener.create();
   final ValueNotifier<bool> _showScrollToBottomNotifier = ValueNotifier(false);
   final ValueNotifier<Message?> _pinnedMessageNotifier = ValueNotifier(null);
   final TextEditingController _searchController = TextEditingController();
@@ -452,7 +203,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   int? _actualMyId;
   int? _oldestLoadedTime;
   int _maxViewedIndex = 0;
-  
+
   // Queue for messages received during history loading
   final List<Message> _pendingMessagesDuringLoad = [];
   int _lastLoadedAtViewedIndex = 0;
@@ -481,6 +232,11 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   // UI States
   Timer? _selectionCheckTimer;
   bool _showKometColorPicker = false;
+  OverlayEntry? _sparkleMenuOverlay;
+  final GlobalKey _sparkleButtonKey = GlobalKey();
+  final LayerLink _sparkleLayerLink = LayerLink();
+
+  String? _highlightedMessageId;
   String? _currentKometColorPrefix;
   bool _isSearching = false;
   List<Message> _searchResults = [];
@@ -492,7 +248,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   // Input field key and height notifier
   final GlobalKey _inputKey = GlobalKey();
-  final ValueNotifier<double> _inputHeightNotifier = ValueNotifier<double>(56.0);
+  final ValueNotifier<double> _inputHeightNotifier = ValueNotifier<double>(
+    56.0,
+  );
 
   // Scroll states
   bool _isUserAtBottom = true;
@@ -539,8 +297,9 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   bool get _optimize => context.read<ThemeProvider>().optimizeChats;
   bool get _ultraOptimize => context.read<ThemeProvider>().ultraOptimizeChats;
   bool get _anyOptimize => _optimize || _ultraOptimize;
-  int get _optPage =>
-      _ultraOptimize ? AppLimits.historyLoadBatch : (_optimize ? 50 : _pageSize);
+  int get _optPage => _ultraOptimize
+      ? AppLimits.historyLoadBatch
+      : (_optimize ? 50 : _pageSize);
 
   @override
   void initState() {
@@ -600,6 +359,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   // Text controller change handler
   void _onTextControllerChanged() {
     _handleChatInputChanged(_textController.text);
+    _handleTextChangedForKometColor();
   }
 
   void _onTextFocusChanged() {
@@ -650,29 +410,23 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: _buildAppBar(),
-      body: _buildBody(),
-    );
+    return Scaffold(appBar: _buildAppBar(), body: _buildBody());
   }
 
   // Helper method to show error snackbar
   void _showErrorSnackBar(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-      ),
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
     );
   }
 
   // Helper method to show info snackbar
   void _showInfoSnackBar(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   // Placeholder methods that will be implemented in part files
