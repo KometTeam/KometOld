@@ -4654,22 +4654,19 @@ class _ChatsScreenState extends State<ChatsScreen>
       key: ValueKey(chat.id),
       onTap: () {
         print('🔘 onTap вызван для чата: ${chat.id}');
-        final theme = context.read<ThemeProvider>();
-        if (theme.debugReadOnEnter) {
-          final chatIndex = _allChats.indexWhere((c) => c.id == chat.id);
-          if (chatIndex != -1) {
-            final oldChat = _allChats[chatIndex];
-            if (oldChat.newMessages > 0) {
-              final updatedChat = oldChat.copyWith(newMessages: 0);
-              SchedulerBinding.instance.addPostFrameCallback((_) {
-                if (mounted) {
-                  setState(() {
-                    _allChats[chatIndex] = updatedChat;
-                    _filterChats();
-                  });
-                }
-              });
-            }
+        final chatIndex = _allChats.indexWhere((c) => c.id == chat.id);
+        if (chatIndex != -1) {
+          final oldChat = _allChats[chatIndex];
+          if (oldChat.newMessages > 0) {
+            final updatedChat = oldChat.copyWith(newMessages: 0);
+            SchedulerBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                setState(() {
+                  _allChats[chatIndex] = updatedChat;
+                  _filterChats();
+                });
+              }
+            });
           }
         }
 

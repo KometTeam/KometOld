@@ -459,8 +459,13 @@ extension on _ChatScreenState {
           final newCount = message['newCount'] as int? ?? 0;
           if (messages != null && newCount > 0) {
             print('📥 Фоновая загрузка: получено $newCount новых сообщений');
-            _messages.clear();
-            _messages.addAll(_hydrateLinksSequentially(messages));
+            const int preloadedMessagesLimit = _ChatScreenState._historyLoadBatch;
+            final hydratedMessages = _hydrateLinksSequentially(messages);
+            _messages
+              ..clear()
+              ..addAll(hydratedMessages);
+            _oldestLoadedTime = _messages.isNotEmpty ? _messages.first.time : null;
+            _hasMore = _messages.length >= preloadedMessagesLimit;
             _buildChatItems();
             _setStateIfMounted(() {});
           }
@@ -627,6 +632,8 @@ extension on _ChatScreenState {
     _setStateIfMounted(() => _isLoadingHistory = true);
     _maxViewedIndex = 0;
     _lastLoadedAtViewedIndex = 0;
+    const int initialLimit = _ChatScreenState._historyLoadBatch;
+    const int initialMaxMessages = _ChatScreenState._historyLoadBatch;
 
     final loadChatQueueItem = QueueItem(
       id: 'load_chat_${widget.chatId}',
@@ -636,7 +643,7 @@ extension on _ChatScreenState {
         "chatId": widget.chatId,
         "from": DateTime.now().add(const Duration(days: 1)).millisecondsSinceEpoch,
         "forward": 0,
-        "backward": 10, // Начинаем с 10 сообщений для быстрой загрузки
+        "backward": initialLimit,
         "getMessages": true,
       },
       createdAt: DateTime.now(),
@@ -672,15 +679,14 @@ extension on _ChatScreenState {
 
     List<Message> allMessages = [];
     try {
-      // Используем инкрементальную загрузку: сначала 4 сообщения для быстрого показа,
-      // затем в фоне подгружаются остальные до 30
+      // Загружаем стартовый батч истории и при необходимости догружаем дальше.
       allMessages = await ApiService.instance.getMessageHistory(
         widget.chatId,
         force: true,
-        initialLimit: 10,     // Первые 10 сообщения - моментально
-        maxMessages: 30,      // Всего загружаем до 30
+        initialLimit: initialLimit,
+        maxMessages: initialMaxMessages,
         onInitialLoaded: (initial) {
-          // Вызывается когда загружены первые 4 сообщения
+          // Вызывается когда загружена первая партия истории
           if (!mounted) return;
           print('⚡ Быстрая загрузка: ${initial.length} сообщений показаны моментально');
           
@@ -689,7 +695,7 @@ extension on _ChatScreenState {
             _messages.clear();
             _messages.addAll(_hydrateLinksSequentially(initial));
             if (_messages.isNotEmpty) _oldestLoadedTime = _messages.first.time;
-            _hasMore = initial.length >= 4;
+            _hasMore = initial.length >= initialLimit;
             
             _buildChatItems();
             _messagesToAnimate.clear();
@@ -711,7 +717,7 @@ extension on _ChatScreenState {
           _messages.clear();
           _messages.addAll(_hydrateLinksSequentially(all));
           if (_messages.isNotEmpty) _oldestLoadedTime = _messages.first.time;
-          _hasMore = true;
+          _hasMore = all.length >= initialMaxMessages;
           
           _buildChatItems();
           
@@ -814,12 +820,17 @@ extension on _ChatScreenState {
 
       if (widget.isGroupChat) await _loadGroupParticipants();
 
-      final page = _anyOptimize ? _optPage : _ChatScreenState._pageSize;
+      final int page;
+      if (_anyOptimize) {
+        page = _optPage < initialLimit ? initialLimit : _optPage;
+      } else {
+        page = _ChatScreenState._pageSize;
+      }
       final slice = mergedMessages.length > page ? mergedMessages.sublist(mergedMessages.length - page) : mergedMessages;
       final bool hasAnyMessages = mergedMessages.isNotEmpty;
-      final bool serverHasMore = allMessages.length >= 30;
+      final bool serverHasMore = allMessages.length >= initialMaxMessages;
       final bool nextHasMore = hasServerData
-          ? serverHasMore || mergedMessages.length > slice.length
+          ? (_hasMore || serverHasMore || mergedMessages.length > slice.length)
           : (_hasMore && hasAnyMessages);
 
       // Сначала обновляем _messages, затем строим элементы чата
@@ -900,27 +911,46 @@ extension on _ChatScreenState {
     }
 
     _isLoadingMore = true;
+    const int loadMoreBatchSize = _ChatScreenState._historyLoadBatch;
+    // Не уменьшаем timestamp на 1: иначе можно пропустить сообщения
+    // с тем же временем, что и текущая верхняя граница.
+    final int requestFromTimestamp = _oldestLoadedTime!;
+    bool shouldRebuild = false;
+    bool shouldUpdatePinned = false;
     try {
       final olderMessages = await ApiService.instance.loadOlderMessagesByTimestamp(
         widget.chatId,
-        _oldestLoadedTime!,
-        backward: 30,
+        requestFromTimestamp,
+        backward: loadMoreBatchSize,
       );
 
       if (!mounted) return;
       if (olderMessages.isEmpty) {
         _hasMore = false;
-        _isLoadingMore = false;
-        _setStateIfMounted(() {});
+        shouldRebuild = true;
         return;
       }
 
       final existingMessageIds = _messages.map((m) => m.id).toSet();
-      final newMessages = olderMessages.where((m) => !existingMessageIds.contains(m.id)).toList();
+      final existingMessageCids = _messages
+          .where((m) => m.cid != null)
+          .map((m) => m.cid!)
+          .toSet();
+      final newMessages = olderMessages
+          .where((m) =>
+              !existingMessageIds.contains(m.id) &&
+              (m.cid == null || !existingMessageCids.contains(m.cid)))
+          .toList();
       if (newMessages.isEmpty) {
-        _hasMore = false;
-        _isLoadingMore = false;
-        _setStateIfMounted(() {});
+        final oldestResponseTime = olderMessages.first.time;
+        final madeProgress = oldestResponseTime < _oldestLoadedTime!;
+        if (madeProgress) {
+          _oldestLoadedTime = oldestResponseTime;
+          _hasMore = olderMessages.length >= loadMoreBatchSize;
+        } else {
+          _hasMore = false;
+        }
+        shouldRebuild = true;
         return;
       }
 
@@ -928,27 +958,21 @@ extension on _ChatScreenState {
       final oldItemsCount = _chatItems.length;
       _messages.insertAll(0, hydratedOlder);
       _oldestLoadedTime = _messages.first.time;
-      _hasMore = olderMessages.length >= 30;
+      _hasMore = olderMessages.length >= loadMoreBatchSize;
       _buildChatItems();
       final addedItemsCount = _chatItems.length - oldItemsCount;
       _lastLoadedAtViewedIndex = _maxViewedIndex + addedItemsCount;
-      _isLoadingMore = false;
-
-      if (mounted) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _setStateIfMounted(() {});
-          });
-        });
-      }
-      _updatePinnedMessage();
+      shouldRebuild = true;
+      shouldUpdatePinned = true;
     } catch (e) {
       print('[ChatScreen] Ошибка при загрузке старых сообщений: $e');
-      if (mounted) {
-        _isLoadingMore = false;
-        _hasMore = false;
+    } finally {
+      _isLoadingMore = false;
+      if (mounted && shouldRebuild) {
         _setStateIfMounted(() {});
+      }
+      if (mounted && shouldUpdatePinned) {
+        _updatePinnedMessage();
       }
     }
   }
@@ -1533,8 +1557,11 @@ extension on _ChatScreenState {
         _botCommands = const [];
       });
     } finally {
-      if (!mounted || _currentContact.id != botId) return;
-      _setStateIfMounted(() => _isLoadingBotCommands = false);
+      if (mounted && _currentContact.id == botId) {
+        _setStateIfMounted(() => _isLoadingBotCommands = false);
+      } else {
+        _isLoadingBotCommands = false;
+      }
     }
   }
 

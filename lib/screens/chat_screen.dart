@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:gwid/consts.dart';
 import 'package:gwid/utils/theme_provider.dart';
 import 'package:gwid/theme/theme_enums.dart';
 
@@ -448,8 +449,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   // API & Connection
   StreamSubscription? _apiSubscription;
-  StreamSubscription<String>? _connectionStatusSub;
-  String _connectionStatus = 'connecting';
   int? _actualMyId;
   int? _oldestLoadedTime;
   int _maxViewedIndex = 0;
@@ -458,6 +457,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   final List<Message> _pendingMessagesDuringLoad = [];
   int _lastLoadedAtViewedIndex = 0;
   static const int _pageSize = 50;
+  static const int _historyLoadBatch = AppLimits.historyLoadBatch;
   static const int _loadMoreThreshold = 20;
 
   // Mentions & Commands
@@ -539,12 +539,14 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   bool get _optimize => context.read<ThemeProvider>().optimizeChats;
   bool get _ultraOptimize => context.read<ThemeProvider>().ultraOptimizeChats;
   bool get _anyOptimize => _optimize || _ultraOptimize;
-  int get _optPage => _ultraOptimize ? 10 : (_optimize ? 50 : _pageSize);
+  int get _optPage =>
+      _ultraOptimize ? AppLimits.historyLoadBatch : (_optimize ? 50 : _pageSize);
 
   @override
   void initState() {
     super.initState();
-    print('🔘 ChatScreen.initState: chatId=${widget.chatId}');
+    // Set active chat as early as possible to keep notifications/unread in sync.
+    ApiService.instance.currentActiveChatId = widget.chatId;
     _currentContact = widget.contact;
     _pinnedMessage = widget.pinnedMessage;
     _pinnedMessageNotifier.value = widget.pinnedMessage;
@@ -558,32 +560,20 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       duration: const Duration(milliseconds: 200),
     );
 
-    print('🔘 initState: scheduling _init() via addPostFrameCallback');
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      print('🔘 PostFrameCallback: вызываем _init()');
       _init();
     });
   }
 
   // Initialize method referenced in initState
   Future<void> _init() async {
-    print('🔘 _init: начало для chatId=${widget.chatId}');
-    print('🔘 _init: this.runtimeType = ${this.runtimeType}');
-    
-    print('🔘 _init: ПРЯМО ПЕРЕД вызовом _initializeChat');
-    final stopwatch = Stopwatch()..start();
     try {
-      print('🔘 _init: вызываю await _initializeChat()');
       await _initializeChat();
-      stopwatch.stop();
-      print('🔘 _init: _initializeChat завершился за ${stopwatch.elapsedMilliseconds}ms');
     } catch (e, st) {
-      stopwatch.stop();
-      print('🔘 _init: ОШИБКА в _initializeChat после ${stopwatch.elapsedMilliseconds}ms: $e');
+      print('[ChatScreen] Ошибка инициализации чата ${widget.chatId}: $e');
       print(st);
     }
-    
-    print('🔘 _init: вызываем _loadEncryptionConfig...');
+
     _loadEncryptionConfig();
 
     // Initial height calculation for drafts
@@ -599,79 +589,33 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       }
     });
 
-    ApiService.instance.currentActiveChatId = widget.chatId;
     NotificationService().clearNotificationMessagesForChat(widget.chatId);
 
     _textController.addListener(_onTextControllerChanged);
+    _textFocusNode.addListener(_onTextFocusChanged);
+
+    unawaited(_loadInputState());
   }
 
   // Text controller change handler
   void _onTextControllerChanged() {
     _handleChatInputChanged(_textController.text);
-
-    _textFocusNode.addListener(() {
-      if (_textFocusNode.hasFocus) {
-        _startSelectionCheck();
-      } else {
-        _stopSelectionCheck();
-        if (!mounted) return;
-        _saveInputState();
-
-        if (_showMentionDropdown) {
-          setState(() {
-            _showMentionDropdown = false;
-          });
-        }
-      }
-    });
-
-    _itemPositionsListener.itemPositions.addListener(_onScrollUpdate);
-
-    _connectionStatus = ApiService.instance.isOnline &&
-            ApiService.instance.isSessionReady &&
-            ApiService.instance.isActuallyConnected
-        ? 'connected'
-        : 'connecting';
-
-    _connectionStatusSub = ApiService.instance.connectionStatus.listen((status) {
-      if (!mounted) return;
-      setState(() {
-        _connectionStatus = status;
-      });
-    });
-
-    _loadInputState();
   }
 
-  // Handle scroll update
-  void _onScrollUpdate() {
-    final positions = _itemPositionsListener.itemPositions.value;
-    if (positions.isNotEmpty) {
-      final bottomItemPosition = positions.firstWhere(
-            (p) => p.index == 0,
-        orElse: () => positions.first,
-      );
+  void _onTextFocusChanged() {
+    if (_textFocusNode.hasFocus) {
+      _startSelectionCheck();
+      return;
+    }
 
-      final isBottomItemVisible = bottomItemPosition.index == 0;
-      final isAtBottom =
-          isBottomItemVisible && bottomItemPosition.itemLeadingEdge <= 0.25;
+    _stopSelectionCheck();
+    if (!mounted) return;
+    _saveInputState();
 
-      if (_isUserAtBottom != isAtBottom && mounted) {
-        setState(() {
-          _isUserAtBottom = isAtBottom;
-          _showScrollToBottomNotifier.value = !isAtBottom;
-        });
-      }
-
-      final maxVisibleIndex = positions.map((p) => p.index).reduce((a, b) => a > b ? a : b);
-      if (maxVisibleIndex > _maxViewedIndex) {
-        _maxViewedIndex = maxVisibleIndex;
-      }
-
-      final shouldLoadMore = positions.any((p) => p.index >= _chatItems.length - _loadMoreThreshold);
-      if (shouldLoadMore && !_isLoadingMore && _hasMore) {
-        _loadMore();
-      }
+    if (_showMentionDropdown) {
+      setState(() {
+        _showMentionDropdown = false;
+      });
     }
   }
 
@@ -681,10 +625,11 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   void dispose() {
     _isDisposed = true;
     _apiSubscription?.cancel();
-    _connectionStatusSub?.cancel();
     _typingTimer?.cancel();
     _voiceRecordingTimer?.cancel();
     _selectionCheckTimer?.cancel();
+    _textController.removeListener(_onTextControllerChanged);
+    _textFocusNode.removeListener(_onTextFocusChanged);
     _textController.dispose();
     _textFocusNode.dispose();
     _searchController.dispose();
@@ -697,13 +642,14 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     _audioRecorder.dispose();
     _pendingMessagesDuringLoad.clear();
 
-    ApiService.instance.currentActiveChatId = null;
+    if (ApiService.instance.currentActiveChatId == widget.chatId) {
+      ApiService.instance.currentActiveChatId = null;
+    }
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    print('🔘 ChatScreen.build: chatId=${widget.chatId}');
     return Scaffold(
       appBar: _buildAppBar(),
       body: _buildBody(),

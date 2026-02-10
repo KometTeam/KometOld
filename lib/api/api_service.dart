@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:gwid/consts.dart';
 import 'package:gwid/connection/connection_logger.dart';
 import 'package:gwid/connection/connection_state.dart' as conn_state;
 import 'package:gwid/connection/health_monitor.dart';
@@ -96,6 +97,7 @@ class ApiService {
 
   DynamicLibrary? _lz4Lib;
   Lz4Decompress? _lz4BlockDecompress;
+  bool _lz4InitAttempted = false;
 
   final StreamController<Contact> _contactUpdatesController =
   StreamController<Contact>.broadcast();
@@ -192,6 +194,7 @@ class ApiService {
   }
 
   Completer<Map<String, dynamic>>? _inflightChatsCompleter;
+  Completer<Map<String, dynamic>>? _authBootstrapCompleter;
   Map<String, dynamic>? _lastChatsPayload;
   DateTime? _lastChatsAt;
   final Duration _chatsCacheTtl = const Duration(seconds: 5);
@@ -471,32 +474,37 @@ class ApiService {
   }
 
   void _initLz4BlockDecompress() {
-    if (_lz4BlockDecompress != null) return;
+    if (_lz4BlockDecompress != null || _lz4InitAttempted) return;
+    _lz4InitAttempted = true;
 
     try {
-      if (Platform.isWindows) {
-        final dllPath = 'eslz4-win64.dll';
-        _lz4Lib = DynamicLibrary.open(dllPath);
+      if (!Platform.isWindows) return;
+
+      const dllPath = 'eslz4-win64.dll';
+      _lz4Lib = DynamicLibrary.open(dllPath);
+      try {
+        _lz4BlockDecompress = _lz4Lib!
+            .lookup<NativeFunction<Lz4DecompressFunction>>(
+          'LZ4_decompress_safe',
+        )
+            .asFunction();
+      } catch (_) {
         try {
           _lz4BlockDecompress = _lz4Lib!
               .lookup<NativeFunction<Lz4DecompressFunction>>(
-            'LZ4_decompress_safe',
+            'LZ4_decompress_fast',
           )
               .asFunction();
         } catch (e) {
-          try {
-            _lz4BlockDecompress = _lz4Lib!
-                .lookup<NativeFunction<Lz4DecompressFunction>>(
-              'LZ4_decompress_fast',
-            )
-                .asFunction();
-          } catch (e2) {
-            print('⚠️ Ошибка инициализации LZ4 fallback: $e2');
-          }
+          print(
+            'LZ4 DLL loaded, but no supported decompress symbol found. '
+            'Using Dart fallback: $e',
+          );
         }
       }
     } catch (e) {
-      print('⚠️ Ошибка инициализации LZ4: $e');
+      // Optional optimization only; message decoding continues via Dart fallback.
+      print('LZ4 DLL unavailable, using Dart fallback: $e');
     }
   }
 

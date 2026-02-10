@@ -77,7 +77,7 @@ class PendingRequestsManager {
     if (request == null) return false;
 
     if (!request.completer.isCompleted) {
-      request.completer.completeError(error, stackTrace);
+      _completeErrorSafely(request.completer, error, stackTrace);
       return true;
     }
     return false;
@@ -101,7 +101,8 @@ class PendingRequestsManager {
 
     for (final request in requests) {
       if (!request.completer.isCompleted) {
-        request.completer.completeError(
+        _completeErrorSafely(
+          request.completer,
           StateError('Запрос отменен: $reason'),
         );
       }
@@ -123,7 +124,8 @@ class PendingRequestsManager {
       final request = _pending.remove(seq);
       if (request != null && !request.completer.isCompleted) {
         onTimeout?.call(seq, request.debugLabel);
-        request.completer.completeError(
+        _completeErrorSafely(
+          request.completer,
           TimeoutException(
             'Запрос seq=$seq превысил таймаут ${requestTimeout.inSeconds}с',
             requestTimeout,
@@ -142,6 +144,18 @@ class PendingRequestsManager {
       const Duration(seconds: 10),
           (_) => cleanupTimedOut(),
     );
+  }
+
+  void _completeErrorSafely(
+    Completer<dynamic> completer,
+    Object error, [
+    StackTrace? stackTrace,
+  ]) {
+    if (completer.isCompleted) return;
+
+    // Prevent uncaught async errors for requests where future is ignored.
+    completer.future.catchError((_) {});
+    completer.completeError(error, stackTrace);
   }
 
   /// Останавливает таймер очистки

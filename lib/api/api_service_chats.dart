@@ -13,147 +13,8 @@ extension ApiServiceChats on ApiService {
     }
 
     try {
-      await _ensureCacheServicesInitialized();
-
-      final prefs = await SharedPreferences.getInstance();
-      final deviceId =
-          prefs.getString('spoof_deviceid') ?? generateRandomDeviceId();
-
-      if (prefs.getString('spoof_deviceid') == null) {
-        await prefs.setString('spoof_deviceid', deviceId);
-      }
-
-      final userAgentPayload = await _buildUserAgentPayload();
-
-      final payload = {
-        "chatsCount": 100,
-        "chatsSync": 0,
-        "contactsSync": 0,
-        "draftsSync": 0,
-        "interactive": true,
-        "presenceSync": 0,
-        "token": authToken,
-        "configHash":
-            "00000000-0000000000000000-00000000-0000000000000000-0000000000000000-0-0000000000000000-00000000",
-        "userAgent": userAgentPayload,
-      };
-
-      if (userId != null) {
-        payload["userId"] = userId;
-      }
-
-      print("Автоматически отправляем opcode 19 для авторизации...");
-      final chatResponse = await sendRequest(19, payload);
-
-      if (chatResponse['cmd'] == 0x100 || chatResponse['cmd'] == 256) {
-        print("✅ Авторизация (opcode 19) успешна. Сессия ГОТОВА.");
-
-        _isSessionReady = true;
-        _processMessageQueue();
-
-        _connectionStatusController.add("ready");
-        _updateConnectionState(
-          conn_state.ConnectionState.ready,
-          message: 'Авторизация успешна',
-        );
-
-        final profile = chatResponse['payload']?['profile'];
-        final contactProfile = profile?['contact'];
-
-        if (contactProfile != null && contactProfile['id'] != null) {
-          print(
-            "[_sendAuthRequestAfterHandshake] ✅ Профиль и ID пользователя найдены. ID: ${contactProfile['id']}. ЗАПУСКАЕМ АНАЛИТИКУ.",
-          );
-          _userId = contactProfile['id'];
-          if (!FreshModeHelper.shouldSkipSave()) {
-            await prefs.setString('userId', _userId.toString());
-          }
-          _sessionId = DateTime.now().millisecondsSinceEpoch;
-          _lastActionTime = _sessionId;
-
-          sendNavEvent('COLD_START');
-
-          ApiService.instance._startAnalyticsTimer();
-
-          _sendInitialSetupRequests();
-          print(chatResponse['payload']?['config']);
-        }
-
-        if (profile != null && authToken != null) {
-          try {
-            final accountManager = AccountManager();
-            await accountManager.initialize();
-            final currentAccount = accountManager.currentAccount;
-            if (currentAccount != null && currentAccount.token == authToken) {
-              final profileMap = profile is Map<String, dynamic>
-                  ? profile
-                  : Map<String, dynamic>.from(profile as Map);
-              final profileObj = Profile.fromJson(profileMap);
-              await accountManager.updateAccountProfile(
-                currentAccount.id,
-                profileObj,
-              );
-
-              try {
-                final profileCache = ProfileCacheService();
-                await profileCache.initialize();
-                await profileCache.syncWithServerProfile(profileObj);
-              } catch (e) {
-                print('[ProfileCache] Ошибка синхронизации профиля: $e');
-              }
-
-              print(
-                '[_sendAuthRequestAfterHandshake] ✅ Профиль сохранен в AccountManager',
-              );
-            }
-          } catch (e) {
-            print(
-              '[_sendAuthRequestAfterHandshake] Ошибка сохранения профиля в AccountManager: $e',
-            );
-          }
-        }
-
-        final chatListJson = chatResponse['payload']?['chats'] ?? [];
-        final contactListJson = chatResponse['payload']?['contacts'] ?? [];
-        final presence = chatResponse['payload']?['presence'];
-        final config = chatResponse['payload']?['config'];
-
-        if (presence != null) {
-          updatePresenceData(presence);
-        }
-
-        if (config != null) {
-          _processServerPrivacyConfig(config);
-        }
-
-        final result = {
-          'chats': chatListJson,
-          'contacts': contactListJson,
-          'profile': profile,
-          'presence': presence,
-          'config': config,
-        };
-        _lastChatsPayload = result;
-
-        final contacts = (contactListJson as List)
-            .map((json) => Contact.fromJson(json as Map<String, dynamic>))
-            .toList()
-            .cast<Contact>();
-        updateContactCache(contacts);
-        _lastChatsAt = DateTime.now();
-        _preloadContactAvatars(contacts);
-        unawaited(
-          _chatCacheService.cacheChats(
-            chatListJson.cast<Map<String, dynamic>>(),
-          ),
-        );
-        unawaited(_chatCacheService.cacheContacts(contacts));
-        _chatsFetchedInThisSession = true;
-
-        if (_onlineCompleter != null && !_onlineCompleter!.isCompleted) {
-          _onlineCompleter!.complete();
-        }
-      }
+      // Reuse the same flow as manual loading to avoid duplicate opcode=19 logic.
+      await getChatsAndContacts(force: true);
     } catch (e) {
       print("Ошибка при автоматической авторизации: $e");
     }
@@ -427,10 +288,36 @@ extension ApiServiceChats on ApiService {
           payload["userId"] = userId;
         }
       } else {
-        return await getChatsOnly(force: force);
+        if (_lastChatsPayload != null) {
+          _inflightChatsCompleter!.complete(_lastChatsPayload!);
+          _inflightChatsCompleter = null;
+          return _lastChatsPayload!;
+        }
+        throw StateError('Чаты уже загружены в этой сессии');
       }
 
-      chatResponse = await sendRequest(opcode, payload);
+      if (opcode == 19) {
+        if (_authBootstrapCompleter != null) {
+          chatResponse = await _authBootstrapCompleter!.future;
+        } else {
+          final authCompleter = Completer<Map<String, dynamic>>();
+          _authBootstrapCompleter = authCompleter;
+          try {
+            chatResponse = await sendRequest(opcode, payload);
+            authCompleter.complete(chatResponse);
+          } catch (e, stackTrace) {
+            authCompleter.future.catchError((_) => <String, dynamic>{});
+            authCompleter.completeError(e, stackTrace);
+            rethrow;
+          } finally {
+            if (identical(_authBootstrapCompleter, authCompleter)) {
+              _authBootstrapCompleter = null;
+            }
+          }
+        }
+      } else {
+        chatResponse = await sendRequest(opcode, payload);
+      }
 
       if (opcode == 19 &&
           (chatResponse['cmd'] == 0x100 || chatResponse['cmd'] == 256)) {
@@ -628,8 +515,8 @@ extension ApiServiceChats on ApiService {
   Future<List<Message>> getMessageHistory(
       int chatId, {
         bool force = false,
-        int initialLimit = 10,
-        int maxMessages = 30,
+        int initialLimit = AppLimits.historyLoadBatch,
+        int maxMessages = AppLimits.historyLoadBatch,
         Function(List<Message> initialMessages)? onInitialLoaded,
         Function(List<Message> allMessages)? onCompleteLoaded,
       }) async {
@@ -683,7 +570,7 @@ extension ApiServiceChats on ApiService {
 
     try {
       final initialResponse = await sendRequest(49, initialPayload)
-          .timeout(const Duration(seconds: 5));
+          .timeout(const Duration(seconds: 10));
 
       if (initialResponse['cmd'] == 3) {
         final error = initialResponse['payload'];
@@ -746,13 +633,19 @@ extension ApiServiceChats on ApiService {
       }) async {
     try {
       print("🔄 Фоновая загрузка для чата $chatId: до $maxMessages сообщений...");
-      
+
+      final remainingBackward = maxMessages - existingMessages.length;
+      if (remainingBackward <= 0) {
+        onComplete?.call(existingMessages);
+        return;
+      }
+
       final oldestMessage = existingMessages.first;
       final payload = {
         "chatId": chatId,
         "from": oldestMessage.time,
         "forward": 0,
-        "backward": maxMessages - existingMessages.length,
+        "backward": remainingBackward,
         "getMessages": true,
       };
 
@@ -780,7 +673,15 @@ extension ApiServiceChats on ApiService {
 
       // Объединяем с существующими, избегая дубликатов
       final existingIds = existingMessages.map((m) => m.id).toSet();
-      final uniqueNewMessages = newMessages.where((m) => !existingIds.contains(m.id)).toList();
+      final existingCids = existingMessages
+          .where((m) => m.cid != null)
+          .map((m) => m.cid!)
+          .toSet();
+      final uniqueNewMessages = newMessages
+          .where((m) =>
+              !existingIds.contains(m.id) &&
+              (m.cid == null || !existingCids.contains(m.cid)))
+          .toList();
 
       final allMessages = [...existingMessages, ...uniqueNewMessages]
         ..sort((a, b) => a.time.compareTo(b.time));
@@ -913,7 +814,7 @@ extension ApiServiceChats on ApiService {
   Future<List<Message>> loadOlderMessagesByTimestamp(
       int chatId,
       int fromTimestamp, {
-        int backward = 30,
+        int backward = AppLimits.historyLoadBatch,
       }) async {
     await waitUntilOnline();
 

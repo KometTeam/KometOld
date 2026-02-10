@@ -725,13 +725,10 @@ extension ApiServiceMedia on ApiService {
       "messageId": int.tryParse(messageId) ?? 0,
     };
 
-    final int seq = await _sendMessage(83, payload);
-    print('Запрашиваем URL для videoId: $videoId (seq: $seq)');
-
     try {
-      final response = await messages
-          .firstWhere((msg) => msg['seq'] == seq && msg['opcode'] == 83)
-          .timeout(const Duration(seconds: 15));
+      // Use tracked request-response flow to avoid stream race with firstWhere.
+      final response = await sendRequest(83, payload).timeout(const Duration(seconds: 15));
+      print('Запрашиваем URL для videoId: $videoId');
 
       if (response['cmd'] == 3) {
         throw Exception(

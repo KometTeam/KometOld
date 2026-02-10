@@ -379,12 +379,15 @@ class MessageHandler {
     bool shouldShowNotification = (myId == null || newMessage.senderId != myId);
     print('🔔 [MessageHandler] myId=$myId, senderId=${newMessage.senderId}, shouldShowNotification=$shouldShowNotification');
 
-    // Если мы в приложении и в этом чате - не показываем уведомление
-    if (shouldShowNotification &&
-        ApiService.instance.isAppInForeground &&
-        ApiService.instance.currentActiveChatId == chatId) {
+    final bool isInActiveChat = ApiService.instance.currentActiveChatId == chatId;
+
+    // Never show a push notification for the currently opened chat.
+    if (shouldShowNotification && isInActiveChat) {
       print('🔔 [MessageHandler] В foreground и в этом чате - не показываем');
       shouldShowNotification = false;
+    }
+    if (isInActiveChat) {
+      unawaited(NotificationService().clearNotificationMessagesForChat(chatId));
     }
     print('🔔 [MessageHandler] isAppInForeground=${ApiService.instance.isAppInForeground}, currentActiveChatId=${ApiService.instance.currentActiveChatId}');
 
@@ -454,12 +457,11 @@ class MessageHandler {
     // Проверяем, нужно ли автоматически отметить сообщение как прочитанное
     // Условия: приложение на переднем плане, пользователь в этом чате, сообщение не наше, режим скрытия онлайна выключен
     bool shouldAutoMarkAsRead = false;
-    final isInActiveChat = ApiService.instance.isAppInForeground &&
-        ApiService.instance.currentActiveChatId == chatId;
+    final isForegroundActiveChat = ApiService.instance.isAppInForeground && isInActiveChat;
     
-    print('🔔 [MessageHandler] Проверка автопрочтения: isInActiveChat=$isInActiveChat, isMyMessage=$isMyMessage');
+    print('🔔 [MessageHandler] Проверка автопрочтения: isForegroundActiveChat=$isForegroundActiveChat, isMyMessage=$isMyMessage');
     
-    if (isInActiveChat && !isMyMessage) {
+    if (isForegroundActiveChat && !isMyMessage) {
       // Проверяем настройку скрытия онлайна
       final prefs = await SharedPreferences.getInstance();
       final isHiddenMode = prefs.getBool('privacy_hidden') ?? false;
@@ -480,7 +482,7 @@ class MessageHandler {
       // Увеличиваем счётчик непрочитанных только если:
       // 1. Это не наше сообщение
       // 2. Не включено автоматическое прочтение (скрытие онлайна выключено и мы в чате)
-      final shouldIncrementUnread = !isMyMessage && !shouldAutoMarkAsRead;
+      final shouldIncrementUnread = !isMyMessage && !shouldAutoMarkAsRead && !isInActiveChat;
       print('🔔 [MessageHandler] shouldIncrementUnread=$shouldIncrementUnread (isMyMessage=$isMyMessage, shouldAutoMarkAsRead=$shouldAutoMarkAsRead)');
 
       final updatedChat = oldChat.copyWith(
@@ -521,7 +523,7 @@ class MessageHandler {
           if (chatJson != null) {
             final newChat = Chat.fromJson(chatJson);
             // Для новых чатов тоже учитываем автоматическое прочтение
-            final shouldIncrementUnread = !isMyMessage && !shouldAutoMarkAsRead;
+            final shouldIncrementUnread = !isMyMessage && !shouldAutoMarkAsRead && !isInActiveChat;
             final updatedChat = newChat.copyWith(
               lastMessage: Message.fromJson(payload['message']),
               newMessages: shouldIncrementUnread ? newChat.newMessages + 1 : newChat.newMessages,

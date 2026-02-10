@@ -1155,6 +1155,8 @@ class _DesktopLayoutState extends State<_DesktopLayout> {
     int? participantCount,
   ) {
     print('🔘 DesktopLayout._onChatSelected: chatId=${chat.id}, contact=${contact.name}, isGroup=$isGroup, isChannel=$isChannel');
+    // Mark selected chat as active immediately to avoid race during screen rebuild.
+    ApiService.instance.currentActiveChatId = chat.id;
     setState(() {
       _selectedChat = chat;
       _selectedContact = contact;
@@ -1226,7 +1228,7 @@ class _DesktopLayoutState extends State<_DesktopLayout> {
                           ),
                   )
                 : ChatScreen(
-                    key: ValueKey('chat_${_selectedChat!.id}_${DateTime.now().millisecondsSinceEpoch}'),
+                    key: ValueKey('chat_${_selectedChat!.id}'),
                     chatId: _selectedChat!.id,
                     contact: _selectedContact!,
                     myId: _myProfile?.id ?? 0,
