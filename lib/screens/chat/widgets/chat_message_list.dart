@@ -117,17 +117,21 @@ class _MessageListViewState extends State<_MessageListView> {
     final positions = _positionsListener.itemPositions.value;
     if (positions.isEmpty) return;
     
-    // Проверяем необходимость подгрузки
+    // В ScrollablePositionedList с reverse=true:
+    // - индекс 0 = новые сообщения (внизу)
+    // - индекс itemCount-1 = старые сообщения (вверху)
+    // Подгружаем старые сообщения, когда maxIndex приближается к концу списка
     final maxIndex = positions.map((p) => p.index).reduce((a, b) => a > b ? a : b);
-    if (maxIndex >= widget.messages.length - 5 && !widget.isLoadingMore) {
+    final threshold = widget.messages.length - 10;
+    
+    if (maxIndex >= threshold && !widget.isLoadingMore && widget.controller.hasMoreMessages) {
       widget.onLoadMore?.call();
     }
   }
   
   void scrollToBottom() {
-    if (_scrollController.isAttached) {
-      _scrollController.jumpTo(index: 0);
-    }
+    if (!_scrollController.isAttached) return;
+    _scrollController.jumpTo(index: 0);
   }
   
   @override

@@ -663,10 +663,24 @@ class ApiService {
     // Мы принудительно отключаем ожидание сессии для Opcode 19 (Auth) и 6 (Handshake),
     // даже если requireSessionReady = true.
     // Это нужно, потому что эти пакеты и создают сессию.
-    final bool shouldWait = requireSessionReady && opcode != 19 && opcode != 6;
+    final bool isAuthOpcode = opcode == 19 || opcode == 6 || opcode == 17 || opcode == 18;
+    final bool shouldWait = requireSessionReady && !isAuthOpcode;
 
     if (shouldWait) {
       await waitUntilOnline();
+      // Дополнительная проверка: если сессия требуется но не готова, ждем
+      if (requireSessionReady && !_isSessionReady) {
+        print('⏳ _sendMessage opcode=$opcode: ждем готовности сессии...');
+        int attempts = 0;
+        while (!_isSessionReady && attempts < 50) {
+          await Future.delayed(const Duration(milliseconds: 50));
+          attempts++;
+        }
+        if (!_isSessionReady) {
+          print('❌ _sendMessage opcode=$opcode: сессия не готова после ожидания, отменяем');
+          return -1;
+        }
+      }
     } else {
       // Для служебных сообщений достаточно проверить подключение сокета
       if (!_socketConnected || _socket == null) {

@@ -586,6 +586,22 @@ extension ApiServiceChats on ApiService {
 
   Future<void> _sendInitialSetupRequests() async {
     print("Запускаем отправку единичных запросов при старте...");
+    
+    // Ждем готовности сессии перед отправкой запросов
+    if (!_isSessionReady) {
+      print('⏳ _sendInitialSetupRequests: ждем готовности сессии...');
+      int attempts = 0;
+      while (!_isSessionReady && attempts < 50) {
+        await Future.delayed(const Duration(milliseconds: 100));
+        attempts++;
+      }
+      if (!_isSessionReady) {
+        print('❌ _sendInitialSetupRequests: сессия не готова после ожидания, отменяем');
+        return;
+      }
+    }
+    
+    print('✅ _sendInitialSetupRequests: сессия готова, отправляем запросы');
     await Future.delayed(const Duration(seconds: 1));
 
     _sendMessage(272, {"folderSync": 0});

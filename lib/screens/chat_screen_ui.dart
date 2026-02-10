@@ -1225,17 +1225,25 @@ extension on _ChatScreenState {
       return false;
     });
 
-    if (index != -1) {
-      _itemScrollController.scrollTo(
-        index: index,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      );
+    if (index != -1 && _itemScrollController.isAttached) {
+      // Преобразуем индекс для reverse списка
+      // В ScrollablePositionedList с reverse=true индекс 0 соответствует последнему элементу
+      final visualIndex = _chatItems.length - 1 - index;
+      
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_itemScrollController.isAttached) return;
+        _itemScrollController.scrollTo(
+          index: visualIndex,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+        );
+      });
     }
   }
 
   void _jumpToBottom() {
     if (_chatItems.isEmpty) return;
+    if (!_itemScrollController.isAttached) return;
     _itemScrollController.jumpTo(index: 0);
   }
 
@@ -1262,7 +1270,7 @@ extension on _ChatScreenState {
     final visualIndex = _chatItems.length - 1 - targetChatItemIndex;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+      if (!mounted || !_itemScrollController.isAttached) return;
       _itemScrollController.scrollTo(
         index: visualIndex,
         duration: const Duration(milliseconds: 300),

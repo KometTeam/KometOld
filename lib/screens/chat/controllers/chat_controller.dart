@@ -244,7 +244,10 @@ class ChatController extends ChangeNotifier {
   
   /// Скролл к сообщению по ID
   Future<void> scrollToMessage(String messageId) async {
-    if (_itemScrollController == null) return;
+    if (_itemScrollController == null || !_itemScrollController!.isAttached) {
+      print('⚠️ ScrollController не готов для скролла к сообщению $messageId');
+      return;
+    }
     
     // Находим индекс сообщения
     final index = _messages.indexWhere((m) => m.id == messageId);
@@ -255,17 +258,22 @@ class ChatController extends ChangeNotifier {
     }
     
     // Вычисляем индекс для reverse списка
+    // В ScrollablePositionedList с reverse=true индекс 0 соответствует последнему элементу
     final visualIndex = _messages.length - 1 - index;
     
-    try {
-      _itemScrollController!.scrollTo(
-        index: visualIndex,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      );
-    } catch (e) {
-      print('⚠️ Ошибка скролла к сообщению: $e');
-    }
+    // Используем addPostFrameCallback для гарантии, что виджет построен
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_itemScrollController == null || !_itemScrollController!.isAttached) return;
+      try {
+        _itemScrollController!.scrollTo(
+          index: visualIndex,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+        );
+      } catch (e) {
+        print('⚠️ Ошибка скролла к сообщению: $e');
+      }
+    });
   }
   
   /// Обновить максимальный просмотренный индекс

@@ -182,13 +182,17 @@ class _MessageContent extends StatelessWidget {
             children: [
               // Text content
               if (message.text.isNotEmpty)
-                SelectableText(
-                  message.text,
-                  key: ValueKey('msg_text_${message.id}'),
-                  style: TextStyle(
-                    color: textColor,
-                    fontSize: 16,
-                  ),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    return SelectableText(
+                      message.text,
+                      key: ValueKey('msg_text_${message.id}'),
+                      style: TextStyle(
+                        color: textColor,
+                        fontSize: 16,
+                      ),
+                    );
+                  },
                 ),
               
               // Attachments indicator
