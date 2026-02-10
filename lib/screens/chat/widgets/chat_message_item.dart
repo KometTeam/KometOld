@@ -7,8 +7,12 @@ import '../../../widgets/contact_name_widget.dart';
 import '../../../widgets/user_profile_panel.dart';
 import '../../../api/api_service.dart';
 
+/// Кэш контактов для ChatMessageItem (глобальный для всех экземпляров)
+final Map<int, Contact> _globalContactCache = {};
+final Set<int> _loadingContactIds = {};
+
 /// Упрощенный виджет элемента сообщения
-class ChatMessageItem extends StatelessWidget {
+class ChatMessageItem extends StatefulWidget {
   final Message message;
   final bool isMe;
   final VoidCallback? onTap;
@@ -33,14 +37,93 @@ class ChatMessageItem extends StatelessWidget {
   });
 
   @override
+  State<ChatMessageItem> createState() => _ChatMessageItemState();
+}
+
+class _ChatMessageItemState extends State<ChatMessageItem> {
+  Contact? _resolvedContact;
+  bool _isLoadingContact = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolveContact();
+  }
+
+  @override
+  void didUpdateWidget(ChatMessageItem oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.senderContact != widget.senderContact ||
+        oldWidget.message.senderId != widget.message.senderId) {
+      _resolveContact();
+    }
+  }
+
+  void _resolveContact() {
+    // Используем переданный контакт или пытаемся получить из глобального кэша/API
+    if (widget.senderContact != null) {
+      _resolvedContact = widget.senderContact;
+      return;
+    }
+
+    final senderId = widget.message.senderId;
+    
+    // Проверяем глобальный кэш
+    if (_globalContactCache.containsKey(senderId)) {
+      setState(() {
+        _resolvedContact = _globalContactCache[senderId];
+      });
+      return;
+    }
+
+    // Проверяем кэш API
+    final apiContact = ApiService.instance.getCachedContact(senderId);
+    if (apiContact != null) {
+      setState(() {
+        _resolvedContact = apiContact;
+        _globalContactCache[senderId] = apiContact;
+      });
+      return;
+    }
+
+    // Загружаем контакт, если это групповой чат и контакт не найден
+    if (widget.isGroupChat && senderId != 0 && !_isLoadingContact) {
+      _loadContact(senderId);
+    }
+  }
+
+  Future<void> _loadContact(int contactId) async {
+    if (_isLoadingContact || _loadingContactIds.contains(contactId)) return;
+    
+    _isLoadingContact = true;
+    _loadingContactIds.add(contactId);
+
+    try {
+      final contacts = await ApiService.instance.fetchContactsByIds([contactId]);
+      if (contacts.isNotEmpty && mounted) {
+        final contact = contacts.first;
+        _globalContactCache[contactId] = contact;
+        setState(() {
+          _resolvedContact = contact;
+        });
+      }
+    } catch (e) {
+      print('❌ ChatMessageItem: ошибка загрузки контакта $contactId: $e');
+    } finally {
+      _isLoadingContact = false;
+      _loadingContactIds.remove(contactId);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final showSenderInfo = !isMe && isGroupChat && showAvatar;
+    final showSenderInfo = !widget.isMe && widget.isGroupChat && widget.showAvatar;
     
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
       child: Row(
-        mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment: widget.isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           // Аватарка отправителя (только для чужих сообщений в групповых чатах)
@@ -51,13 +134,13 @@ class ChatMessageItem extends StatelessWidget {
                 cursor: SystemMouseCursors.click,
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: () => _openUserProfile(context, message.senderId),
+                  onTap: () => _openUserProfile(context, widget.message.senderId),
                   child: ContactAvatarWidget(
-                    contactId: message.senderId,
-                    originalAvatarUrl: senderContact?.photoBaseUrl,
+                    contactId: widget.message.senderId,
+                    originalAvatarUrl: _resolvedContact?.photoBaseUrl,
                     radius: 18,
                     fallbackText: () {
-                      final name = senderContact?.name;
+                      final name = _resolvedContact?.name;
                       if (name != null && name.isNotEmpty) {
                         return name[0].toUpperCase();
                       }
@@ -67,7 +150,7 @@ class ChatMessageItem extends StatelessWidget {
                 ),
               ),
             )
-          else if (!isMe && isGroupChat)
+          else if (!widget.isMe && widget.isGroupChat)
             // Placeholder для выравнивания
             const SizedBox(width: 36),
           
@@ -77,15 +160,15 @@ class ChatMessageItem extends StatelessWidget {
                 maxWidth: MediaQuery.of(context).size.width * 0.75,
               ),
               child: GestureDetector(
-                onTap: onTap,
-                onLongPress: onLongPress,
+                onTap: widget.onTap,
+                onLongPress: widget.onLongPress,
                 child: _MessageContent(
-                  message: message,
-                  isMe: isMe,
+                  message: widget.message,
+                  isMe: widget.isMe,
                   theme: theme,
-                  onReplyTap: onReplyTap,
+                  onReplyTap: widget.onReplyTap,
                   showSenderInfo: showSenderInfo,
-                  senderContact: senderContact,
+                  senderContact: _resolvedContact,
                 ),
               ),
             ),
@@ -182,17 +265,15 @@ class _MessageContent extends StatelessWidget {
             children: [
               // Text content
               if (message.text.isNotEmpty)
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    return SelectableText(
-                      message.text,
-                      key: ValueKey('msg_text_${message.id}'),
-                      style: TextStyle(
-                        color: textColor,
-                        fontSize: 16,
-                      ),
-                    );
-                  },
+                SelectionContainer.disabled(
+                  child: Text(
+                    message.text,
+                    key: ValueKey('msg_text_${message.id}'),
+                    style: TextStyle(
+                      color: textColor,
+                      fontSize: 16,
+                    ),
+                  ),
                 ),
               
               // Attachments indicator
