@@ -436,6 +436,55 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
     );
   }
 
+  void _openChannelInfo(BuildContext context) async {
+    Navigator.of(context).pop(); // Закрываем профиль
+    
+    // Показываем индикатор загрузки
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+    
+    try {
+      final channelDetails = await ApiService.instance.getChannelDetails(widget.contact.id);
+      
+      if (!context.mounted) return;
+      Navigator.of(context).pop(); // Закрываем индикатор загрузки
+      
+      if (channelDetails == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Не удалось загрузить данные канала'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+      
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => ChannelSettingsScreen(
+            chatId: widget.contact.id,
+            channelData: channelDetails,
+            myId: widget.myId ?? 0,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      Navigator.of(context).pop(); // Закрываем индикатор загрузки
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Ошибка: $e'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   /// Строит кнопки действий в зависимости от типа контакта
   Widget _buildActionButtons(BuildContext context, ColorScheme colors) {
     final isGroupOrChannel = widget.contact.id < 0;
@@ -452,14 +501,9 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
             colors: colors,
           ),
           _ProfileActionButton(
-            icon: Icons.share,
-            label: 'Поделиться',
-            onPressed: () {
-              // TODO: Реализовать поделиться ссылкой на группу/канал
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Скоро будет доступно')),
-              );
-            },
+            icon: Icons.info_outline,
+            label: 'Информация',
+            onPressed: () => _openChannelInfo(context),
             colors: colors,
           ),
         ],
@@ -790,53 +834,6 @@ class _BotCommandsPanel extends StatelessWidget {
 }
 
 // Komet Color Picker Bar
-class _KometColorPickerBar extends StatefulWidget {
-  final Function(String) onPrefixSelected;
-  final VoidCallback onClose;
-
-  const _KometColorPickerBar({
-    required this.onPrefixSelected,
-    required this.onClose,
-  });
-
-  @override
-  State<_KometColorPickerBar> createState() => _KometColorPickerBarState();
-}
-
-class _KometColorPickerBarState extends State<_KometColorPickerBar> {
-  // Removed unused _colorOptions
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 44,
-      margin: const EdgeInsets.only(bottom: 4, left: 8, right: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            icon: const Icon(Icons.colorize, color: Colors.blue),
-            onPressed: () => widget.onPrefixSelected('PICK'),
-            tooltip: 'Выбрать цвет',
-          ),
-          const VerticalDivider(width: 1, indent: 8, endIndent: 8),
-          IconButton(
-            icon: const Icon(Icons.close, size: 20),
-            onPressed: widget.onClose,
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 // Send Photos Dialog
 class _SendPhotosDialog extends StatefulWidget {

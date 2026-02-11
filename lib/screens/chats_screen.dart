@@ -86,6 +86,7 @@ class _ChatsScreenState extends State<ChatsScreen>
   StreamSubscription? _apiSubscription;
   List<Chat> _allChats = [];
   bool _chatsLoaded = false;
+  bool _chatOrderLoaded = false; // Флаг для предотвращения повторной загрузки порядка
   MessageHandler? _messageHandler;
   List<Chat> _filteredChats = [];
   Map<int, Contact> _contacts = {};
@@ -354,8 +355,8 @@ class _ChatsScreenState extends State<ChatsScreen>
       );
       setState(() {
         _allChats[chatIndex] = updatedChat;
+        _filterChats();
       });
-      _filterChats();
     }
   }
 
@@ -423,6 +424,100 @@ class _ChatsScreenState extends State<ChatsScreen>
     );
   }
 
+  void _showCreateChannelDialog() {
+    final TextEditingController titleController = TextEditingController();
+    final List<int> selectedContacts = [];
+
+    final int? myId = _myProfile?.id;
+
+    final List<Contact> availableContacts = _contacts.values.where((contact) {
+      final contactNameLower = contact.name.toLowerCase();
+      return contactNameLower != 'max' &&
+          contactNameLower != 'gigachat' &&
+          (myId == null || contact.id != myId);
+    }).toList();
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Создать канал'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: titleController,
+                decoration: const InputDecoration(
+                  labelText: 'Название канала',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('Выберите первых подписчиков:'),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 200,
+                width: 300,
+                child: ListView.builder(
+                  itemCount: availableContacts.length,
+                  itemBuilder: (context, index) {
+                    final contact = availableContacts[index];
+                    final isSelected = selectedContacts.contains(contact.id);
+
+                    return CheckboxListTile(
+                      title: Text(
+                        getContactDisplayName(
+                          contactId: contact.id,
+                          originalName: contact.name,
+                          originalFirstName: contact.firstName,
+                          originalLastName: contact.lastName,
+                        ),
+                      ),
+                      subtitle: Text(
+                        contact.firstName.isNotEmpty &&
+                                contact.lastName.isNotEmpty
+                            ? '${contact.firstName} ${contact.lastName}'
+                            : '',
+                      ),
+                      value: isSelected,
+                      onChanged: (value) {
+                        setState(() {
+                          if (value == true) {
+                            selectedContacts.add(contact.id);
+                          } else {
+                            selectedContacts.remove(contact.id);
+                          }
+                        });
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Отмена'),
+            ),
+            TextButton(
+              onPressed: () {
+                if (titleController.text.trim().isNotEmpty) {
+                  ApiService.instance.createChannelWithMessage(
+                    titleController.text.trim(),
+                    selectedContacts,
+                  );
+                  Navigator.of(context).pop();
+                }
+              },
+              child: const Text('Создать'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _listenForUpdates() {
     _messageHandler?.listen()?.cancel();
     final handler = MessageHandler(
@@ -457,6 +552,10 @@ class _ChatsScreenState extends State<ChatsScreen>
 
   void _removeChatLocally(int chatId) {
     if (!mounted) return;
+    _typingDecayTimers[chatId]?.cancel();
+    _typingDecayTimers.remove(chatId);
+    _typingChats.remove(chatId);
+    _onlineChats.remove(chatId);
     setState(() {
       _allChats.removeWhere((c) => c.id == chatId);
       _filteredChats.removeWhere((c) => c.id == chatId);
@@ -533,9 +632,8 @@ class _ChatsScreenState extends State<ChatsScreen>
                 _myProfile = Profile.fromJson(profileData);
                 _isProfileLoading = false;
               }
+              _filterChats();
             });
-
-            _filterChats();
           }
         })
         .catchError((error) {
@@ -588,6 +686,24 @@ class _ChatsScreenState extends State<ChatsScreen>
                 onTap: () {
                   Navigator.pop(context);
                   _showCreateGroupDialog();
+                },
+              ),
+
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Theme.of(
+                    context,
+                  ).colorScheme.primaryContainer,
+                  child: Icon(
+                    Icons.campaign,
+                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                  ),
+                ),
+                title: const Text('Создать канал'),
+                subtitle: const Text('Публичные посты для подписчиков'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showCreateChannelDialog();
                 },
               ),
 
@@ -916,51 +1032,49 @@ class _ChatsScreenState extends State<ChatsScreen>
 
   void _filterChats() {
     final query = _searchController.text.toLowerCase();
-    setState(() {
-      List<Chat> chatsToFilter = _allChats;
+    List<Chat> chatsToFilter = _allChats;
 
-      if (_selectedFolderId != null) {
-        final selectedFolder = _folders.firstWhere(
-          (f) => f.id == _selectedFolderId,
-          orElse: () => _folders.first,
+    if (_selectedFolderId != null) {
+      final selectedFolder = _folders.firstWhere(
+        (f) => f.id == _selectedFolderId,
+        orElse: () => _folders.first,
+      );
+      chatsToFilter = _allChats
+          .where((chat) => _chatBelongsToFolder(chat, selectedFolder))
+          .toList();
+    }
+
+    if (query.isEmpty && !_searchFocusNode.hasFocus) {
+      _filteredChats = List.from(chatsToFilter);
+
+      // Сортировка по времени последнего сообщения (новые сверху)
+      _filteredChats.sort((a, b) {
+        return b.lastMessage.time.compareTo(a.lastMessage.time);
+      });
+    } else if (_searchFocusNode.hasFocus && query.isEmpty) {
+      _filteredChats = [];
+    } else if (query.isNotEmpty) {
+      _filteredChats = chatsToFilter.where((chat) {
+        final isSavedMessages = _isSavedMessages(chat);
+        if (isSavedMessages) {
+          return "избранное".contains(query);
+        }
+        final otherParticipantId = chat.participantIds.firstWhere(
+          (id) => id != _myId,
+          orElse: () => 0,
         );
-        chatsToFilter = _allChats
-            .where((chat) => _chatBelongsToFolder(chat, selectedFolder))
-            .toList();
-      }
+        final contactName =
+            _contacts[otherParticipantId]?.name.toLowerCase() ?? '';
+        return contactName.contains(query);
+      }).toList();
 
-      if (query.isEmpty && !_searchFocusNode.hasFocus) {
-        _filteredChats = List.from(chatsToFilter);
-
-        // Сортировка по времени последнего сообщения (новые сверху)
-        _filteredChats.sort((a, b) {
-          return b.lastMessage.time.compareTo(a.lastMessage.time);
-        });
-      } else if (_searchFocusNode.hasFocus && query.isEmpty) {
-        _filteredChats = [];
-      } else if (query.isNotEmpty) {
-        _filteredChats = chatsToFilter.where((chat) {
-          final isSavedMessages = _isSavedMessages(chat);
-          if (isSavedMessages) {
-            return "избранное".contains(query);
-          }
-          final otherParticipantId = chat.participantIds.firstWhere(
-            (id) => id != _myId,
-            orElse: () => 0,
-          );
-          final contactName =
-              _contacts[otherParticipantId]?.name.toLowerCase() ?? '';
-          return contactName.contains(query);
-        }).toList();
-
-        // Сортировка по времени последнего сообщения (новые сверху)
-        _filteredChats.sort((a, b) {
-          return b.lastMessage.time.compareTo(a.lastMessage.time);
-        });
-      } else {
-        _filteredChats = [];
-      }
-    });
+      // Сортировка по времени последнего сообщения (новые сверху)
+      _filteredChats.sort((a, b) {
+        return b.lastMessage.time.compareTo(a.lastMessage.time);
+      });
+    } else {
+      _filteredChats = [];
+    }
   }
 
   void _onSearchChanged() {
@@ -1191,9 +1305,10 @@ class _ChatsScreenState extends State<ChatsScreen>
               _myProfile = Profile.fromJson(profileData);
               _isProfileLoading = false;
             }
+            
+            _filterChats();
           });
-
-          _filterChats();
+          
           _loadChatDrafts();
         })
         .catchError((error) {
@@ -1437,28 +1552,42 @@ class _ChatsScreenState extends State<ChatsScreen>
                   _loadFolders(snapshot.data!);
                 });
 
-                _loadChatOrder()
-                    .then((_) {
-                      if (!mounted) return;
-                      setState(() {
-                        _filteredChats = List.from(_allChats);
+                // ИСПРАВЛЕНИЕ: Вызываем _loadChatOrder только ОДИН раз
+                if (!_chatOrderLoaded) {
+                  _chatOrderLoaded = true;
+                  _loadChatOrder()
+                      .then((_) {
+                        if (!mounted) return;
+                        setState(() {
+                          _filteredChats = List.from(_allChats);
+                        });
+                      })
+                      .catchError((error) {
+                        print('Ошибка в _loadChatOrder: $error');
+                        if (!mounted) return;
+                        // При ошибке все равно показываем чаты
+                        setState(() {
+                          _filteredChats = List.from(_allChats);
+                        });
                       });
-                    })
-                    .catchError((error) {
-                      print('Ошибка в _loadChatOrder: $error');
-                      if (!mounted) return;
-                      // При ошибке все равно показываем чаты
-                      setState(() {
-                        _filteredChats = List.from(_allChats);
-                      });
-                    });
+                }
               }
 
-              if (_filteredChats.isEmpty && _allChats.isNotEmpty) {
-                _filteredChats = List.from(_allChats)
+              // ИСПРАВЛЕНИЕ: Проверяем флаг перед изменением состояния в build()
+              if (_filteredChats.isEmpty && _allChats.isNotEmpty && _chatOrderLoaded) {
+                // Используем временную переменную вместо прямого изменения состояния
+                final sortedChats = List.from(_allChats)
                   ..sort(
                     (a, b) => b.lastMessage.time.compareTo(a.lastMessage.time),
                   );
+                // Планируем setState на следующий фрейм
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted && _filteredChats.isEmpty) {
+                    setState(() {
+                      _filteredChats = List<Chat>.from(sortedChats);
+                    });
+                  }
+                });
               }
               if (_filteredChats.isEmpty && _allChats.isEmpty) {
                 // Если чаты еще не загружены - показываем индикатор загрузки
@@ -2595,8 +2724,8 @@ class _ChatsScreenState extends State<ChatsScreen>
       if (_selectedFolderId != folderId) {
         setState(() {
           _selectedFolderId = folderId;
+          _filterChats();
         });
-        _filterChats();
       }
     }
   }
@@ -4879,6 +5008,12 @@ class _ChatsScreenState extends State<ChatsScreen>
 
   @override
   void dispose() {
+    for (final timer in _typingDecayTimers.values) {
+      timer.cancel();
+    }
+    _typingDecayTimers.clear();
+    _typingChats.clear();
+    _onlineChats.clear();
     _apiSubscription?.cancel();
     _connectionStatusSubscription?.cancel();
     _connectionStateSubscription?.cancel();

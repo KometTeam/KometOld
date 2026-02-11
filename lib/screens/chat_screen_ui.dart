@@ -116,6 +116,13 @@ extension on _ChatScreenState {
             icon: const Icon(Icons.settings),
             tooltip: 'Настройки группы',
           ),
+        // Иконка шестеренки для админов каналов
+        if (widget.isChannel && _isChannelAdmin())
+          IconButton(
+            onPressed: _openChannelSettings,
+            icon: const Icon(Icons.settings),
+            tooltip: 'Настройки канала',
+          ),
         PopupMenuButton<String>(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
@@ -161,6 +168,8 @@ extension on _ChatScreenState {
                   ),
                 ),
               );
+            } else if (value == 'channel_settings') {
+              _openChannelSettings();
             }
           },
           itemBuilder: (context) {
@@ -180,6 +189,18 @@ extension on _ChatScreenState {
                 _isEncryptionPasswordSetForCurrentChat;
 
             return [
+              // Настройки канала для админов
+              if (widget.isChannel && _isChannelAdmin())
+                const PopupMenuItem(
+                  value: 'channel_settings',
+                  child: Row(
+                    children: [
+                      Icon(Icons.settings, color: Colors.blue),
+                      SizedBox(width: 8),
+                      Text('Настройки канала'),
+                    ],
+                  ),
+                ),
               PopupMenuItem(
                 value: 'encryption_password',
                 child: Row(
@@ -801,7 +822,17 @@ extension on _ChatScreenState {
   // Text Input
   Widget _buildTextInput() {
     if (widget.isChannel) {
-      return const SizedBox.shrink();
+      bool amIAdmin = false;
+      final currentChat = _getCurrentGroupChat();
+      if (currentChat != null && _actualMyId != null) {
+        final admins = currentChat['admins'] as List<dynamic>? ?? [];
+        final owner = currentChat['owner'] as int?;
+        amIAdmin = admins.contains(_actualMyId) || owner == _actualMyId;
+      }
+
+      if (!amIAdmin) {
+        return const SizedBox.shrink();
+      }
     }
 
     final theme = context.watch<ThemeProvider>();
@@ -1162,28 +1193,6 @@ extension on _ChatScreenState {
   }
 
   Widget _wrapInputWithPanels(Widget inputBar) {
-    if (_showKometColorPicker) {
-      inputBar = Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _KometColorPickerBar(
-            onPrefixSelected: (prefix) {
-              _openColorPickerDialog(
-                _currentKometColorPrefix ?? 'komet.color_#',
-              );
-            },
-            onClose: () {
-              _setStateIfMounted(() {
-                _showKometColorPicker = false;
-                _currentKometColorPrefix = null;
-              });
-            },
-          ),
-          inputBar,
-        ],
-      );
-    }
-
     if (_showBotCommandsPanel) {
       final query = _textController.text.toLowerCase();
       final filteredCommands = _botCommands.where((cmd) {
@@ -1665,7 +1674,7 @@ extension on _ChatScreenState {
       if (item.message.senderId == 0) {
         senderName = widget.contact.name;
       } else if (senderContact != null) {
-        senderName = senderContact.name ?? 'ID ${item.message.senderId}';
+        senderName = senderContact.name;
       } else {
         senderName = 'ID ${item.message.senderId}';
       }
@@ -1701,6 +1710,19 @@ extension on _ChatScreenState {
         }
       }
 
+      // Check admin rights for channels/groups
+      bool canDeleteAnyMessage = false;
+      if (widget.isChannel || widget.isGroupChat) {
+        final currentChat = _getCurrentGroupChat();
+        if (currentChat != null && _actualMyId != null) {
+          final admins = currentChat['admins'] as List<dynamic>? ?? [];
+          final owner = currentChat['owner'] as int?;
+          canDeleteAnyMessage = admins.contains(_actualMyId) || owner == _actualMyId;
+        }
+      }
+
+      final bool canDeleteForAll = (isMe && item.message.canEdit(_actualMyId ?? 0)) || canDeleteAnyMessage;
+
       return ChatMessageBubble(
         key: ValueKey(item.message.id),
         message: item.message,
@@ -1716,7 +1738,7 @@ extension on _ChatScreenState {
         chatId: widget.chatId,
         readStatus: readStatus,
         isHighlighted: isHighlighted,
-        canDeleteForAll: isMe && item.message.canEdit(_actualMyId ?? 0),
+        canDeleteForAll: canDeleteForAll,
         canEditMessage: isMe && item.message.canEdit(_actualMyId ?? 0),
         onReply: () => _replyToMessage(item.message),
         onReplyTap: (messageId) => _scrollToMessage(messageId),
@@ -1725,7 +1747,7 @@ extension on _ChatScreenState {
         onDelete: () => _removeMessages([item.message.id]),
         onComplain: () => _showComplaintDialog(item.message.id),
         onDeleteForMe: () => _removeMessages([item.message.id]),
-        onDeleteForAll: isMe && item.message.canEdit(_actualMyId ?? 0)
+        onDeleteForAll: canDeleteForAll
             ? () => _deleteMessageForAll(item.message.id)
             : null,
         onReaction: (emoji) => _sendReaction(item.message.id, emoji),
@@ -1737,6 +1759,67 @@ extension on _ChatScreenState {
       return _buildVoicePreviewBubble(item);
     }
     return const SizedBox.shrink();
+  }
+
+  bool _isChannelAdmin() {
+    final currentChat = _getCurrentGroupChat();
+    if (currentChat != null && _actualMyId != null) {
+      final admins = currentChat['admins'] as List<dynamic>? ?? [];
+      final owner = currentChat['owner'] as int?;
+      return admins.contains(_actualMyId) || owner == _actualMyId;
+    }
+    return false;
+  }
+
+  void _openChannelSettings() async {
+    if (_isOpeningChannelSettings) {
+      return;
+    }
+
+    _isOpeningChannelSettings = true;
+    if (_actualMyId == null) {
+      _isOpeningChannelSettings = false;
+      return;
+    }
+    
+    try {
+      // Сохраняем контекст ДО await
+      final navigatorContext = context;
+      
+      final channelDetails = await ApiService.instance.getChannelDetails(widget.chatId);
+      
+      if (!mounted) {
+        return;
+      }
+      
+      if (channelDetails == null) {
+        ScaffoldMessenger.of(navigatorContext).showSnackBar(
+          const SnackBar(
+            content: Text('Не удалось загрузить данные канала'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+
+      final safeChannelDetails =
+          channelDetails ?? <String, dynamic>{'id': widget.chatId};
+
+      Navigator.of(navigatorContext).push(
+        MaterialPageRoute(
+          builder: (ctx) => ChannelSettingsScreen(
+            chatId: widget.chatId,
+            channelData: safeChannelDetails,
+            myId: _actualMyId!,
+          ),
+        ),
+      );
+      
+    } catch (e, stackTrace) {
+      print('❌ [ChatScreen] Ошибка открытия настроек канала: $e');
+      print('❌ [ChatScreen] Stack: $stackTrace');
+    } finally {
+      _isOpeningChannelSettings = false;
+    }
   }
 
   void _showWallpaperDialog() {

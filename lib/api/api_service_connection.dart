@@ -196,40 +196,6 @@ extension ApiServiceConnection on ApiService {
     });
   }
 
-  void _startAnalyticsTimer() {
-    _analyticsTimer?.cancel();
-    _analyticsTimer = Timer.periodic(
-      Duration(seconds: 10 + (DateTime.now().millisecondsSinceEpoch % 41)),
-          (timer) async {
-        if (_isSessionOnline && _isSessionReady && _userId != null) {
-          try {
-            final now = DateTime.now().millisecondsSinceEpoch;
-            final Map<String, dynamic> params = {
-              'session_id': _sessionId,
-              'action_id': _actionId++,
-              'screen_to': 150,
-            };
-
-            await _sendMessage(5, {
-              "events": [
-                {
-                  "type": "NAV",
-                  "event": "HEARTBEAT",
-                  "userId": _userId,
-                  "time": now,
-                  "params": params,
-                },
-              ],
-            });
-            _log('📊 Отправлена периодическая аналитика (opcode=5)');
-          } catch (e) {
-            print('Ошибка отправки аналитики: $e');
-          }
-        }
-      },
-    );
-  }
-
   Future<void> connect() async {
     if (_socketConnected && _isSessionOnline) {
       return;
@@ -402,7 +368,15 @@ extension ApiServiceConnection on ApiService {
         '📥 ПОЛУЧЕНО: ver=$ver, cmd=$cmd ($cmdType), seq=$seq, opcode=$opcode',
       );
       if (opcode != 19) {
-        _log('📥 PAYLOAD: ${truncatePayloadObjectForLog(payload)}');
+        final bool shouldLogPayload =
+            opcode != 129 &&
+            opcode != 132 &&
+            opcode != 48 &&
+            opcode != 49;
+
+        if (shouldLogPayload) {
+          _log('📥 PAYLOAD: ${truncatePayloadObjectForLog(payload)}');
+        }
       }
 
       if (opcode == 2) {
@@ -673,6 +647,25 @@ extension ApiServiceConnection on ApiService {
           'type': 'channels_not_found',
           'payload': payload,
         });
+      }
+
+      // Обработка ответа на loadChat (opcode 49) - обновляем данные чата
+      if (decodedMessage['opcode'] == 49 &&
+          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+        final payload = decodedMessage['payload'];
+        print('📥 [Connection] Ответ на opcode 49. Ключи payload: ${payload?.keys.toList()}');
+        final chat = payload['chat'] as Map<String, dynamic>?;
+        
+        if (chat != null) {
+          print('✅ [Connection] Получены данные чата из opcode 49, обновляем кэш');
+          print('   Ключи chat: ${chat.keys.toList()}');
+          if (chat.containsKey('admins')) {
+            print('   Админы: ${chat['admins']}');
+          }
+          updateChatInCacheFromJson(chat);
+        } else {
+          print('⚠️ [Connection] payload[\'chat\'] отсутствует в opcode 49!');
+        }
       }
 
       if (decodedMessage['opcode'] == 89 &&

@@ -30,6 +30,7 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:gwid/widgets/message_bubble/models/message_read_status.dart';
 
 import 'package:gwid/screens/group_settings_screen.dart';
+import 'package:gwid/screens/settings/channel_settings_screen.dart';
 
 import 'package:gwid/screens/contact_selection_screen.dart';
 import 'package:gwid/widgets/contact_name_widget.dart';
@@ -167,6 +168,7 @@ class VoicePreviewItem extends ChatItem {
 class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   // Core state fields
   bool _isDisposed = false;
+  bool _isOpeningChannelSettings = false;
   final List<Message> _messages = [];
   List<ChatItem> _chatItems = [];
   final Set<String> _deletingMessageIds = {};
@@ -231,13 +233,11 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   // UI States
   Timer? _selectionCheckTimer;
-  bool _showKometColorPicker = false;
   OverlayEntry? _sparkleMenuOverlay;
   final GlobalKey _sparkleButtonKey = GlobalKey();
   final LayerLink _sparkleLayerLink = LayerLink();
 
   String? _highlightedMessageId;
-  String? _currentKometColorPrefix;
   bool _isSearching = false;
   List<Message> _searchResults = [];
   int _currentResultIndex = -1;
@@ -359,7 +359,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   // Text controller change handler
   void _onTextControllerChanged() {
     _handleChatInputChanged(_textController.text);
-    _handleTextChangedForKometColor();
   }
 
   void _onTextFocusChanged() {

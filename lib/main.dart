@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
@@ -68,53 +70,70 @@ Future<void> _generateInitialAndroidSpoof() async {
 }
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await initializeDateFormatting();
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+    debugPrint('💥 [Global] FlutterError: ${details.exceptionAsString()}');
+    debugPrint('💥 [Global] Stack: ${details.stack}');
+  };
 
-  await _generateInitialAndroidSpoof();
-  
-  await Future.wait([
-    CacheService().initialize(),
-    AvatarCacheService().initialize(),
-    ChatCacheService().initialize(),
-    ContactLocalNamesService().initialize(),
-    MessageQueueService().initialize(),
-  ]);
+  PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    debugPrint('💥 [Global] PlatformDispatcher error: $error');
+    debugPrint('💥 [Global] Stack: $stack');
+    return true;
+  };
 
-  // Инициализация автоочистки кэша
-  await CacheAutoCleanupService().initialize();
-  
-  await AccountManager().initialize();
-  await AccountManager().migrateOldAccount();
-  await MusicPlayerService().initialize();
-  await PluginService().initialize();
-  await WhitelistService().loadWhitelist();
-  await NotificationService().initialize();
-  NotificationService().setNavigatorKey(navigatorKey);
+  await runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+    await initializeDateFormatting();
 
-  if (Platform.isAndroid) {
-    await initializeBackgroundService();
-  }
+    await _generateInitialAndroidSpoof();
+    
+    await Future.wait([
+      CacheService().initialize(),
+      AvatarCacheService().initialize(),
+      ChatCacheService().initialize(),
+      ContactLocalNamesService().initialize(),
+      MessageQueueService().initialize(),
+    ]);
 
-  await ApiService.clearSessionValues();
-  final hasToken = await ApiService.instance.hasToken();
+    // Инициализация автоочистки кэша
+    await CacheAutoCleanupService().initialize();
+    
+    await AccountManager().initialize();
+    await AccountManager().migrateOldAccount();
+    await MusicPlayerService().initialize();
+    await PluginService().initialize();
+    await WhitelistService().loadWhitelist();
+    await NotificationService().initialize();
+    NotificationService().setNavigatorKey(navigatorKey);
 
-  if (hasToken) {
-    await WhitelistService().validateCurrentUserIfNeeded();
-    if (await ApiService.instance.hasToken()) {
-      ApiService.instance.connect();
+    if (Platform.isAndroid) {
+      await initializeBackgroundService();
     }
-  }
 
-  runApp(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (context) => ThemeProvider()),
-        ChangeNotifierProvider(create: (context) => MusicPlayerService()),
-      ],
-      child: ConnectionLifecycleManager(child: MyApp(hasToken: hasToken)),
-    ),
-  );
+    await ApiService.clearSessionValues();
+    final hasToken = await ApiService.instance.hasToken();
+
+    if (hasToken) {
+      await WhitelistService().validateCurrentUserIfNeeded();
+      if (await ApiService.instance.hasToken()) {
+        ApiService.instance.connect();
+      }
+    }
+
+    runApp(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (context) => ThemeProvider()),
+          ChangeNotifierProvider(create: (context) => MusicPlayerService()),
+        ],
+        child: ConnectionLifecycleManager(child: MyApp(hasToken: hasToken)),
+      ),
+    );
+  }, (Object error, StackTrace stack) {
+    debugPrint('💥 [Global] runZonedGuarded error: $error');
+    debugPrint('💥 [Global] Stack: $stack');
+  });
 }
 
 class MyApp extends StatelessWidget {

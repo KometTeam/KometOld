@@ -57,6 +57,36 @@ extension ApiServiceChats on ApiService {
     print('Создаем группу: $name с участниками: $participantIds');
   }
 
+  Future<void> createChannelWithMessage(
+    String title,
+    List<int> initialSubscriberContactIds,
+  ) async {
+    await waitUntilOnline();
+
+    final cid = DateTime.now().millisecondsSinceEpoch;
+    final payload = {
+      "message": {
+        "cid": cid,
+        "attaches": [
+          {
+            "_type": "CONTROL",
+            "event": "new",
+            "chatType": "CHANNEL",
+            "title": title,
+            "userIds": [],
+          },
+        ],
+      },
+      "notify": true,
+    };
+
+    await sendRawRequest(64, payload);
+
+    if (initialSubscriberContactIds.isNotEmpty) {
+      await sendRawRequest(32, {"contactIds": initialSubscriberContactIds});
+    }
+  }
+
   void renameGroup(int chatId, String newName) {
     final payload = {"chatId": chatId, "theme": newName};
     _sendMessage(55, payload);
@@ -1198,7 +1228,9 @@ extension ApiServiceChats on ApiService {
       "notify": true,
     };
 
-    clearChatsCache();
+    // НЕ очищаем глобальный кэш чатов при отправке сообщения!
+    // Это приводит к потере данных о правах администратора во ВСЕХ чатах
+    // clearChatsCache();
 
     final myId =
         _userId ?? (userId != null ? int.tryParse(userId!) : null) ?? 0;
@@ -1287,7 +1319,9 @@ extension ApiServiceChats on ApiService {
       "attachments": [],
     };
 
-    clearChatsCache();
+    // НЕ очищаем глобальный кэш чатов при редактировании сообщения!
+    // Это приводит к потере данных о правах администратора во ВСЕХ чатах
+    // clearChatsCache();
 
     await waitUntilOnline();
 
@@ -1394,7 +1428,9 @@ extension ApiServiceChats on ApiService {
         }
       }
 
-      _lastChatsPayload = null;
+      // НЕ обнуляем _lastChatsPayload! Мы только что обновили lastMessage в нём
+      // Обнуление приводит к потере данных о правах администратора
+      // _lastChatsPayload = null;
       return newLastMessage;
     } catch (e) {
       print('Ошибка обновления lastMessage чата: $e');
@@ -1415,7 +1451,9 @@ extension ApiServiceChats on ApiService {
       "itemType": "REGULAR",
     };
 
-    clearChatsCache();
+    // НЕ очищаем глобальный кэш чатов при удалении сообщения!
+    // Это приводит к потере данных о правах администратора во ВСЕХ чатах
+    // clearChatsCache();
 
     await waitUntilOnline();
 
@@ -1553,7 +1591,9 @@ extension ApiServiceChats on ApiService {
         },
         'notify': true,
       };
-      clearChatsCache();
+      // НЕ очищаем глобальный кэш чатов при отправке аудио!
+      // Это приводит к потере данных о правах администратора во ВСЕХ чатах
+      // clearChatsCache();
 
       final resp64 = await sendRequest(64, payload);
       final cmd = resp64['cmd'] as int?;

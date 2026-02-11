@@ -42,6 +42,11 @@ extension on _ChatScreenState {
       _clearInputState();
       _sendToServer(text: textToSend, cid: tempCid, elements: elements);
       _handleReadReceipts();
+      // Сбрасываем локальный кэш чата для обновления данных
+      if (widget.isChannel || widget.isGroupChat) {
+        _invalidateCache();
+        _setStateIfMounted(() {});
+      }
     } catch (e, stackTrace) {
       print('ОШИБКА в _sendMessage: $e');
       print(stackTrace);
@@ -547,6 +552,15 @@ extension on _ChatScreenState {
         return;
 
       if (opcode == 64 && (cmd == 0x100 || cmd == 256)) {
+        // Обновляем данные чата если они пришли (включая список админов)
+        if (payload['chat'] != null && payload['chat'] is Map<String, dynamic>) {
+          print('✅ [ChatScreen] Получены данные чата в opcode 64, обновляем');
+          ApiService.instance.updateChatInCacheFromJson(payload['chat'] as Map<String, dynamic>);
+          _invalidateCache(); // Сбрасываем локальный кэш
+        } else {
+          print('⚠️ [ChatScreen] payload[\'chat\'] отсутствует в opcode 64');
+        }
+        
         final messageMap = payload['message'];
         if (messageMap is! Map<String, dynamic>) return;
         final newMessage = Message.fromJson(messageMap);
@@ -567,6 +581,15 @@ extension on _ChatScreenState {
           if (mounted) _updateMessage(newMessage);
         });
       } else if (opcode == 128) {
+        // Обновляем данные чата если они пришли (включая список админов)
+        if (payload['chat'] != null && payload['chat'] is Map<String, dynamic>) {
+          print('✅ [ChatScreen] Получены данные чата в opcode 128, обновляем');
+          ApiService.instance.updateChatInCacheFromJson(payload['chat'] as Map<String, dynamic>);
+          _invalidateCache(); // Сбрасываем локальный кэш
+        } else {
+          print('⚠️ [ChatScreen] payload[\'chat\'] отсутствует в opcode 128');
+        }
+        
         final messageMap = payload['message'];
         if (messageMap is! Map<String, dynamic>) return;
         final newMessage = Message.fromJson(messageMap);
@@ -2039,10 +2062,7 @@ extension on _ChatScreenState {
                 offset: pos + toInsert.length,
               );
 
-              _setStateIfMounted(() {
-                _showKometColorPicker = false;
-                _currentKometColorPrefix = null;
-              });
+              _setStateIfMounted(() {});
 
               Navigator.pop(context);
               _textFocusNode.requestFocus();
@@ -2376,64 +2396,6 @@ extension on _ChatScreenState {
     if (newText.isEmpty) {
       _textController.elements.clear();
       _mentions.clear();
-    }
-  }
-
-  // ignore: unused_element
-  Future<void> _handleTextChangedForKometColor() async {
-    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
-    final autoCompleteEnabled = themeProvider.kometAutoCompleteEnabled;
-
-    if (!autoCompleteEnabled) {
-      if (_showKometColorPicker) {
-        _setStateIfMounted(() {
-          _showKometColorPicker = false;
-          _currentKometColorPrefix = null;
-        });
-      }
-      return;
-    }
-
-    final text = _textController.text;
-    final cursorPos = _textController.selection.baseOffset;
-    if (cursorPos == -1) return;
-
-    const prefix1 = 'komet.color_#';
-    const prefix2 = 'komet.cosmetic.pulse#';
-
-    String? detectedPrefix;
-    int? prefixStartPos;
-
-    for (final prefix in [prefix1, prefix2]) {
-      int lastFound = text.lastIndexOf(prefix, cursorPos);
-      if (lastFound != -1) {
-        // Check if cursor is within 7 chars after prefix (e.g. #FFFFFF')
-        final indexInHex = cursorPos - (lastFound + prefix.length);
-
-        if (indexInHex >= 0 && indexInHex <= 7) {
-          detectedPrefix = prefix;
-          prefixStartPos = lastFound;
-          break;
-        }
-      }
-    }
-
-    if (detectedPrefix != null && prefixStartPos != null) {
-      if (!_showKometColorPicker ||
-          _currentKometColorPrefix != detectedPrefix) {
-        _setStateIfMounted(() {
-          _showKometColorPicker = true;
-          _currentKometColorPrefix = detectedPrefix;
-        });
-      }
-      return;
-    }
-
-    if (_showKometColorPicker) {
-      _setStateIfMounted(() {
-        _showKometColorPicker = false;
-        _currentKometColorPrefix = null;
-      });
     }
   }
 

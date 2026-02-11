@@ -202,6 +202,79 @@ class ApiService {
 
   Map<String, dynamic>? get lastChatsPayload => _lastChatsPayload;
 
+  /// Сбрасывает флаг загруженных чатов для принудительной перезагрузки
+  void resetChatsFetchedFlag() {
+    _chatsFetchedInThisSession = false;
+  }
+
+  /// Загружает данные конкретного чата с сервера (включая список админов)
+  Future<void> loadChatData(int chatId) async {
+    try {
+      await waitUntilOnline();
+      final payload = {
+        'chatId': chatId,
+        'from': DateTime.now().add(const Duration(days: 1)).millisecondsSinceEpoch,
+        'forward': 0,
+        'backward': 1, // Запрашиваем хотя бы 1 сообщение, чтобы получить данные чата
+        'getMessages': true, // Нужно true, иначе сервер возвращает пустой ответ
+      };
+      await sendRequest(49, payload); // opcode 49 = loadChat
+      print('📥 [ApiService] Запрошены данные чата $chatId (opcode 49)');
+    } catch (e) {
+      print('❌ [ApiService] Ошибка загрузки данных чата $chatId: $e');
+      rethrow;
+    }
+  }
+
+  /// Получает детальную информацию о канале (opcode 48)
+  Future<Map<String, dynamic>?> getChannelDetails(int chatId) async {
+    try {
+      await waitUntilOnline();
+      
+      final payload = {
+        'chatIds': [chatId],
+      };
+
+      final response = await sendRequest(48, payload).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw TimeoutException('Таймаут получения деталей канала');
+        },
+      );
+      
+      // Проверяем ответ
+      final cmd = response['cmd'] as int?;
+      if (cmd != 0x100 && cmd != 256) {
+        return null;
+      }
+      
+      final responsePayload = response['payload'] as Map<String, dynamic>?;
+      if (responsePayload == null) {
+        print('❌ [ApiService] Пустой payload в ответе');
+        return null;
+      }
+      
+      final chats = responsePayload['chats'] as List<dynamic>?;
+      if (chats == null || chats.isEmpty) {
+        print('❌ [ApiService] Нет чатов в ответе');
+        return null;
+      }
+      
+      final chat = chats[0] as Map<String, dynamic>;
+      if (chat['id'] != chatId) {
+        return null;
+      }
+      return chat;
+    } on TimeoutException catch (e) {
+      print('⏱️ [ApiService] Таймаут получения деталей канала $chatId: $e');
+      return null;
+    } catch (e, stackTrace) {
+      print('❌ [ApiService] Ошибка получения деталей канала $chatId: $e');
+      print('❌ [ApiService] Stack trace: $stackTrace');
+      return null;
+    }
+  }
+
   void updateChatInListLocally(
       int chatId,
       Map<String, dynamic> messageJson, [
