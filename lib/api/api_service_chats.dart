@@ -1203,12 +1203,19 @@ extension ApiServiceChats on ApiService {
         int? cid,
         List<Map<String, dynamic>>? elements,
       }) {
-    Map<String, dynamic>? replyLink;
+    Map<String, dynamic>? replyLinkLocal;
+    Map<String, dynamic>? replyLinkServer;
     if (replyToMessageId != null) {
+      // Сервер ожидает messageId как строку и без лишних полей
       final parsedReplyId = int.tryParse(replyToMessageId);
-      replyLink = {
+      replyLinkServer = {
         "type": "REPLY",
         "messageId": parsedReplyId ?? replyToMessageId,
+      };
+      // Для локального превью можно хранить расширенную информацию
+      replyLinkLocal = {
+        "type": "REPLY",
+        "messageId": replyToMessageId,
         if (replyToMessage != null)
           "message": _mapMessageForLink(replyToMessage),
         "chatId": chatId,
@@ -1223,7 +1230,7 @@ extension ApiServiceChats on ApiService {
         "cid": clientMessageId,
         "elements": elements ?? [],
         "attaches": [],
-        "link": ?replyLink,
+        "link": ?replyLinkServer,
       },
       "notify": true,
     };
@@ -1242,7 +1249,7 @@ extension ApiServiceChats on ApiService {
       'type': 'USER',
       'cid': clientMessageId,
       'attaches': [],
-      'link': ?replyLink,
+      'link': ?replyLinkLocal,
     };
 
     _emitLocal({
@@ -1272,6 +1279,7 @@ extension ApiServiceChats on ApiService {
         })
             .catchError((e) {
           print('Ошибка отправки сообщения: $e');
+          print('Payload on error: ' + payload.toString());
           _queueService.addToQueue(queueItem);
         }),
       );

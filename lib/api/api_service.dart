@@ -41,6 +41,7 @@ import 'package:msgpack_dart/msgpack_dart.dart' as msgpack;
 import 'packet_buffer.dart';
 import 'protocol_handler.dart';
 import 'pending_requests_manager.dart';
+import '../screens/chat/widgets/chat_message_item.dart';
 part 'api_service_connection.dart';
 part 'api_service_auth.dart';
 part 'api_service_contacts.dart';
@@ -129,6 +130,7 @@ class ApiService {
   final Map<int, List<Message>> _messageCache = {};
 
   final Map<int, Contact> _contactCache = {};
+  final Set<int> _missingContactIds = {};
   DateTime? _lastContactsUpdate;
   static const Duration _contactCacheExpiry = Duration(minutes: 5);
 

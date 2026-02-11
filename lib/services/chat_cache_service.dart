@@ -238,15 +238,22 @@ class ChatCacheService {
           await cacheChatMessages(chatId, updatedMessages);
         } else {
           // Обновляем существующее сообщение
+          // ВАЖНО: Сохраняем поле link из локального сообщения, если сервер его не вернул
           final updatedMessages = cached
               .map(
-                (m) =>
-                    (m.id == message.id ||
-                        (m.cid != null &&
-                            message.cid != null &&
-                            m.cid == message.cid))
-                    ? message
-                    : m,
+                (m) {
+                  if (m.id == message.id ||
+                      (m.cid != null &&
+                          message.cid != null &&
+                          m.cid == message.cid)) {
+                    // Если у нового сообщения нет link, но у старого есть - сохраняем старый link
+                    if (message.link == null && m.link != null) {
+                      return message.copyWith(link: m.link);
+                    }
+                    return message;
+                  }
+                  return m;
+                },
               )
               .toList();
           await cacheChatMessages(chatId, updatedMessages);

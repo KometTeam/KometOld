@@ -38,9 +38,17 @@ extension on _ChatScreenState {
         cid: tempCid,
         elements: elements,
       );
+      final replyIdForServer = _replyingToMessage?.id;
+      final replyMsgForLocal = _replyingToMessage;
       _addMessage(tempMessage);
       _clearInputState();
-      _sendToServer(text: textToSend, cid: tempCid, elements: elements);
+      _sendToServer(
+        text: textToSend,
+        cid: tempCid,
+        elements: elements,
+        replyToMessageId: replyIdForServer,
+        replyToMessage: replyMsgForLocal,
+      );
       _handleReadReceipts();
       // Сбрасываем локальный кэш чата для обновления данных
       if (widget.isChannel || widget.isGroupChat) {
@@ -117,7 +125,7 @@ extension on _ChatScreenState {
     return {
       'type': 'REPLY',
       'messageId': replyId,
-      'chatId': 0,
+      'chatId': widget.chatId, // use real chatId instead of 0
       'message': {
         'sender': _replyingToMessage!.senderId,
         'id': replyId,
@@ -144,12 +152,14 @@ extension on _ChatScreenState {
     required String text,
     required int cid,
     required List<Map<String, dynamic>> elements,
+    String? replyToMessageId,
+    Message? replyToMessage,
   }) {
     ApiService.instance.sendMessage(
       widget.chatId,
       text,
-      replyToMessageId: _replyingToMessage?.id,
-      replyToMessage: _replyingToMessage,
+      replyToMessageId: replyToMessageId,
+      replyToMessage: replyToMessage,
       cid: cid,
       elements: elements,
     );
@@ -572,6 +582,12 @@ extension on _ChatScreenState {
             if (queueItem != null) queueService.removeFromQueue(queueItem.id);
           }
         }
+        
+        // Добавляем в кэш (с сохранением link из локального сообщения)
+        unawaited(
+          ChatCacheService().addMessageToCache(widget.chatId, newMessage),
+        );
+        
         // Если идёт загрузка истории, откладываем обработку
         if (_isLoadingHistory) {
           _pendingMessagesDuringLoad.add(newMessage);

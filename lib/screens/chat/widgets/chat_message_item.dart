@@ -10,6 +10,13 @@ import '../../../api/api_service.dart';
 /// Кэш контактов для ChatMessageItem (глобальный для всех экземпляров)
 final Map<int, Contact> _globalContactCache = {};
 final Set<int> _loadingContactIds = {};
+final Set<int> _missingContactIds = {};
+
+void clearChatMessageContactCache() {
+  _globalContactCache.clear();
+  _loadingContactIds.clear();
+  _missingContactIds.clear();
+}
 
 /// Упрощенный виджет элемента сообщения
 class ChatMessageItem extends StatefulWidget {
@@ -60,7 +67,6 @@ class _ChatMessageItemState extends State<ChatMessageItem> {
   }
 
   void _resolveContact() {
-    // Используем переданный контакт или пытаемся получить из глобального кэша/API
     if (widget.senderContact != null) {
       _resolvedContact = widget.senderContact;
       return;
@@ -68,7 +74,10 @@ class _ChatMessageItemState extends State<ChatMessageItem> {
 
     final senderId = widget.message.senderId;
     
-    // Проверяем глобальный кэш
+    if (_missingContactIds.contains(senderId)) {
+      return;
+    }
+    
     if (_globalContactCache.containsKey(senderId)) {
       setState(() {
         _resolvedContact = _globalContactCache[senderId];
@@ -76,7 +85,6 @@ class _ChatMessageItemState extends State<ChatMessageItem> {
       return;
     }
 
-    // Проверяем кэш API
     final apiContact = ApiService.instance.getCachedContact(senderId);
     if (apiContact != null) {
       setState(() {
@@ -86,7 +94,6 @@ class _ChatMessageItemState extends State<ChatMessageItem> {
       return;
     }
 
-    // Загружаем контакт, если это групповой чат и контакт не найден
     if (widget.isGroupChat && senderId != 0 && !_isLoadingContact) {
       _loadContact(senderId);
     }
@@ -106,6 +113,8 @@ class _ChatMessageItemState extends State<ChatMessageItem> {
         setState(() {
           _resolvedContact = contact;
         });
+      } else {
+        _missingContactIds.add(contactId);
       }
     } catch (e) {
       print('❌ ChatMessageItem: ошибка загрузки контакта $contactId: $e');
@@ -126,7 +135,6 @@ class _ChatMessageItemState extends State<ChatMessageItem> {
         mainAxisAlignment: widget.isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          // Аватарка отправителя (только для чужих сообщений в групповых чатах)
           if (showSenderInfo)
             Padding(
               padding: const EdgeInsets.only(right: 8, bottom: 4),
@@ -151,7 +159,6 @@ class _ChatMessageItemState extends State<ChatMessageItem> {
               ),
             )
           else if (!widget.isMe && widget.isGroupChat)
-            // Placeholder для выравнивания
             const SizedBox(width: 36),
           
           Flexible(
@@ -210,8 +217,6 @@ class _MessageContent extends StatelessWidget {
       crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Имя отправителя (только для чужих сообщений в групповых чатах)
-        // Для каналов (senderId == 0) показываем 'Канал' или имя контакта
         if (showSenderInfo)
           Padding(
             padding: const EdgeInsets.only(left: 4, bottom: 2),
@@ -237,7 +242,6 @@ class _MessageContent extends StatelessWidget {
                   ),
           ),
         
-        // Reply preview
         if (message.isReply && message.link != null)
           _ReplyPreview(
             link: message.link!,
@@ -252,7 +256,6 @@ class _MessageContent extends StatelessWidget {
             },
           ),
         
-        // Message bubble
         Container(
           decoration: BoxDecoration(
             color: backgroundColor,
@@ -263,7 +266,6 @@ class _MessageContent extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Text content
               if (message.text.isNotEmpty)
                 SelectionContainer.disabled(
                   child: Text(
@@ -276,7 +278,6 @@ class _MessageContent extends StatelessWidget {
                   ),
                 ),
               
-              // Attachments indicator
               if (message.attaches.isNotEmpty)
                 _AttachmentsIndicator(
                   count: message.attaches.length,
@@ -285,7 +286,6 @@ class _MessageContent extends StatelessWidget {
               
               const SizedBox(height: 4),
               
-              // Time and status
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [

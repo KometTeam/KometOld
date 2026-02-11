@@ -278,8 +278,14 @@ extension ApiServiceContacts on ApiService {
       return [];
     }
 
+    final idsToFetch = contactIds.where((id) => !_missingContactIds.contains(id)).toList();
+    
+    if (idsToFetch.isEmpty) {
+      return [];
+    }
+
     try {
-      final int contactSeq = await _sendMessage(32, {"contactIds": contactIds});
+      final int contactSeq = await _sendMessage(32, {"contactIds": idsToFetch});
 
       final contactResponse = await messages
           .firstWhere((msg) => msg['seq'] == contactSeq)
@@ -295,12 +301,17 @@ extension ApiServiceContacts on ApiService {
           .map((json) => Contact.fromJson(json))
           .toList();
 
-      if (contacts.length < contactIds.length) {
+      if (contacts.length < idsToFetch.length) {
         final receivedIds = contacts.map((c) => c.id).toSet();
-        final missingIds = contactIds
+        final missingIds = idsToFetch
             .where((id) => !receivedIds.contains(id))
             .toList();
-        debugPrint('Missing contact IDs: $missingIds');
+        
+        for (final missingId in missingIds) {
+          if (_missingContactIds.add(missingId)) {
+            debugPrint('⚠️ Контакт $missingId не найден, добавлен в черный список');
+          }
+        }
       }
 
       for (final contact in contacts) {

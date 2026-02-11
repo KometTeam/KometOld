@@ -208,6 +208,9 @@ extension ApiServiceConnection on ApiService {
 
     _isSessionOnline = false;
     _isSessionReady = false;
+    
+    clearChatMessageContactCache();
+    _missingContactIds.clear();
 
     _connectionStatusController.add("connecting");
     _updateConnectionState(
