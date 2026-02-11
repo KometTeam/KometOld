@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:gwid/utils/theme_provider.dart';
+import 'package:gwid/theme/theme.dart';
 
 class AnimationsScreen extends StatelessWidget {
   const AnimationsScreen({super.key});
@@ -216,7 +217,7 @@ class _CustomSettingTile extends StatelessWidget {
       leading: Icon(icon, color: colors.onSurface),
       title: Text(
         title,
-        style: TextStyle(
+        style: const TextStyle(
           fontWeight: FontWeight.w500,
           fontSize: 16,
         ),
@@ -262,7 +263,7 @@ class _DropdownSettingTile<T> extends StatelessWidget {
       leading: Icon(icon, color: colors.onSurface),
       title: Text(
         title,
-        style: TextStyle(
+        style: const TextStyle(
           fontWeight: FontWeight.w500,
           fontSize: 16,
         ),

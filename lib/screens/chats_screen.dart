@@ -15,6 +15,12 @@ import 'package:gwid/models/message.dart';
 import 'package:gwid/models/profile.dart';
 import 'package:gwid/models/chat_folder.dart';
 import 'package:gwid/utils/theme_provider.dart';
+import 'package:gwid/theme/theme.dart'
+    show
+        DrawerBackgroundType,
+        FolderTabsBackgroundType,
+        AppBarBackgroundType,
+        ChatPreviewMode;
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gwid/screens/join_group_screen.dart';
@@ -32,6 +38,7 @@ import 'package:gwid/services/chat_cache_service.dart';
 import 'package:gwid/models/account.dart';
 import 'package:gwid/services/message_queue_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:gwid/services/contact_local_names_service.dart';
 
 import 'package:gwid/screens/chat/models/search_result.dart';
 import 'package:gwid/screens/chat/widgets/typing_dots.dart';
@@ -43,6 +50,7 @@ import 'package:gwid/screens/chat/dialogs/read_settings_dialog.dart';
 import 'package:gwid/screens/chat/screens/calls_screen.dart';
 import 'package:gwid/screens/chat/screens/sferum_webview_panel.dart';
 import 'package:gwid/screens/chat/handlers/message_handler.dart';
+import 'package:gwid/widgets/optimized/optimized_widgets.dart';
 
 class ChatsScreen extends StatefulWidget {
   final void Function(
@@ -70,17 +78,21 @@ class ChatsScreen extends StatefulWidget {
 }
 
 class _ChatsScreenState extends State<ChatsScreen>
-    with AutomaticKeepAliveClientMixin, TickerProviderStateMixin {
+    with
+        TickerProviderStateMixin,
+        AutomaticKeepAliveClientMixin,
+        OptimizedStateMixin<ChatsScreen> {
   late Future<Map<String, dynamic>> _chatsFuture;
   StreamSubscription? _apiSubscription;
   List<Chat> _allChats = [];
   bool _chatsLoaded = false;
+  bool _chatOrderLoaded = false; // Флаг для предотвращения повторной загрузки порядка
   MessageHandler? _messageHandler;
   List<Chat> _filteredChats = [];
   Map<int, Contact> _contacts = {};
   bool _isSearchExpanded = false;
   String _searchQuery = '';
-  Timer? _searchDebounceTimer;
+  // Используем Debouncer из OptimizedStateMixin вместо Timer
   List<SearchResult> _searchResults = [];
   String _searchFilter = 'all';
   bool _hasRequestedBlockedContacts = false;
@@ -99,11 +111,15 @@ class _ChatsScreenState extends State<ChatsScreen>
   String _connectionStatus = 'connecting';
   StreamSubscription<void>? _connectionStatusSubscription;
   StreamSubscription<String>? _connectionStateSubscription;
+  StreamSubscription<int>? _contactNamesSubscription;
   bool _isAccountsExpanded = false;
   bool _isReconnecting = false;
 
   SharedPreferences? _prefs;
   Map<int, Map<String, dynamic>> _chatDrafts = {};
+
+  int get _myId =>
+      _myProfile?.id ?? int.tryParse(ApiService.instance.userId ?? '0') ?? 0;
 
   Future<void> _initializePrefs() async {
     final p = await SharedPreferences.getInstance();
@@ -121,22 +137,22 @@ class _ChatsScreenState extends State<ChatsScreen>
     super.initState();
     _initializePrefs();
     _loadMyProfile();
-    _chatsFuture = (() async {
-      try {
-        await ApiService.instance.waitUntilOnline();
-        final result = await ApiService.instance.getChatsAndContacts();
-        return result;
-      } catch (e) {
-        print('Ошибка получения чатов: $e');
-        if (e.toString().contains('Auth token not found') ||
-            e.toString().contains('FAIL_WRONG_PASSWORD')) {
-          _showTokenExpiredDialog(
-            'Токен авторизации недействителен. Требуется повторная авторизация.',
-          );
-        }
-        rethrow;
-      }
-    })();
+
+    // Проверяем, есть ли уже данные в кэше (например, после авторизации)
+    // Если данные есть и сессия готова, используем их сразу без повторной загрузки
+    final cachedData = ApiService.instance.lastChatsPayload;
+    if (cachedData != null &&
+        cachedData['chats'] != null &&
+        ApiService.instance.isOnline &&
+        ApiService.instance.isSessionReady) {
+      print('ChatsScreen: используем кэшированные данные из lastChatsPayload');
+      _chatsFuture = Future.value(cachedData);
+      _chatsLoaded =
+          false; // Сбрасываем флаг, чтобы данные обработались в build
+    } else {
+      // Данных нет или сессия не готова - загружаем с таймаутом
+      _chatsFuture = _loadChatsWithTimeout();
+    }
 
     _searchAnimationController = AnimationController(
       duration: const Duration(milliseconds: 300),
@@ -169,6 +185,66 @@ class _ChatsScreenState extends State<ChatsScreen>
             print("🔄 ChatsScreen: Обновление чатов запущено");
           }
         });
+
+    _contactNamesSubscription = ContactLocalNamesService().changes.listen((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  /// Загружает чаты с таймаутом и обработкой ошибок
+  Future<Map<String, dynamic>> _loadChatsWithTimeout() async {
+    try {
+      // Ждем подключения с таймаутом 15 секунд
+      await ApiService.instance.waitUntilOnline().timeout(
+        const Duration(seconds: 15),
+        onTimeout: () {
+          print('ChatsScreen: таймаут ожидания подключения');
+          throw TimeoutException('Таймаут подключения к серверу');
+        },
+      );
+
+      // Загружаем чаты с таймаутом 20 секунд
+      final result = await ApiService.instance.getChatsAndContacts().timeout(
+        const Duration(seconds: 20),
+        onTimeout: () {
+          print('ChatsScreen: таймаут загрузки чатов');
+          throw TimeoutException('Таймаут загрузки чатов');
+        },
+      );
+
+      // Предзагружаем сообщения из топ-чатов для быстрого открытия
+      final chats = result['chats'] as List<dynamic>? ?? [];
+      if (chats.isNotEmpty) {
+        final topChatIds = chats
+            .take(5) // Первые 5 чатов
+            .where((c) => c is Map<String, dynamic>)
+            .map((c) => c['id'] as int?)
+            .where((id) => id != null)
+            .cast<int>()
+            .toList();
+
+        if (topChatIds.isNotEmpty) {
+          // Запускаем предзагрузку в фоне без ожидания
+          unawaited(
+            ApiService.instance.preloadChatMessages(
+              topChatIds,
+              messageCount: 7,
+            ),
+          );
+        }
+      }
+
+      return result;
+    } catch (e) {
+      print('ChatsScreen: Ошибка загрузки чатов: $e');
+      if (e.toString().contains('Auth token not found') ||
+          e.toString().contains('FAIL_WRONG_PASSWORD')) {
+        _showTokenExpiredDialog(
+          'Токен авторизации недействителен. Требуется повторная авторизация.',
+        );
+      }
+      rethrow;
+    }
   }
 
   @override
@@ -279,8 +355,8 @@ class _ChatsScreenState extends State<ChatsScreen>
       );
       setState(() {
         _allChats[chatIndex] = updatedChat;
+        _filterChats();
       });
-      _filterChats();
     }
   }
 
@@ -348,6 +424,100 @@ class _ChatsScreenState extends State<ChatsScreen>
     );
   }
 
+  void _showCreateChannelDialog() {
+    final TextEditingController titleController = TextEditingController();
+    final List<int> selectedContacts = [];
+
+    final int? myId = _myProfile?.id;
+
+    final List<Contact> availableContacts = _contacts.values.where((contact) {
+      final contactNameLower = contact.name.toLowerCase();
+      return contactNameLower != 'max' &&
+          contactNameLower != 'gigachat' &&
+          (myId == null || contact.id != myId);
+    }).toList();
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Создать канал'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: titleController,
+                decoration: const InputDecoration(
+                  labelText: 'Название канала',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('Выберите первых подписчиков:'),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 200,
+                width: 300,
+                child: ListView.builder(
+                  itemCount: availableContacts.length,
+                  itemBuilder: (context, index) {
+                    final contact = availableContacts[index];
+                    final isSelected = selectedContacts.contains(contact.id);
+
+                    return CheckboxListTile(
+                      title: Text(
+                        getContactDisplayName(
+                          contactId: contact.id,
+                          originalName: contact.name,
+                          originalFirstName: contact.firstName,
+                          originalLastName: contact.lastName,
+                        ),
+                      ),
+                      subtitle: Text(
+                        contact.firstName.isNotEmpty &&
+                                contact.lastName.isNotEmpty
+                            ? '${contact.firstName} ${contact.lastName}'
+                            : '',
+                      ),
+                      value: isSelected,
+                      onChanged: (value) {
+                        setState(() {
+                          if (value == true) {
+                            selectedContacts.add(contact.id);
+                          } else {
+                            selectedContacts.remove(contact.id);
+                          }
+                        });
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Отмена'),
+            ),
+            TextButton(
+              onPressed: () {
+                if (titleController.text.trim().isNotEmpty) {
+                  ApiService.instance.createChannelWithMessage(
+                    titleController.text.trim(),
+                    selectedContacts,
+                  );
+                  Navigator.of(context).pop();
+                }
+              },
+              child: const Text('Создать'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _listenForUpdates() {
     _messageHandler?.listen()?.cancel();
     final handler = MessageHandler(
@@ -382,6 +552,10 @@ class _ChatsScreenState extends State<ChatsScreen>
 
   void _removeChatLocally(int chatId) {
     if (!mounted) return;
+    _typingDecayTimers[chatId]?.cancel();
+    _typingDecayTimers.remove(chatId);
+    _typingChats.remove(chatId);
+    _onlineChats.remove(chatId);
     setState(() {
       _allChats.removeWhere((c) => c.id == chatId);
       _filteredChats.removeWhere((c) => c.id == chatId);
@@ -402,36 +576,70 @@ class _ChatsScreenState extends State<ChatsScreen>
   }
 
   void _refreshChats() {
-    _chatsFuture = ApiService.instance.getChatsAndContacts(force: true);
-    _chatsFuture.then((data) {
-      if (mounted) {
-        final chats = data['chats'] as List<dynamic>;
-        final contacts = data['contacts'] as List<dynamic>;
-        final profileData = data['profile'];
+    _chatsFuture = (() async {
+      final result = await ApiService.instance.getChatsAndContacts(force: true);
 
-        _allChats = chats
-            .where((json) => json != null)
-            .map((json) => Chat.fromJson((json as Map).cast<String, dynamic>()))
+      // Предзагружаем сообщения из топ-чатов для быстрого открытия
+      final chats = result['chats'] as List<dynamic>? ?? [];
+      if (chats.isNotEmpty) {
+        final topChatIds = chats
+            .take(5) // Первые 5 чатов
+            .where((c) => c is Map<String, dynamic>)
+            .map((c) => c['id'] as int?)
+            .where((id) => id != null)
+            .cast<int>()
             .toList();
-        _contacts.clear();
-        for (final contactJson in contacts) {
-          _loadChatDrafts();
-          final contact = Contact.fromJson(
-            (contactJson as Map).cast<String, dynamic>(),
+
+        if (topChatIds.isNotEmpty) {
+          // Запускаем предзагрузку в фоне без ожидания
+          unawaited(
+            ApiService.instance.preloadChatMessages(
+              topChatIds,
+              messageCount: 7,
+            ),
           );
-          _contacts[contact.id] = contact;
         }
-
-        setState(() {
-          if (profileData != null) {
-            _myProfile = Profile.fromJson(profileData);
-            _isProfileLoading = false;
-          }
-        });
-
-        _filterChats();
       }
-    });
+
+      return result;
+    })();
+
+    _chatsFuture
+        .then((data) {
+          if (mounted) {
+            final chats = data['chats'] as List<dynamic>;
+            final contacts = data['contacts'] as List<dynamic>;
+            final profileData = data['profile'];
+
+            _allChats = chats
+                .where((json) => json != null)
+                .map(
+                  (json) =>
+                      Chat.fromJson((json as Map).cast<String, dynamic>()),
+                )
+                .toList();
+            _contacts.clear();
+            for (final contactJson in contacts) {
+              _loadChatDrafts();
+              final contact = Contact.fromJson(
+                (contactJson as Map).cast<String, dynamic>(),
+              );
+              _contacts[contact.id] = contact;
+            }
+
+            setState(() {
+              if (profileData != null) {
+                _myProfile = Profile.fromJson(profileData);
+                _isProfileLoading = false;
+              }
+              _filterChats();
+            });
+          }
+        })
+        .catchError((error) {
+          print('Ошибка в _refreshChats: $error');
+          // При ошибке ничего не делаем, просто логируем
+        });
   }
 
   void _showAddMenu(BuildContext context) {
@@ -487,6 +695,24 @@ class _ChatsScreenState extends State<ChatsScreen>
                     context,
                   ).colorScheme.primaryContainer,
                   child: Icon(
+                    Icons.campaign,
+                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                  ),
+                ),
+                title: const Text('Создать канал'),
+                subtitle: const Text('Публичные посты для подписчиков'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showCreateChannelDialog();
+                },
+              ),
+
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Theme.of(
+                    context,
+                  ).colorScheme.primaryContainer,
+                  child: Icon(
                     Icons.person_search,
                     color: Theme.of(context).colorScheme.onPrimaryContainer,
                   ),
@@ -530,7 +756,7 @@ class _ChatsScreenState extends State<ChatsScreen>
                   backgroundColor: Theme.of(
                     context,
                   ).colorScheme.primaryContainer,
-                  child: Icon(Icons.download, color: Colors.white),
+                  child: const Icon(Icons.download, color: Colors.white),
                 ),
                 title: const Text('Загрузки'),
                 subtitle: const Text('Скачанные файлы'),
@@ -751,7 +977,7 @@ class _ChatsScreenState extends State<ChatsScreen>
         }
 
         final otherParticipantId = chat.participantIds.firstWhere(
-          (id) => id != chat.ownerId,
+          (id) => id != _myId,
           orElse: () => 0,
         );
         if (otherParticipantId != 0) {
@@ -775,7 +1001,7 @@ class _ChatsScreenState extends State<ChatsScreen>
             matchesThisFilter = false;
           } else {
             final otherParticipantId = chat.participantIds.firstWhere(
-              (id) => id != chat.ownerId,
+              (id) => id != _myId,
               orElse: () => 0,
             );
             if (otherParticipantId != 0) {
@@ -806,61 +1032,58 @@ class _ChatsScreenState extends State<ChatsScreen>
 
   void _filterChats() {
     final query = _searchController.text.toLowerCase();
-    setState(() {
-      List<Chat> chatsToFilter = _allChats;
+    List<Chat> chatsToFilter = _allChats;
 
-      if (_selectedFolderId != null) {
-        final selectedFolder = _folders.firstWhere(
-          (f) => f.id == _selectedFolderId,
-          orElse: () => _folders.first,
+    if (_selectedFolderId != null) {
+      final selectedFolder = _folders.firstWhere(
+        (f) => f.id == _selectedFolderId,
+        orElse: () => _folders.first,
+      );
+      chatsToFilter = _allChats
+          .where((chat) => _chatBelongsToFolder(chat, selectedFolder))
+          .toList();
+    }
+
+    if (query.isEmpty && !_searchFocusNode.hasFocus) {
+      _filteredChats = List.from(chatsToFilter);
+
+      // Сортировка по времени последнего сообщения (новые сверху)
+      _filteredChats.sort((a, b) {
+        return b.lastMessage.time.compareTo(a.lastMessage.time);
+      });
+    } else if (_searchFocusNode.hasFocus && query.isEmpty) {
+      _filteredChats = [];
+    } else if (query.isNotEmpty) {
+      _filteredChats = chatsToFilter.where((chat) {
+        final isSavedMessages = _isSavedMessages(chat);
+        if (isSavedMessages) {
+          return "избранное".contains(query);
+        }
+        final otherParticipantId = chat.participantIds.firstWhere(
+          (id) => id != _myId,
+          orElse: () => 0,
         );
-        chatsToFilter = _allChats
-            .where((chat) => _chatBelongsToFolder(chat, selectedFolder))
-            .toList();
-      }
+        final contactName =
+            _contacts[otherParticipantId]?.name.toLowerCase() ?? '';
+        return contactName.contains(query);
+      }).toList();
 
-      if (query.isEmpty && !_searchFocusNode.hasFocus) {
-        _filteredChats = List.from(chatsToFilter);
-
-        // Сортировка по времени последнего сообщения (новые сверху)
-        _filteredChats.sort((a, b) {
-          return b.lastMessage.time.compareTo(a.lastMessage.time);
-        });
-      } else if (_searchFocusNode.hasFocus && query.isEmpty) {
-        _filteredChats = [];
-      } else if (query.isNotEmpty) {
-        _filteredChats = chatsToFilter.where((chat) {
-          final isSavedMessages = _isSavedMessages(chat);
-          if (isSavedMessages) {
-            return "избранное".contains(query);
-          }
-          final otherParticipantId = chat.participantIds.firstWhere(
-            (id) => id != chat.ownerId,
-            orElse: () => 0,
-          );
-          final contactName =
-              _contacts[otherParticipantId]?.name.toLowerCase() ?? '';
-          return contactName.contains(query);
-        }).toList();
-
-        // Сортировка по времени последнего сообщения (новые сверху)
-        _filteredChats.sort((a, b) {
-          return b.lastMessage.time.compareTo(a.lastMessage.time);
-        });
-      } else {
-        _filteredChats = [];
-      }
-    });
+      // Сортировка по времени последнего сообщения (новые сверху)
+      _filteredChats.sort((a, b) {
+        return b.lastMessage.time.compareTo(a.lastMessage.time);
+      });
+    } else {
+      _filteredChats = [];
+    }
   }
 
   void _onSearchChanged() {
     final query = _searchController.text;
     _searchQuery = query;
 
-    _searchDebounceTimer?.cancel();
-    _searchDebounceTimer = Timer(const Duration(milliseconds: 300), () {
-      _performSearch();
-    });
+    // Используем debouncedSetState для оптимизации
+    debouncedSetState('search', delay: const Duration(milliseconds: 300));
+    _performSearch();
   }
 
   void _onSearchFocusChanged() {
@@ -946,7 +1169,7 @@ class _ChatsScreenState extends State<ChatsScreen>
       }
 
       final otherParticipantId = chat.participantIds.firstWhere(
-        (id) => id != chat.ownerId,
+        (id) => id != _myId,
         orElse: () => 0,
       );
       final contact = _contacts[otherParticipantId];
@@ -1037,50 +1260,67 @@ class _ChatsScreenState extends State<ChatsScreen>
       _chatsFuture = future;
     });
 
-    future.then((data) {
-      if (!mounted) return;
+    future
+        .then((data) {
+          if (!mounted) return;
 
-      final chats = (data['chats'] as List?) ?? const [];
-      final contacts = (data['contacts'] as List?) ?? const [];
-      final profileData = data['profile'];
+          final chats = (data['chats'] as List?) ?? const [];
+          final contacts = (data['contacts'] as List?) ?? const [];
+          final profileData = data['profile'];
 
-      setState(() {
-        final newChats = chats
-            .where((json) => json != null)
-            .map((json) => Chat.fromJson((json as Map).cast<String, dynamic>()))
-            .toList();
+          setState(() {
+            final newChats = chats
+                .where((json) => json != null)
+                .map(
+                  (json) =>
+                      Chat.fromJson((json as Map).cast<String, dynamic>()),
+                )
+                .toList();
 
-        final newChatIds = newChats.map((c) => c.id).toSet();
+            final newChatIds = newChats.map((c) => c.id).toSet();
 
-        for (final newChat in newChats) {
-          final existingIndex = _allChats.indexWhere((c) => c.id == newChat.id);
-          if (existingIndex != -1) {
-            _allChats[existingIndex] = newChat;
-          } else {
-            _allChats.add(newChat);
-          }
-        }
+            for (final newChat in newChats) {
+              final existingIndex = _allChats.indexWhere(
+                (c) => c.id == newChat.id,
+              );
+              if (existingIndex != -1) {
+                _allChats[existingIndex] = newChat;
+              } else {
+                _allChats.add(newChat);
+              }
+            }
 
-        _allChats.removeWhere(
-          (chat) => !newChatIds.contains(chat.id) && chat.id != 0,
-        );
+            _allChats.removeWhere(
+              (chat) => !newChatIds.contains(chat.id) && chat.id != 0,
+            );
 
-        for (final contactJson in contacts) {
-          final contact = Contact.fromJson(
-            (contactJson as Map).cast<String, dynamic>(),
-          );
-          _contacts[contact.id] = contact;
-        }
+            for (final contactJson in contacts) {
+              final contact = Contact.fromJson(
+                (contactJson as Map).cast<String, dynamic>(),
+              );
+              _contacts[contact.id] = contact;
+            }
 
-        if (profileData != null) {
-          _myProfile = Profile.fromJson(profileData);
-          _isProfileLoading = false;
-        }
-      });
+            if (profileData != null) {
+              _myProfile = Profile.fromJson(profileData);
+              _isProfileLoading = false;
+            }
+            
+            _filterChats();
+          });
+          
+          _loadChatDrafts();
+        })
+        .catchError((error) {
+          print('Ошибка в _loadChatsAndContacts: $error');
+          if (!mounted) return;
 
-      _filterChats();
-      _loadChatDrafts();
-    });
+          // Даже при ошибке убедимся, что _chatsLoaded установлен в true
+          // чтобы не показывать вечный индикатор загрузки
+          setState(() {
+            _chatsLoaded = true;
+          });
+        });
   }
 
   Future<void> _loadChatOrder() async {
@@ -1090,9 +1330,14 @@ class _ChatsScreenState extends State<ChatsScreen>
   }
 
   Future<void> _loadMissingContact(int contactId) async {
-    if (_loadingContactIds.contains(contactId) ||
-        _contacts.containsKey(contactId)) {
-      return;
+    if (_loadingContactIds.contains(contactId)) return;
+
+    final existing = _contacts[contactId];
+    if (existing != null) {
+      final isNumericName = RegExp(r'^\d+$').hasMatch(existing.name);
+      if (!isNumericName && existing.name != contactId.toString()) {
+        return;
+      }
     }
 
     _loadingContactIds.add(contactId);
@@ -1307,21 +1552,55 @@ class _ChatsScreenState extends State<ChatsScreen>
                   _loadFolders(snapshot.data!);
                 });
 
-                _loadChatOrder().then((_) {
-                  setState(() {
-                    _filteredChats = List.from(_allChats);
-                  });
-                });
+                // ИСПРАВЛЕНИЕ: Вызываем _loadChatOrder только ОДИН раз
+                if (!_chatOrderLoaded) {
+                  _chatOrderLoaded = true;
+                  _loadChatOrder()
+                      .then((_) {
+                        if (!mounted) return;
+                        setState(() {
+                          _filteredChats = List.from(_allChats);
+                        });
+                      })
+                      .catchError((error) {
+                        print('Ошибка в _loadChatOrder: $error');
+                        if (!mounted) return;
+                        // При ошибке все равно показываем чаты
+                        setState(() {
+                          _filteredChats = List.from(_allChats);
+                        });
+                      });
+                }
               }
 
-              if (_filteredChats.isEmpty && _allChats.isNotEmpty) {
-                _filteredChats = List.from(_allChats)
+              // ИСПРАВЛЕНИЕ: Проверяем флаг перед изменением состояния в build()
+              if (_filteredChats.isEmpty && _allChats.isNotEmpty && _chatOrderLoaded) {
+                // Используем временную переменную вместо прямого изменения состояния
+                final sortedChats = List.from(_allChats)
                   ..sort(
                     (a, b) => b.lastMessage.time.compareTo(a.lastMessage.time),
                   );
+                // Планируем setState на следующий фрейм
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted && _filteredChats.isEmpty) {
+                    setState(() {
+                      _filteredChats = List<Chat>.from(sortedChats);
+                    });
+                  }
+                });
               }
               if (_filteredChats.isEmpty && _allChats.isEmpty) {
-                return const Center(child: CircularProgressIndicator());
+                // Если чаты еще не загружены - показываем индикатор загрузки
+                if (!_chatsLoaded) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                // Если чаты загружены но их нет - показываем сообщение
+                return const Center(
+                  child: Text(
+                    'Нет чатов',
+                    style: TextStyle(fontSize: 16, color: Colors.grey),
+                  ),
+                );
               }
 
               if (_isSearchExpanded) {
@@ -1674,7 +1953,7 @@ class _ChatsScreenState extends State<ChatsScreen>
                                                       context,
                                                     ).showSnackBar(
                                                       SnackBar(
-                                                        content: Text(
+                                                        content: const Text(
                                                           'Аккаунт недействителен. Требуется повторная авторизация.',
                                                         ),
                                                         backgroundColor:
@@ -2083,6 +2362,7 @@ class _ChatsScreenState extends State<ChatsScreen>
             participantCount,
           );
         } else {
+          print('🔘 Открываем ChatScreen для чата: ${chat.id}');
           Navigator.of(context).push(
             MaterialPageRoute(
               builder: (context) => ChatScreen(
@@ -2206,7 +2486,7 @@ class _ChatsScreenState extends State<ChatsScreen>
           final bool isGroupChat = _isGroupChat(chat);
           final bool isSavedMessages = _isSavedMessages(chat);
 
-          final Contact? contact;
+          Contact? contact;
           int? otherParticipantId;
           if (isSavedMessages) {
             contact = _contacts[chat.ownerId];
@@ -2214,7 +2494,7 @@ class _ChatsScreenState extends State<ChatsScreen>
             contact = null;
           } else {
             otherParticipantId = chat.participantIds.firstWhere(
-              (id) => id != chat.ownerId,
+              (id) => id != _myId,
               orElse: () => 0,
             );
             contact = _contacts[otherParticipantId];
@@ -2444,8 +2724,8 @@ class _ChatsScreenState extends State<ChatsScreen>
       if (_selectedFolderId != folderId) {
         setState(() {
           _selectedFolderId = folderId;
+          _filterChats();
         });
-        _filterChats();
       }
     }
   }
@@ -2457,7 +2737,8 @@ class _ChatsScreenState extends State<ChatsScreen>
         folder: null,
         allChats: _allChats,
         contacts: _contacts,
-        searchQuery: _searchController.text,
+        myId: _myId,
+        searchQuery: _searchQuery,
         buildChatListItem: _buildChatListItem,
         isSavedMessages: _isSavedMessages,
       ),
@@ -2467,7 +2748,8 @@ class _ChatsScreenState extends State<ChatsScreen>
           folder: folder,
           allChats: _allChats,
           contacts: _contacts,
-          searchQuery: _searchController.text,
+          myId: _myId,
+          searchQuery: _searchQuery,
           buildChatListItem: _buildChatListItem,
           isSavedMessages: _isSavedMessages,
           chatBelongsToFolder: _chatBelongsToFolder,
@@ -2489,7 +2771,7 @@ class _ChatsScreenState extends State<ChatsScreen>
       Tab(
         child: GestureDetector(
           onLongPress: () {},
-          child: Row(
+          child: const Row(
             mainAxisSize: MainAxisSize.min,
             children: [Text('Все чаты', style: TextStyle(fontSize: 14))],
           ),
@@ -2899,12 +3181,9 @@ class _ChatsScreenState extends State<ChatsScreen>
             onPressed: () {
               Navigator.of(context).pop();
               ApiService.instance.deleteFolder(folder.id);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Папка "${folder.title}" удалена'),
-                  duration: const Duration(seconds: 2),
-                ),
-              );
+              setState(() {
+                _folders.removeWhere((f) => f.id == folder.id);
+              });
             },
             style: TextButton.styleFrom(foregroundColor: Colors.red),
             child: const Text('Удалить'),
@@ -3176,17 +3455,14 @@ class _ChatsScreenState extends State<ChatsScreen>
                     }
                   });
                 },
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 10,
-                  ),
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.refresh),
-                      const SizedBox(width: 8),
-                      const Text('Обновить список чатов'),
+                      Icon(Icons.refresh),
+                      SizedBox(width: 8),
+                      Text('Обновить список чатов'),
                     ],
                   ),
                 ),
@@ -3391,7 +3667,7 @@ class _ChatsScreenState extends State<ChatsScreen>
                   tooltip: 'Сферум',
                 ),
               IconButton(
-                icon: Icon(Icons.download, color: Colors.white),
+                icon: const Icon(Icons.download, color: Colors.white),
                 onPressed: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(
@@ -3888,10 +4164,13 @@ class _ChatsScreenState extends State<ChatsScreen>
       }
 
       if (markerType == 'galaxy') {
-        const prefix = "komet.cosmetic.galaxy'";
+        const prefix = "komet.cosmetic.galaxy''";
         final textStart = nextMarker + prefix.length;
-        final quoteIndex = text.indexOf("'", textStart);
-        if (quoteIndex == -1) throw StateError('invalid galaxy syntax');
+        final quoteIndex = text.indexOf("''", textStart);
+        if (quoteIndex == -1) {
+          index = nextMarker + 1;
+          continue;
+        }
         final segmentText = text.substring(textStart, quoteIndex);
         spans.add(
           TextSpan(
@@ -3899,21 +4178,27 @@ class _ChatsScreenState extends State<ChatsScreen>
             style: TextStyle(color: baseColor, fontWeight: FontWeight.w600),
           ),
         );
-        index = quoteIndex + 1;
+        index = quoteIndex + 2;
         continue;
       }
 
       if (markerType == 'color') {
         const marker = 'komet.color_';
         final colorStart = nextMarker + marker.length;
-        final firstQuote = text.indexOf("'", colorStart);
-        if (firstQuote == -1) throw StateError('invalid color syntax');
+        final firstQuote = text.indexOf("''", colorStart);
+        if (firstQuote == -1) {
+          index = nextMarker + 1;
+          continue;
+        }
         final colorStr = text.substring(colorStart, firstQuote).trim();
         final color = _parseKometHexColor(colorStr);
 
-        final textStart = firstQuote + 1;
-        final secondQuote = text.indexOf("'", textStart);
-        if (secondQuote == -1) throw StateError('invalid color text');
+        final textStart = firstQuote + 2;
+        final secondQuote = text.indexOf("''", textStart);
+        if (secondQuote == -1) {
+          index = nextMarker + 1;
+          continue;
+        }
         final segmentText = text.substring(textStart, secondQuote);
 
         spans.add(
@@ -3922,7 +4207,7 @@ class _ChatsScreenState extends State<ChatsScreen>
             style: TextStyle(color: color, fontWeight: FontWeight.w600),
           ),
         );
-        index = secondQuote + 1;
+        index = secondQuote + 2;
         continue;
       }
     }
@@ -3966,7 +4251,7 @@ class _ChatsScreenState extends State<ChatsScreen>
           overflow: TextOverflow.ellipsis,
           text: TextSpan(
             children: [
-              TextSpan(
+              const TextSpan(
                 text: 'Черновик:',
                 style: TextStyle(
                   color: Colors.white,
@@ -4048,7 +4333,11 @@ class _ChatsScreenState extends State<ChatsScreen>
   Widget _buildPhotoAttachmentPreview(Message message) {
     final photoUrl = _extractFirstPhotoUrl(message.attaches);
     if (photoUrl == null) {
-      return Text('Вложение', maxLines: 1, overflow: TextOverflow.ellipsis);
+      return const Text(
+        'Вложение',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      );
     }
 
     return Row(
@@ -4098,7 +4387,11 @@ class _ChatsScreenState extends State<ChatsScreen>
   Widget _buildContactAttachmentPreview(Message message) {
     final contactData = _extractFirstContactData(message.attaches);
     if (contactData == null) {
-      return Text('Контакт', maxLines: 1, overflow: TextOverflow.ellipsis);
+      return const Text(
+        'Контакт',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      );
     }
 
     final name = contactData['name']!;
@@ -4314,7 +4607,9 @@ class _ChatsScreenState extends State<ChatsScreen>
     final message = chat.lastMessage;
     final senderName = _getSenderDisplayName(chat, message);
 
-    switch (theme.chatPreviewMode) {
+    final mode = theme.chatPreviewMode;
+
+    switch (mode) {
       case ChatPreviewMode.twoLine:
         // Двустрочно: имя отправителя + сообщение (если есть имя)
         if (senderName.isNotEmpty) {
@@ -4343,7 +4638,6 @@ class _ChatsScreenState extends State<ChatsScreen>
         }
         // Если нет имени отправителя, показываем обычное превью
         return _buildLastMessagePreview(chat);
-
       case ChatPreviewMode.threeLine:
         // Трехстрочно: имя чата + имя отправителя + сообщение
         return Column(
@@ -4364,7 +4658,6 @@ class _ChatsScreenState extends State<ChatsScreen>
             _buildLastMessagePreview(chat),
           ],
         );
-
       case ChatPreviewMode.noNicknames:
         // Без имен: только сообщение
         return _buildLastMessagePreview(chat);
@@ -4522,10 +4815,9 @@ class _ChatsScreenState extends State<ChatsScreen>
       leadingIcon = Icons.group;
       avatarUrl = chat.baseIconUrl;
     } else {
-      final myId = chat.ownerId;
       final otherParticipantId = chat.participantIds.firstWhere(
-        (id) => id != myId,
-        orElse: () => myId,
+        (id) => id != _myId,
+        orElse: () => _myId,
       );
       contact = _contacts[otherParticipantId];
 
@@ -4549,22 +4841,20 @@ class _ChatsScreenState extends State<ChatsScreen>
     return ListTile(
       key: ValueKey(chat.id),
       onTap: () {
-        final theme = context.read<ThemeProvider>();
-        if (theme.debugReadOnEnter) {
-          final chatIndex = _allChats.indexWhere((c) => c.id == chat.id);
-          if (chatIndex != -1) {
-            final oldChat = _allChats[chatIndex];
-            if (oldChat.newMessages > 0) {
-              final updatedChat = oldChat.copyWith(newMessages: 0);
-              SchedulerBinding.instance.addPostFrameCallback((_) {
-                if (mounted) {
-                  setState(() {
-                    _allChats[chatIndex] = updatedChat;
-                    _filterChats();
-                  });
-                }
-              });
-            }
+        print('🔘 onTap вызван для чата: ${chat.id}');
+        final chatIndex = _allChats.indexWhere((c) => c.id == chat.id);
+        if (chatIndex != -1) {
+          final oldChat = _allChats[chatIndex];
+          if (oldChat.newMessages > 0) {
+            final updatedChat = oldChat.copyWith(newMessages: 0);
+            SchedulerBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                setState(() {
+                  _allChats[chatIndex] = updatedChat;
+                  _filterChats();
+                });
+              }
+            });
           }
         }
 
@@ -4610,7 +4900,11 @@ class _ChatsScreenState extends State<ChatsScreen>
               builder: (context) => ChatScreen(
                 chatId: chat.id,
                 contact: contactFallback,
-                myId: chat.ownerId,
+                // Используем ID из профиля или запасной вариант через API сервис
+                myId:
+                    _myProfile?.id ??
+                    int.tryParse(ApiService.instance.userId ?? '0') ??
+                    0,
                 pinnedMessage: chat.pinnedMessage,
                 isGroupChat: isGroupChat,
                 isChannel: isChannel,
@@ -4645,6 +4939,9 @@ class _ChatsScreenState extends State<ChatsScreen>
               child: avatarUrl == null
                   ? (isSavedMessages || isGroupChat || isChannel)
                         ? Icon(leadingIcon, color: colors.onPrimaryContainer)
+                        : (RegExp(r'^\d+$').hasMatch(title) ||
+                              title.startsWith('ID '))
+                        ? Icon(Icons.person, color: colors.onPrimaryContainer)
                         : Text(
                             title.isNotEmpty ? title[0].toUpperCase() : '?',
                             style: TextStyle(color: colors.onPrimaryContainer),
@@ -4658,7 +4955,7 @@ class _ChatsScreenState extends State<ChatsScreen>
             child: _typingChats.contains(chat.id)
                 ? TypingDots(color: colors.primary, size: 20)
                 : (_onlineChats.contains(chat.id)
-                      ? PresenceDot(isOnline: true, size: 12)
+                      ? const PresenceDot(isOnline: true, size: 12)
                       : const SizedBox.shrink()),
           ),
         ],
@@ -4711,15 +5008,22 @@ class _ChatsScreenState extends State<ChatsScreen>
 
   @override
   void dispose() {
+    for (final timer in _typingDecayTimers.values) {
+      timer.cancel();
+    }
+    _typingDecayTimers.clear();
+    _typingChats.clear();
+    _onlineChats.clear();
     _apiSubscription?.cancel();
     _connectionStatusSubscription?.cancel();
     _connectionStateSubscription?.cancel();
     _messageHandler?.listen()?.cancel();
     _searchController.dispose();
     _searchFocusNode.dispose();
-    _searchDebounceTimer?.cancel();
+    // Debouncer очищается автоматически в dispose миксина
     _searchAnimationController.dispose();
     _folderTabController.dispose();
+    _contactNamesSubscription?.cancel();
     super.dispose();
   }
 }

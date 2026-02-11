@@ -90,7 +90,9 @@ class ChatEncryptionService {
       try {
         final data = jsonDecode(configJson) as Map<String, dynamic>;
         return ChatEncryptionConfig.fromJson(data);
-      } catch (_) {}
+      } catch (e) {
+        print('⚠️ Ошибка загрузки конфигурации шифрования: $e');
+      }
     }
 
     final legacyPassword = prefs.getString('$_legacyPasswordKeyPrefix$chatId');

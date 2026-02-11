@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:gwid/models/contact.dart';
 import 'package:gwid/models/message.dart';
 import 'package:gwid/services/cache_service.dart';
+import 'package:gwid/services/cache_settings_service.dart';
 
 class ChatCacheService {
   static final ChatCacheService _instance = ChatCacheService._internal();
@@ -9,10 +10,12 @@ class ChatCacheService {
   ChatCacheService._internal();
 
   final CacheService _cacheService = CacheService();
+  final CacheSettingsService _settingsService = CacheSettingsService();
 
   Future<void> initialize() async {
     await _cacheService.initialize();
-    print('ChatCacheService инициализирован');
+    await _settingsService.initialize();
+    print('✅ ChatCacheService инициализирован');
   }
 
   static const String _chatsKey = 'cached_chats';
@@ -20,9 +23,10 @@ class ChatCacheService {
   static const String _messagesKey = 'cached_messages';
   static const String _chatMessagesKey = 'cached_chat_messages';
 
-  static const Duration _chatsTTL = Duration(hours: 1);
-  static const Duration _contactsTTL = Duration(hours: 24);
-  static const Duration _messagesTTL = Duration(hours: 2);
+  // TTL теперь берутся из настроек
+  Duration get _chatsTTL => _settingsService.currentSettings.chatsTTL;
+  Duration get _contactsTTL => _settingsService.currentSettings.contactsTTL;
+  Duration get _messagesTTL => _settingsService.currentSettings.messagesTTL;
 
   Future<void> cacheChats(List<Map<String, dynamic>> chats) async {
     try {

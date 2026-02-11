@@ -23,7 +23,6 @@ class _BottomSheetMusicPlayerState extends State<BottomSheetMusicPlayer>
     with SingleTickerProviderStateMixin {
   late AnimationController _animationController;
   late Animation<double> _heightAnimation;
-  late Animation<double> _opacityAnimation;
   _PlayerState _currentState = _PlayerState.collapsed;
   static const Duration _animationDuration = Duration(milliseconds: 300);
 
@@ -37,10 +36,6 @@ class _BottomSheetMusicPlayerState extends State<BottomSheetMusicPlayer>
     _heightAnimation = CurvedAnimation(
       parent: _animationController,
       curve: Curves.easeInOutCubic,
-    );
-    _opacityAnimation = CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeInOut,
     );
     BottomSheetMusicPlayer.isExpandedNotifier.addListener(_onExpandedChanged);
     BottomSheetMusicPlayer.isFullscreenNotifier.addListener(
@@ -113,21 +108,6 @@ class _BottomSheetMusicPlayerState extends State<BottomSheetMusicPlayer>
         _animationController.reverse();
         BottomSheetMusicPlayer.isExpandedNotifier.value = false;
         BottomSheetMusicPlayer.isFullscreenNotifier.value = false;
-      }
-    });
-  }
-
-  void _toggleFullscreen() {
-    HapticFeedback.mediumImpact();
-    setState(() {
-      if (_currentState == _PlayerState.fullscreen) {
-        _currentState = _PlayerState.expanded;
-
-        _animationController.value = 1.0;
-        BottomSheetMusicPlayer.isFullscreenNotifier.value = false;
-      } else {
-        _currentState = _PlayerState.fullscreen;
-        BottomSheetMusicPlayer.isFullscreenNotifier.value = true;
       }
     });
   }

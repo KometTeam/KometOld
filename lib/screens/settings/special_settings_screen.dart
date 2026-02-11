@@ -132,10 +132,10 @@ class _SpecialSettingsScreenState extends State<SpecialSettingsScreen> {
                                   icon: const Icon(Icons.close),
                                   tooltip: 'Закрыть',
                                 ),
-                                Expanded(
+                                const Expanded(
                                   child: Text(
                                     'Особые настройки',
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontSize: 18,
                                       fontWeight: FontWeight.w600,
                                     ),
@@ -177,10 +177,10 @@ class _SpecialSettingsScreenState extends State<SpecialSettingsScreen> {
                             ),
                             child: Row(
                               children: [
-                                Expanded(
+                                const Expanded(
                                   child: Text(
                                     'Особые настройки',
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontSize: 18,
                                       fontWeight: FontWeight.w600,
                                     ),

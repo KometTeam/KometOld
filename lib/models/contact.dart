@@ -30,36 +30,50 @@ class Contact {
   bool get isUserBlocked => isBlockedByMe || isBlocked;
 
   factory Contact.fromJson(Map<String, dynamic> json) {
-    final nameData = json['names']?[0];
+    final namesGroup = json['names'] as List?;
+    final nameData = (namesGroup != null && namesGroup.isNotEmpty)
+        ? namesGroup[0]
+        : null;
     final userId = json['id'] as int;
 
-    String finalFirstName = '';
-    String finalLastName = '';
-    String finalName = 'ID $userId';
+    String finalFirstName = json['firstName']?.toString() ?? '';
+    String finalLastName = json['lastName']?.toString() ?? '';
+    String finalName =
+        json['name']?.toString() ??
+        json['username']?.toString() ??
+        userId.toString();
 
     if (nameData != null) {
-      finalFirstName = nameData['firstName'] ?? '';
-      finalLastName = nameData['lastName'] ?? '';
+      finalFirstName = nameData['firstName'] ?? finalFirstName;
+      finalLastName = nameData['lastName'] ?? finalLastName;
       final fullName = '$finalFirstName $finalLastName'.trim();
-      finalName = fullName.isNotEmpty
-          ? fullName
-          : (nameData['name'] ?? 'ID $userId');
+      String rawName = nameData['name'] ?? finalName;
+      if (rawName.startsWith('ID ')) {
+        final maybeId = rawName.substring(3);
+        if (RegExp(r'^\d+$').hasMatch(maybeId)) {
+          rawName = maybeId;
+        }
+      }
+      finalName = fullName.isNotEmpty ? fullName : rawName;
+    } else {
+      final fullName = '$finalFirstName $finalLastName'.trim();
+      if (fullName.isNotEmpty) {
+        finalName = fullName;
+      }
     }
 
     final status = json['status'];
     final isBlocked = status == 'BLOCKED';
 
-    final isBlockedByMe = status == 'BLOCKED';
-
     return Contact(
-      id: json['id'],
+      id: userId,
       name: finalName,
       firstName: finalFirstName,
       lastName: finalLastName,
       description: json['description'],
       photoBaseUrl: json['baseUrl'],
       isBlocked: isBlocked,
-      isBlockedByMe: isBlockedByMe,
+      isBlockedByMe: isBlocked,
       accountStatus: json['accountStatus'] ?? 0,
       status: json['status'],
       options: List<String>.from(json['options'] ?? []),

@@ -13,150 +13,8 @@ extension ApiServiceChats on ApiService {
     }
 
     try {
-      await _ensureCacheServicesInitialized();
-
-      final prefs = await SharedPreferences.getInstance();
-      final deviceId =
-          prefs.getString('spoof_deviceid') ?? generateRandomDeviceId();
-
-      if (prefs.getString('spoof_deviceid') == null) {
-        await prefs.setString('spoof_deviceid', deviceId);
-      }
-
-      final userAgentPayload = await _buildUserAgentPayload();
-
-      final payload = {
-        "chatsCount": 100,
-        "chatsSync": 0,
-        "contactsSync": 0,
-        "draftsSync": 0,
-        "interactive": true,
-        "presenceSync": 0,
-        "token": authToken,
-        "configHash":
-            "00000000-0000000000000000-00000000-0000000000000000-0000000000000000-0-0000000000000000-00000000",
-        "userAgent": userAgentPayload,
-      };
-
-      if (userId != null) {
-        payload["userId"] = userId;
-      }
-
-      print("Автоматически отправляем opcode 19 для авторизации...");
-      final int chatSeq = await _sendMessage(19, payload);
-      final chatResponse = await messages.firstWhere(
-        (msg) => msg['seq'] == chatSeq,
-      );
-
-      if (chatResponse['cmd'] == 0x100 || chatResponse['cmd'] == 256) {
-        print("✅ Авторизация (opcode 19) успешна. Сессия ГОТОВА.");
-
-        _isSessionReady = true;
-        _processMessageQueue();
-
-        _connectionStatusController.add("ready");
-        _updateConnectionState(
-          conn_state.ConnectionState.ready,
-          message: 'Авторизация успешна',
-        );
-
-        final profile = chatResponse['payload']?['profile'];
-        final contactProfile = profile?['contact'];
-
-        if (contactProfile != null && contactProfile['id'] != null) {
-          print(
-            "[_sendAuthRequestAfterHandshake] ✅ Профиль и ID пользователя найдены. ID: ${contactProfile['id']}. ЗАПУСКАЕМ АНАЛИТИКУ.",
-          );
-          _userId = contactProfile['id'];
-          if (!FreshModeHelper.shouldSkipSave()) {
-            await prefs.setString('userId', _userId.toString());
-          }
-          _sessionId = DateTime.now().millisecondsSinceEpoch;
-          _lastActionTime = _sessionId;
-
-          sendNavEvent('COLD_START');
-
-          ApiService.instance._startAnalyticsTimer();
-
-          _sendInitialSetupRequests();
-          print(chatResponse['payload']?['config']);
-        }
-
-        if (profile != null && authToken != null) {
-          try {
-            final accountManager = AccountManager();
-            await accountManager.initialize();
-            final currentAccount = accountManager.currentAccount;
-            if (currentAccount != null && currentAccount.token == authToken) {
-              final profileMap = profile is Map<String, dynamic>
-                  ? profile
-                  : Map<String, dynamic>.from(profile as Map);
-              final profileObj = Profile.fromJson(profileMap);
-              await accountManager.updateAccountProfile(
-                currentAccount.id,
-                profileObj,
-              );
-
-              try {
-                final profileCache = ProfileCacheService();
-                await profileCache.initialize();
-                await profileCache.syncWithServerProfile(profileObj);
-              } catch (e) {
-                print('[ProfileCache] Ошибка синхронизации профиля: $e');
-              }
-
-              print(
-                '[_sendAuthRequestAfterHandshake] ✅ Профиль сохранен в AccountManager',
-              );
-            }
-          } catch (e) {
-            print(
-              '[_sendAuthRequestAfterHandshake] Ошибка сохранения профиля в AccountManager: $e',
-            );
-          }
-        }
-
-        final chatListJson = chatResponse['payload']?['chats'] ?? [];
-        final contactListJson = chatResponse['payload']?['contacts'] ?? [];
-        final presence = chatResponse['payload']?['presence'];
-        final config = chatResponse['payload']?['config'];
-
-        if (presence != null) {
-          updatePresenceData(presence);
-        }
-
-        if (config != null) {
-          _processServerPrivacyConfig(config);
-        }
-
-        final result = {
-          'chats': chatListJson,
-          'contacts': contactListJson,
-          'profile': profile,
-          'presence': presence,
-          'config': config,
-        };
-        _lastChatsPayload = result;
-
-        final contacts = (contactListJson as List)
-            .map((json) => Contact.fromJson(json as Map<String, dynamic>))
-            .toList()
-            .cast<Contact>();
-        updateContactCache(contacts);
-        _lastChatsAt = DateTime.now();
-        _preloadContactAvatars(contacts);
-        unawaited(
-          _chatCacheService.cacheChats(
-            chatListJson.cast<Map<String, dynamic>>(),
-          ),
-        );
-        unawaited(_chatCacheService.cacheContacts(contacts));
-        _chatsFetchedInThisSession = true;
-
-        if (_onlineCompleter != null && !_onlineCompleter!.isCompleted) {
-          _onlineCompleter!.complete();
-        }
-      }
+      // Reuse the same flow as manual loading to avoid duplicate opcode=19 logic.
+      await getChatsAndContacts(force: true);
     } catch (e) {
       print("Ошибка при автоматической авторизации: $e");
     }
@@ -199,6 +57,36 @@ extension ApiServiceChats on ApiService {
     print('Создаем группу: $name с участниками: $participantIds');
   }
 
+  Future<void> createChannelWithMessage(
+    String title,
+    List<int> initialSubscriberContactIds,
+  ) async {
+    await waitUntilOnline();
+
+    final cid = DateTime.now().millisecondsSinceEpoch;
+    final payload = {
+      "message": {
+        "cid": cid,
+        "attaches": [
+          {
+            "_type": "CONTROL",
+            "event": "new",
+            "chatType": "CHANNEL",
+            "title": title,
+            "userIds": [],
+          },
+        ],
+      },
+      "notify": true,
+    };
+
+    await sendRawRequest(64, payload);
+
+    if (initialSubscriberContactIds.isNotEmpty) {
+      await sendRawRequest(32, {"contactIds": initialSubscriberContactIds});
+    }
+  }
+
   void renameGroup(int chatId, String newName) {
     final payload = {"chatId": chatId, "theme": newName};
     _sendMessage(55, payload);
@@ -221,7 +109,7 @@ extension ApiServiceChats on ApiService {
       if (chatId == null) return;
 
       final existingIndex = chats.indexWhere(
-        (c) => c is Map && c['id'] == chatId,
+            (c) => c is Map && c['id'] == chatId,
       );
 
       if (existingIndex != -1) {
@@ -243,29 +131,25 @@ extension ApiServiceChats on ApiService {
   }
 
   Future<String?> createGroupInviteLink(
-    int chatId, {
-    bool revokePrivateLink = true,
-  }) async {
+      int chatId, {
+        bool revokePrivateLink = true,
+      }) async {
     final payload = {"chatId": chatId, "revokePrivateLink": revokePrivateLink};
 
     print(
       'Создаем пригласительную ссылку для группы $chatId: ${truncatePayloadObjectForLog(payload)}',
     );
 
-    final int seq = await _sendMessage(55, payload);
-
     try {
-      final response = await messages
-          .firstWhere((msg) => msg['seq'] == seq)
-          .timeout(const Duration(seconds: 15));
+      final response = await sendRequest(55, payload).timeout(const Duration(seconds: 15));
 
       if (response['cmd'] == 3) {
         final error = response['payload'];
         print('Ошибка создания пригласительной ссылки: $error');
         final message =
             error?['localizedMessage'] ??
-            error?['message'] ??
-            'Неизвестная ошибка';
+                error?['message'] ??
+                'Неизвестная ошибка';
         throw Exception(message);
       }
 
@@ -290,10 +174,10 @@ extension ApiServiceChats on ApiService {
   }
 
   void addGroupMember(
-    int chatId,
-    List<int> userIds, {
-    bool showHistory = true,
-  }) {
+      int chatId,
+      List<int> userIds, {
+        bool showHistory = true,
+      }) {
     final payload = {
       "chatId": chatId,
       "userIds": userIds,
@@ -305,10 +189,10 @@ extension ApiServiceChats on ApiService {
   }
 
   void removeGroupMember(
-    int chatId,
-    List<int> userIds, {
-    int cleanMsgPeriod = 0,
-  }) {
+      int chatId,
+      List<int> userIds, {
+        int cleanMsgPeriod = 0,
+      }) {
     final payload = {
       "chatId": chatId,
       "userIds": userIds,
@@ -434,11 +318,36 @@ extension ApiServiceChats on ApiService {
           payload["userId"] = userId;
         }
       } else {
-        return await getChatsOnly(force: force);
+        if (_lastChatsPayload != null) {
+          _inflightChatsCompleter!.complete(_lastChatsPayload!);
+          _inflightChatsCompleter = null;
+          return _lastChatsPayload!;
+        }
+        throw StateError('Чаты уже загружены в этой сессии');
       }
 
-      final int chatSeq = await _sendMessage(opcode, payload);
-      chatResponse = await messages.firstWhere((msg) => msg['seq'] == chatSeq);
+      if (opcode == 19) {
+        if (_authBootstrapCompleter != null) {
+          chatResponse = await _authBootstrapCompleter!.future;
+        } else {
+          final authCompleter = Completer<Map<String, dynamic>>();
+          _authBootstrapCompleter = authCompleter;
+          try {
+            chatResponse = await sendRequest(opcode, payload);
+            authCompleter.complete(chatResponse);
+          } catch (e, stackTrace) {
+            authCompleter.future.catchError((_) => <String, dynamic>{});
+            authCompleter.completeError(e, stackTrace);
+            rethrow;
+          } finally {
+            if (identical(_authBootstrapCompleter, authCompleter)) {
+              _authBootstrapCompleter = null;
+            }
+          }
+        }
+      } else {
+        chatResponse = await sendRequest(opcode, payload);
+      }
 
       if (opcode == 19 &&
           (chatResponse['cmd'] == 0x100 || chatResponse['cmd'] == 256)) {
@@ -545,12 +454,9 @@ extension ApiServiceChats on ApiService {
         }
 
         if (contactIds.isNotEmpty) {
-          final int contactSeq = await _sendMessage(32, {
+          final contactResponse = await sendRequest(32, {
             "contactIds": contactIds.toList(),
           });
-          final contactResponse = await messages.firstWhere(
-            (msg) => msg['seq'] == contactSeq,
-          );
 
           contactListJson = contactResponse['payload']?['contacts'] ?? [];
         }
@@ -597,6 +503,22 @@ extension ApiServiceChats on ApiService {
 
   Future<void> _sendInitialSetupRequests() async {
     print("Запускаем отправку единичных запросов при старте...");
+    
+    // Ждем готовности сессии перед отправкой запросов
+    if (!_isSessionReady) {
+      print('⏳ _sendInitialSetupRequests: ждем готовности сессии...');
+      int attempts = 0;
+      while (!_isSessionReady && attempts < 50) {
+        await Future.delayed(const Duration(milliseconds: 100));
+        attempts++;
+      }
+      if (!_isSessionReady) {
+        print('❌ _sendInitialSetupRequests: сессия не готова после ожидания, отменяем');
+        return;
+      }
+    }
+    
+    print('✅ _sendInitialSetupRequests: сессия готова, отправляем запросы');
     await Future.delayed(const Duration(seconds: 1));
 
     _sendMessage(272, {"folderSync": 0});
@@ -617,50 +539,71 @@ extension ApiServiceChats on ApiService {
     print("Единичные запросы отправлены.");
   }
 
+  /// Загружает историю сообщений с инкрементальной подгрузкой.
+  /// Сначала загружает [initialLimit] сообщений для быстрого отображения,
+  /// затем в фоне подгружает остальные до [maxMessages].
   Future<List<Message>> getMessageHistory(
-    int chatId, {
-    bool force = false,
-  }) async {
+      int chatId, {
+        bool force = false,
+        int initialLimit = AppLimits.historyLoadBatch,
+        int maxMessages = AppLimits.historyLoadBatch,
+        Function(List<Message> initialMessages)? onInitialLoaded,
+        Function(List<Message> allMessages)? onCompleteLoaded,
+      }) async {
     await _ensureCacheServicesInitialized();
 
+    // Проверяем кэш в памяти
     if (!force && _messageCache.containsKey(chatId)) {
-      print("Загружаем сообщения для чата $chatId из кэша.");
-      return _messageCache[chatId]!;
+      final cached = _messageCache[chatId]!;
+      print("Загружаем сообщения для чата $chatId из кэша (${cached.length} шт).");
+      // Если в кэше уже достаточно сообщений, возвращаем сразу
+      if (cached.length >= initialLimit) {
+        // Вызываем коллбэки для обновления UI
+        onInitialLoaded?.call(cached);
+        onCompleteLoaded?.call(cached);
+        return cached;
+      }
     }
 
+    // Проверяем кэш на диске
     if (!force) {
       final cachedMessages = await _chatCacheService.getCachedChatMessages(
         chatId,
       );
       if (cachedMessages != null && cachedMessages.isNotEmpty) {
         print(
-          "История сообщений для чата $chatId загружена из ChatCacheService.",
+          "История сообщений для чата $chatId загружена из ChatCacheService (${cachedMessages.length} шт).",
         );
         _messageCache[chatId] = cachedMessages;
-        return cachedMessages;
+        if (cachedMessages.length >= initialLimit) {
+          // Вызываем коллбэки для обновления UI
+          onInitialLoaded?.call(cachedMessages);
+          onCompleteLoaded?.call(cachedMessages);
+          return cachedMessages;
+        }
       }
     }
 
     await waitUntilOnline();
-    print("Запрашиваем историю для чата $chatId с сервера.");
-    final payload = {
+    
+    // Шаг 1: Быстрая загрузка первых [initialLimit] сообщений
+    print("📨 Быстрая загрузка для чата $chatId: первые $initialLimit сообщений...");
+    final initialPayload = {
       "chatId": chatId,
       "from": DateTime.now()
           .add(const Duration(days: 1))
           .millisecondsSinceEpoch,
       "forward": 0,
-      "backward": 30,
+      "backward": initialLimit,
       "getMessages": true,
     };
 
     try {
-      final int seq = await _sendMessage(49, payload);
-      final response = await messages
-          .firstWhere((msg) => msg['seq'] == seq)
-          .timeout(const Duration(seconds: 15));
+      final initialResponse = await sendRequest(49, initialPayload)
+          .timeout(const Duration(seconds: 10));
 
-      if (response['cmd'] == 3) {
-        final error = response['payload'];
+      if (initialResponse['cmd'] == 3) {
+        final error = initialResponse['payload'];
         print('Ошибка получения истории сообщений: $error');
 
         if (error['error'] == 'proto.state') {
@@ -670,57 +613,209 @@ extension ApiServiceChats on ApiService {
           await reconnect();
           await waitUntilOnline();
 
-          return getMessageHistory(chatId, force: true);
+          return getMessageHistory(chatId, force: true, initialLimit: initialLimit, maxMessages: maxMessages);
         }
         throw Exception('Ошибка получения истории: ${error['message']}');
       }
 
-      final List<dynamic> messagesJson = response['payload']?['messages'] ?? [];
-      final messagesList =
-          messagesJson.map((json) => Message.fromJson(json)).toList()
-            ..sort((a, b) => a.time.compareTo(b.time));
+      final List<dynamic> initialMessagesJson = initialResponse['payload']?['messages'] ?? [];
+      final initialMessages = initialMessagesJson
+          .map((json) => Message.fromJson(json))
+          .toList()
+        ..sort((a, b) => a.time.compareTo(b.time));
 
-      final contactIds = <int>[];
-      for (final message in messagesList) {
-        for (final attach in message.attaches) {
-          if (attach['_type'] == 'CONTACT') {
-            final contactIdValue = attach['contactId'];
-            final int? contactId = contactIdValue is int
-                ? contactIdValue
-                : (contactIdValue is String
-                      ? int.tryParse(contactIdValue)
-                      : null);
-            if (contactId != null) {
-              final cachedContact = getCachedContact(contactId);
-              if (cachedContact == null && !contactIds.contains(contactId)) {
-                contactIds.add(contactId);
-              }
-            }
-          }
-        }
-      }
-      if (contactIds.isNotEmpty) {
-        unawaited(fetchContactsByIds(contactIds));
+      // Сохраняем в кэш и уведомляем
+      if (initialMessages.isNotEmpty) {
+        _messageCache[chatId] = initialMessages;
+        _preloadMessageImages(initialMessages);
+        unawaited(_updateMessagesCacheIfNewer(chatId, initialMessages));
       }
 
-      _messageCache[chatId] = messagesList;
-      _preloadMessageImages(messagesList);
+      print("✅ Быстрая загрузка для чата $chatId: ${initialMessages.length} сообщений");
+      onInitialLoaded?.call(initialMessages);
 
-      unawaited(_updateMessagesCacheIfNewer(chatId, messagesList));
+      // Шаг 2: Фоновая загрузка оставшихся сообщений (если нужно)
+      if (initialMessages.length >= initialLimit && maxMessages > initialLimit) {
+        unawaited(_loadRemainingMessages(
+          chatId,
+          initialMessages,
+          maxMessages: maxMessages,
+          onComplete: onCompleteLoaded,
+        ));
+      } else {
+        // Если фоновая загрузка не требуется, вызываем onCompleteLoaded сразу
+        onCompleteLoaded?.call(initialMessages);
+      }
 
-      return messagesList;
+      return initialMessages;
     } catch (e) {
       print('Ошибка при получении истории сообщений: $e');
+      return _messageCache[chatId] ?? [];
+    }
+  }
 
-      return [];
+  /// Фоновая загрузка оставшихся сообщений
+  Future<void> _loadRemainingMessages(
+      int chatId,
+      List<Message> existingMessages, {
+        required int maxMessages,
+        Function(List<Message> allMessages)? onComplete,
+      }) async {
+    try {
+      print("🔄 Фоновая загрузка для чата $chatId: до $maxMessages сообщений...");
+
+      final remainingBackward = maxMessages - existingMessages.length;
+      if (remainingBackward <= 0) {
+        onComplete?.call(existingMessages);
+        return;
+      }
+
+      final oldestMessage = existingMessages.first;
+      final payload = {
+        "chatId": chatId,
+        "from": oldestMessage.time,
+        "forward": 0,
+        "backward": remainingBackward,
+        "getMessages": true,
+      };
+
+      final response = await sendRequest(49, payload)
+          .timeout(const Duration(seconds: 15));
+
+      if (response['cmd'] == 3) {
+        print('⚠️ Фоновая загрузка: ошибка получения истории');
+        // Всё равно вызываем onComplete с текущими сообщениями
+        onComplete?.call(existingMessages);
+        return;
+      }
+
+      final List<dynamic> messagesJson = response['payload']?['messages'] ?? [];
+      if (messagesJson.isEmpty) {
+        print("📭 Фоновая загрузка для чата $chatId: нет дополнительных сообщений");
+        // Всё равно вызываем onComplete с текущими сообщениями
+        onComplete?.call(existingMessages);
+        return;
+      }
+
+      final newMessages = messagesJson
+          .map((json) => Message.fromJson(json))
+          .toList();
+
+      // Объединяем с существующими, избегая дубликатов
+      final existingIds = existingMessages.map((m) => m.id).toSet();
+      final existingCids = existingMessages
+          .where((m) => m.cid != null)
+          .map((m) => m.cid!)
+          .toSet();
+      final uniqueNewMessages = newMessages
+          .where((m) =>
+              !existingIds.contains(m.id) &&
+              (m.cid == null || !existingCids.contains(m.cid)))
+          .toList();
+
+      final allMessages = [...existingMessages, ...uniqueNewMessages]
+        ..sort((a, b) => a.time.compareTo(b.time));
+
+      if (uniqueNewMessages.isNotEmpty) {
+        _messageCache[chatId] = allMessages;
+        _preloadMessageImages(uniqueNewMessages);
+        unawaited(_updateMessagesCacheIfNewer(chatId, allMessages));
+
+        // Уведомляем через стрим о новых сообщениях
+        _messageController.add({
+          'type': 'messages_loaded',
+          'chatId': chatId,
+          'messages': allMessages,
+          'newCount': uniqueNewMessages.length,
+        });
+
+        print("✅ Фоновая загрузка для чата $chatId: +${uniqueNewMessages.length} сообщений (всего: ${allMessages.length})");
+      } else {
+        print("📭 Фоновая загрузка для чата $chatId: нет новых сообщений");
+      }
+      
+      // Всегда вызываем onComplete с полным списком сообщений
+      onComplete?.call(allMessages);
+    } catch (e) {
+      print('⚠️ Ошибка фоновой загрузки сообщений для чата $chatId: $e');
+      // Всё равно вызываем onComplete с текущими сообщениями при ошибке
+      onComplete?.call(existingMessages);
+    }
+  }
+
+  /// Предзагружает сообщения из указанных чатов в фоне.
+  /// Полезно для подготовки данных до открытия чата.
+  Future<void> preloadChatMessages(
+      List<int> chatIds, {
+        int messageCount = 7,
+      }) async {
+    if (chatIds.isEmpty) return;
+    
+    print("🔄 Предзагрузка сообщений для ${chatIds.length} чатов...");
+    
+    for (final chatId in chatIds) {
+      // Пропускаем если уже в кэше
+      if (_messageCache.containsKey(chatId) && _messageCache[chatId]!.length >= messageCount) {
+        continue;
+      }
+
+      // Проверяем дисковый кэш
+      final cachedMessages = await _chatCacheService.getCachedChatMessages(chatId);
+      if (cachedMessages != null && cachedMessages.length >= messageCount) {
+        _messageCache[chatId] = cachedMessages;
+        continue;
+      }
+
+      // Загружаем с сервера в фоне
+      unawaited(_fetchMessagesForPreload(chatId, messageCount));
+      
+      // Небольшая задержка чтобы не перегружать сервер
+      await Future.delayed(const Duration(milliseconds: 100));
+    }
+  }
+
+  Future<void> _fetchMessagesForPreload(int chatId, int count) async {
+    try {
+      if (!isActuallyConnected) return;
+
+      final payload = {
+        "chatId": chatId,
+        "from": DateTime.now()
+            .add(const Duration(days: 1))
+            .millisecondsSinceEpoch,
+        "forward": 0,
+        "backward": count,
+        "getMessages": true,
+      };
+
+      final response = await sendRequest(49, payload)
+          .timeout(const Duration(seconds: 10));
+
+      if (response['cmd'] == 3) return;
+
+      final List<dynamic> messagesJson = response['payload']?['messages'] ?? [];
+      if (messagesJson.isEmpty) return;
+
+      final messages = messagesJson
+          .map((json) => Message.fromJson(json))
+          .toList()
+        ..sort((a, b) => a.time.compareTo(b.time));
+
+      _messageCache[chatId] = messages;
+      _preloadMessageImages(messages);
+      unawaited(_updateMessagesCacheIfNewer(chatId, messages));
+
+      print("✅ Предзагружено ${messages.length} сообщений для чата $chatId");
+    } catch (e) {
+      print('⚠️ Ошибка предзагрузки для чата $chatId: $e');
     }
   }
 
   Future<Map<String, dynamic>?> loadOldMessages(
-    int chatId,
-    String fromMessageId,
-    int count,
-  ) async {
+      int chatId,
+      String fromMessageId,
+      int count,
+      ) async {
     await waitUntilOnline();
     final payload = {
       "chatId": chatId,
@@ -731,10 +826,7 @@ extension ApiServiceChats on ApiService {
     };
 
     try {
-      final int seq = await _sendMessage(49, payload);
-      final response = await messages
-          .firstWhere((msg) => msg['seq'] == seq)
-          .timeout(const Duration(seconds: 15));
+      final response = await sendRequest(49, payload).timeout(const Duration(seconds: 15));
 
       if (response['cmd'] == 3) {
         final error = response['payload'];
@@ -750,10 +842,10 @@ extension ApiServiceChats on ApiService {
   }
 
   Future<List<Message>> loadOlderMessagesByTimestamp(
-    int chatId,
-    int fromTimestamp, {
-    int backward = 30,
-  }) async {
+      int chatId,
+      int fromTimestamp, {
+        int backward = AppLimits.historyLoadBatch,
+      }) async {
     await waitUntilOnline();
 
     final payload = {
@@ -765,10 +857,7 @@ extension ApiServiceChats on ApiService {
     };
 
     try {
-      final int seq = await _sendMessage(49, payload);
-      final response = await messages
-          .firstWhere((msg) => msg['seq'] == seq)
-          .timeout(const Duration(seconds: 15));
+      final response = await sendRequest(49, payload).timeout(const Duration(seconds: 15));
 
       if (response['cmd'] == 3) {
         final error = response['payload'];
@@ -778,8 +867,8 @@ extension ApiServiceChats on ApiService {
 
       final List<dynamic> messagesJson = response['payload']?['messages'] ?? [];
       final messagesList =
-          messagesJson.map((json) => Message.fromJson(json)).toList()
-            ..sort((a, b) => a.time.compareTo(b.time));
+      messagesJson.map((json) => Message.fromJson(json)).toList()
+        ..sort((a, b) => a.time.compareTo(b.time));
 
       print('✅ Получено ${messagesList.length} старых сообщений');
       return messagesList;
@@ -832,32 +921,32 @@ extension ApiServiceChats on ApiService {
   }
 
   void createFolder(
-    String title, {
-    List<int>? include,
-    List<dynamic>? filters,
-  }) {
+      String title, {
+        List<int>? include,
+        List<dynamic>? filters,
+      }) {
     final folderId = const Uuid().v4();
     final payload = {
       "id": folderId,
       "title": title,
       "include": include ?? [],
-      "filters": filters ?? [],
+      "filters": (filters ?? []).map((f) => f.toString()).toList(),
     };
     _sendMessage(274, payload);
     print('Создаем папку: $title (ID: $folderId)');
   }
 
   void updateFolder(
-    String folderId, {
-    String? title,
-    List<int>? include,
-    List<dynamic>? filters,
-  }) {
+      String folderId, {
+        String? title,
+        List<int>? include,
+        List<dynamic>? filters,
+      }) {
     final payload = {
       "id": folderId,
-      "title": ?title,
-      "include": ?include,
-      "filters": ?filters,
+      if (title != null) "title": title,
+      if (include != null) "include": include,
+      if (filters != null) "filters": filters.map((f) => f.toString()).toList(),
     };
     _sendMessage(274, payload);
     print('Обновляем папку: $folderId');
@@ -1025,9 +1114,9 @@ extension ApiServiceChats on ApiService {
   }
 
   Future<void> _updateMessagesCacheIfNewer(
-    int chatId,
-    List<Message> newMessages,
-  ) async {
+      int chatId,
+      List<Message> newMessages,
+      ) async {
     try {
       final cached = await _chatCacheService.getCachedChatMessages(chatId);
 
@@ -1043,7 +1132,7 @@ extension ApiServiceChats on ApiService {
         bool needsUpdate = false;
         for (final newMsg in newMessages) {
           final cachedMsg = cached.firstWhere(
-            (m) => m.id == newMsg.id,
+                (m) => m.id == newMsg.id,
             orElse: () => newMsg,
           );
           if (cachedMsg.id != newMsg.id ||
@@ -1107,13 +1196,13 @@ extension ApiServiceChats on ApiService {
   }
 
   void sendMessage(
-    int chatId,
-    String text, {
-    String? replyToMessageId,
-    Message? replyToMessage,
-    int? cid,
-    List<Map<String, dynamic>>? elements,
-  }) {
+      int chatId,
+      String text, {
+        String? replyToMessageId,
+        Message? replyToMessage,
+        int? cid,
+        List<Map<String, dynamic>>? elements,
+      }) {
     Map<String, dynamic>? replyLink;
     if (replyToMessageId != null) {
       final parsedReplyId = int.tryParse(replyToMessageId);
@@ -1139,7 +1228,9 @@ extension ApiServiceChats on ApiService {
       "notify": true,
     };
 
-    clearChatsCache();
+    // НЕ очищаем глобальный кэш чатов при отправке сообщения!
+    // Это приводит к потере данных о правах администратора во ВСЕХ чатах
+    // clearChatsCache();
 
     final myId =
         _userId ?? (userId != null ? int.tryParse(userId!) : null) ?? 0;
@@ -1177,12 +1268,12 @@ extension ApiServiceChats on ApiService {
       unawaited(
         _sendMessage(64, payload)
             .then((_) {
-              _queueService.removeFromQueue(queueItem.id);
-            })
+          _queueService.removeFromQueue(queueItem.id);
+        })
             .catchError((e) {
-              print('Ошибка отправки сообщения: $e');
-              _queueService.addToQueue(queueItem);
-            }),
+          print('Ошибка отправки сообщения: $e');
+          _queueService.addToQueue(queueItem);
+        }),
       );
     } else {
       print("Сессия не готова. Сообщение добавлено в очередь.");
@@ -1191,12 +1282,12 @@ extension ApiServiceChats on ApiService {
   }
 
   void forwardMessage(
-    int targetChatId,
-    Message message,
-    int sourceChatId, {
-    String? sourceChatName,
-    String? sourceChatIconUrl,
-  }) {
+      int targetChatId,
+      Message message,
+      int sourceChatId, {
+        String? sourceChatName,
+        String? sourceChatIconUrl,
+      }) {
     final int clientMessageId = DateTime.now().millisecondsSinceEpoch;
     final linkPayload = {
       "type": "FORWARD",
@@ -1228,7 +1319,9 @@ extension ApiServiceChats on ApiService {
       "attachments": [],
     };
 
-    clearChatsCache();
+    // НЕ очищаем глобальный кэш чатов при редактировании сообщения!
+    // Это приводит к потере данных о правах администратора во ВСЕХ чатах
+    // clearChatsCache();
 
     await waitUntilOnline();
 
@@ -1240,10 +1333,7 @@ extension ApiServiceChats on ApiService {
 
     Future<bool> sendOnce() async {
       try {
-        final int seq = await _sendMessage(67, payload);
-        final response = await messages
-            .firstWhere((msg) => msg['seq'] == seq)
-            .timeout(const Duration(seconds: 10));
+        final response = await sendRequest(67, payload).timeout(const Duration(seconds: 10));
 
         if (response['cmd'] == 3) {
           final error = response['payload'];
@@ -1302,16 +1392,16 @@ extension ApiServiceChats on ApiService {
         chatId,
       );
       final newLastMessage =
-          remainingMessages != null && remainingMessages.isNotEmpty
+      remainingMessages != null && remainingMessages.isNotEmpty
           ? (remainingMessages..sort((a, b) => b.time.compareTo(a.time))).first
           : Message(
-              id: 'empty',
-              senderId: 0,
-              time: DateTime.now().millisecondsSinceEpoch,
-              text: '',
-              cid: null,
-              attaches: [],
-            );
+        id: 'empty',
+        senderId: 0,
+        time: DateTime.now().millisecondsSinceEpoch,
+        text: '',
+        cid: null,
+        attaches: [],
+      );
 
       final newLastMessageJson = newLastMessage.toJson();
 
@@ -1338,7 +1428,9 @@ extension ApiServiceChats on ApiService {
         }
       }
 
-      _lastChatsPayload = null;
+      // НЕ обнуляем _lastChatsPayload! Мы только что обновили lastMessage в нём
+      // Обнуление приводит к потере данных о правах администратора
+      // _lastChatsPayload = null;
       return newLastMessage;
     } catch (e) {
       print('Ошибка обновления lastMessage чата: $e');
@@ -1347,10 +1439,10 @@ extension ApiServiceChats on ApiService {
   }
 
   Future<void> deleteMessage(
-    int chatId,
-    String messageId, {
-    bool forMe = false,
-  }) async {
+      int chatId,
+      String messageId, {
+        bool forMe = false,
+      }) async {
     final messageIdInt = int.tryParse(messageId) ?? 0;
     final payload = {
       "chatId": chatId,
@@ -1359,7 +1451,9 @@ extension ApiServiceChats on ApiService {
       "itemType": "REGULAR",
     };
 
-    clearChatsCache();
+    // НЕ очищаем глобальный кэш чатов при удалении сообщения!
+    // Это приводит к потере данных о правах администратора во ВСЕХ чатах
+    // clearChatsCache();
 
     await waitUntilOnline();
 
@@ -1371,10 +1465,7 @@ extension ApiServiceChats on ApiService {
 
     Future<bool> sendOnce() async {
       try {
-        final int seq = await _sendMessage(66, payload);
-        final response = await messages
-            .firstWhere((msg) => msg['seq'] == seq)
-            .timeout(const Duration(seconds: 10));
+        final response = await sendRequest(66, payload).timeout(const Duration(seconds: 10));
 
         if (response['cmd'] == 3) {
           final error = response['payload'];
@@ -1422,6 +1513,116 @@ extension ApiServiceChats on ApiService {
     final payload = {"chatId": chatId, "type": type};
     if (_isSessionOnline) {
       _sendMessage(65, payload);
+    }
+  }
+
+  Future<void> sendVoiceMessage(
+      int chatId, {
+        required String localPath,
+        required int durationSeconds,
+        required int fileSize,
+        int? senderId,
+        int maxNotReadyRetries = 6,
+        Function(double)? onProgress,
+      }) async {
+    await waitUntilOnline();
+
+    final int cid = DateTime.now().millisecondsSinceEpoch;
+
+    final resp82 = await sendRequest(82, {'type': 2, 'count': 1});
+    final infoList = resp82['payload']?['info'];
+    if (infoList is! List || infoList.isEmpty) {
+      throw Exception('Неверный ответ на opcode 82: отсутствует info');
+    }
+
+    final uploadInfo = infoList.first;
+    final String uploadUrl = uploadInfo['url'];
+    final dynamic idCandidate =
+        uploadInfo['id'] ?? uploadInfo['audioId'] ?? uploadInfo['videoId'];
+    if (idCandidate == null || idCandidate is! num) {
+      throw Exception('Неверный ответ на opcode 82: отсутствует id/audioId/videoId');
+    }
+
+    final request = http.MultipartRequest('POST', Uri.parse(uploadUrl));
+    request.files.add(await http.MultipartFile.fromPath('file', localPath));
+    final streamed = await request.send();
+    onProgress?.call(0.0);
+    final httpResp = await http.Response.fromStream(streamed);
+    onProgress?.call(1.0);
+    if (httpResp.statusCode != 200) {
+      throw Exception(
+        'Ошибка загрузки аудио: ${httpResp.statusCode} ${httpResp.body}',
+      );
+    }
+
+    String? token;
+    try {
+      final decoded = jsonDecode(httpResp.body);
+      if (decoded is Map) {
+        token = decoded['token']?.toString();
+      }
+    } catch (e) {
+      print('⚠️ Ошибка парсинга токена из ответа: $e');
+    }
+
+    token ??= uploadInfo['token']?.toString();
+
+    if (token == null || token.isEmpty) {
+      throw Exception('Не получен token после загрузки аудио');
+    }
+
+    Future<void> trySendWithToken() async {
+      final payload = {
+        'chatId': chatId,
+        'message': {
+          'isLive': false,
+          'detectShare': false,
+          'elements': [],
+          'cid': cid,
+          'attaches': [
+            {
+              '_type': 'AUDIO',
+              'token': token,
+              'count': durationSeconds,
+              'size': fileSize,
+              'sender': senderId ?? 0,
+            },
+          ],
+        },
+        'notify': true,
+      };
+      // НЕ очищаем глобальный кэш чатов при отправке аудио!
+      // Это приводит к потере данных о правах администратора во ВСЕХ чатах
+      // clearChatsCache();
+
+      final resp64 = await sendRequest(64, payload);
+      final cmd = resp64['cmd'] as int?;
+      if (cmd == 0x300 || cmd == 768) {
+        final err = resp64['payload'];
+        if (err is Map && err['error'] == 'attachment.not.ready') {
+          throw err;
+        }
+        throw Exception(err?.toString() ?? 'Ошибка отправки аудио');
+      }
+    }
+
+    int attempt = 0;
+    while (true) {
+      try {
+        await trySendWithToken();
+        return;
+      } catch (e) {
+        if (e is Map && e['error'] == 'attachment.not.ready') {
+          if (attempt >= maxNotReadyRetries) {
+            throw Exception('attachment.not.ready (max retries exceeded)');
+          }
+          final backoffMs = 250 * (attempt + 1);
+          await Future.delayed(Duration(milliseconds: backoffMs));
+          attempt += 1;
+          continue;
+        }
+        rethrow;
+      }
     }
   }
 }

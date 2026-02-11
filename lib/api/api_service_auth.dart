@@ -260,16 +260,6 @@ extension ApiServiceAuth on ApiService {
     return authToken != null;
   }
 
-  Future<void> _loadTokenFromAccountManager() async {
-    final accountManager = AccountManager();
-    await accountManager.initialize();
-    final currentAccount = accountManager.currentAccount;
-    if (currentAccount != null) {
-      authToken = currentAccount.token;
-      userId = currentAccount.userId;
-    }
-  }
-
   Future<void> switchAccount(String accountId) async {
     print("Переключение на аккаунт: $accountId");
 
@@ -407,7 +397,6 @@ extension ApiServiceAuth on ApiService {
       _isSessionReady = false;
       _handshakeSent = false;
       _reconnectAttempts = 0;
-      _currentUrlIndex = 0;
 
       _messageQueue.clear();
       _presenceData.clear();
@@ -435,7 +424,6 @@ extension ApiServiceAuth on ApiService {
       _isSessionReady = false;
       _chatsFetchedInThisSession = false;
       _reconnectAttempts = 0;
-      _currentUrlIndex = 0;
 
       _messageQueue.clear();
       _presenceData.clear();

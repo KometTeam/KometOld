@@ -1,9 +1,8 @@
-/// НЕ ТРОГАТЬ НАХУЙ пожалуйста
+/// URL-адреса и константы приложения
 class AppUrls {
   AppUrls._();
 
-  /// Вебсокеты
-  /// вроде в ConnectionManager ConnectionManagerSimple ApiService
+  /// WebSocket endpoints
   static const List<String> websocketUrls = [
     'wss://ws-api.oneme.ru:443/websocket',
     'wss://ws-api.oneme.ru/websocket',
@@ -13,21 +12,19 @@ class AppUrls {
     'ws://ws-api.oneme.ru:8080/websocket',
   ];
 
-  ///не понятно
   static const String webOrigin = 'https://web.max.ru';
 
-  /// Юзается на экране TOS, можно заменить на пiрно
+  /// Используется на экране Terms of Service
   static const String legalUrl = 'https://legal.max.ru/ps';
 
   static const String telegramChannel = 'https://t.me/TeamKomet';
 
-  ///для групп когда присоединиться хочеш
+  /// Префикс ссылки для присоединения к группе
   static const String joinLinkPrefix = 'https://max.ru/join/';
 
-  ///для поиска по айди, я все еще не ебу где эта функция
+  /// Префикс ссылки для поиска по ID
   static const String idLinkPrefix = 'https://max.ru/id';
 
-  ///проверка вайтлиста для тестерских билдов
-  ///Крякнуть как нехуй делать но кому не похуй??
+  /// URL для проверки whitelist (тестовые билды)
   static const String whitelistCheckUrl = 'https://wl.liarts.ru/wl';
 }

@@ -432,7 +432,7 @@ class _EditContactScreenState extends State<EditContactScreen> {
                             if (_isLoadingAvatar)
                               Positioned.fill(
                                 child: Container(
-                                  decoration: BoxDecoration(
+                                  decoration: const BoxDecoration(
                                     color: Colors.black54,
                                     shape: BoxShape.circle,
                                   ),

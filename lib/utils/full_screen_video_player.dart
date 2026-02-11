@@ -288,7 +288,7 @@ class _FullScreenVideoPlayerState extends State<FullScreenVideoPlayer>
                             strokeWidth: 3,
                           ),
                           const SizedBox(height: 12),
-                          Text(
+                          const Text(
                             'Буферизация...',
                             style: TextStyle(
                               color: Colors.white,
@@ -505,7 +505,7 @@ class _VideoControls extends StatelessWidget {
                     children: [
                       Text(
                         formatDuration(currentPosition),
-                        style: TextStyle(
+                        style: const TextStyle(
                           color: Colors.white,
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
@@ -517,7 +517,7 @@ class _VideoControls extends StatelessWidget {
                       ),
                       Text(
                         formatDuration(totalDuration),
-                        style: TextStyle(color: Colors.white70, fontSize: 14),
+                        style: const TextStyle(color: Colors.white70, fontSize: 14),
                       ),
                     ],
                   ),
@@ -915,7 +915,7 @@ class _ErrorWidget extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 24),
-            Text(
+            const Text(
               'Не удалось загрузить видео',
               style: TextStyle(
                 color: Colors.white,
@@ -924,7 +924,7 @@ class _ErrorWidget extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            Text(
+            const Text(
               'Проверьте подключение к интернету\nили попробуйте позже',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.white70, fontSize: 14),

@@ -125,7 +125,7 @@ class _ChatMediaScreenState extends State<ChatMediaScreen>
 
     if (widget.onGoToMessage != null) {
       Future.delayed(const Duration(milliseconds: 500), () {
-        if (!mounted) return; //бля а может и не надо сюда
+        if (!mounted) return;
         widget.onGoToMessage!(messageId);
       });
     }
@@ -305,7 +305,9 @@ class _ChatMediaScreenState extends State<ChatMediaScreen>
         final b64 = previewData.substring(idx + 7);
         try {
           previewBytes = base64Decode(b64);
-        } catch (_) {}
+        } catch (e) {
+          print('⚠️ Ошибка декодирования base64 превью: $e');
+        }
       }
     }
 
@@ -363,7 +365,7 @@ class _ChatMediaScreenState extends State<ChatMediaScreen>
           Center(
             child: Container(
               padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
+              decoration: const BoxDecoration(
                 color: Colors.black54,
                 shape: BoxShape.circle,
               ),
@@ -542,7 +544,7 @@ class _ChatMediaScreenState extends State<ChatMediaScreen>
           margin: const EdgeInsets.symmetric(vertical: 4),
           child: ListTile(
             leading: const Icon(Icons.audiotrack, size: 32),
-            title: Text('Голосовое сообщение'),
+            title: const Text('Голосовое сообщение'),
             subtitle: Text(
               '${Duration(seconds: duration).inMinutes}:${(Duration(seconds: duration).inSeconds % 60).toString().padLeft(2, '0')} • ${_formatTime(message.time)}',
             ),

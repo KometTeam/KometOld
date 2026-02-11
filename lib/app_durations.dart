@@ -1,4 +1,4 @@
-/// Продолжительности анимаци1
+/// Продолжительности анимаций
 class AppDurations {
   AppDurations._();
 
@@ -32,7 +32,7 @@ class AppDurations {
   /// задержка перед действием и подсветка соо
   static const Duration animation500 = Duration(milliseconds: 500);
 
-  /// помоему в загрузке
+  ///длительная анимация загрузки
   static const Duration animation900 = Duration(milliseconds: 900);
 
   /// pulse анимация для сообщения или цикл
@@ -41,7 +41,7 @@ class AppDurations {
   /// Задержка debounce для поиска и ввода текст
   static const Duration debounce = Duration(milliseconds: 300);
 
-  /// специальная задержка для меню с эмодзи, а прошлое меню тогда нахуя...🥀
+  ///задержка долгого нажатия для меню с эмодзи
   static const Duration longPress = Duration(milliseconds: 350);
 
   /// Короткий Snackbar

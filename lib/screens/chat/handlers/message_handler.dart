@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gwid/api/api_service.dart';
 import 'package:gwid/models/chat.dart';
 import 'package:gwid/models/contact.dart';
@@ -226,7 +227,7 @@ class MessageHandler {
         // Локальное обновление чата (без cmd, это локальное сообщение)
         _handleNewChat(payload);
       } else if (opcode == 128 && chatId != null) {
-        _handleNewMessage(chatId, payload);
+        unawaited(_handleNewMessage(chatId, payload));
       } else if (opcode == 67 && chatId != null) {
         _handleEditedMessage(chatId, payload);
       } else if ((opcode == 66 || opcode == 142) && chatId != null) {
@@ -312,7 +313,7 @@ class MessageHandler {
     }
   }
 
-  void _handleNewMessage(int chatId, Map<String, dynamic> payload) {
+  Future<void> _handleNewMessage(int chatId, Map<String, dynamic> payload) async {
     print('🔔 [MessageHandler] _handleNewMessage вызван для chatId: $chatId');
 
     if (allChats.isEmpty) {
@@ -378,12 +379,15 @@ class MessageHandler {
     bool shouldShowNotification = (myId == null || newMessage.senderId != myId);
     print('🔔 [MessageHandler] myId=$myId, senderId=${newMessage.senderId}, shouldShowNotification=$shouldShowNotification');
 
-    // Если мы в приложении и в этом чате - не показываем уведомление
-    if (shouldShowNotification &&
-        ApiService.instance.isAppInForeground &&
-        ApiService.instance.currentActiveChatId == chatId) {
+    final bool isInActiveChat = ApiService.instance.currentActiveChatId == chatId;
+
+    // Never show a push notification for the currently opened chat.
+    if (shouldShowNotification && isInActiveChat) {
       print('🔔 [MessageHandler] В foreground и в этом чате - не показываем');
       shouldShowNotification = false;
+    }
+    if (isInActiveChat) {
+      unawaited(NotificationService().clearNotificationMessagesForChat(chatId));
     }
     print('🔔 [MessageHandler] isAppInForeground=${ApiService.instance.isAppInForeground}, currentActiveChatId=${ApiService.instance.currentActiveChatId}');
 
@@ -439,17 +443,51 @@ class MessageHandler {
       }
     }
 
+    // Определяем, наше ли это сообщение (до проверки автопрочтения)
+    bool isMyMessage = false;
+    if (chatIndex != -1) {
+      final oldChat = allChats[chatIndex];
+      isMyMessage = (myId != null && newMessage.senderId == myId) ||
+          newMessage.senderId == oldChat.ownerId;
+    } else {
+      // Для новых чатов считаем сообщение "не нашим" по умолчанию
+      isMyMessage = myId != null && newMessage.senderId == myId;
+    }
+
+    // Проверяем, нужно ли автоматически отметить сообщение как прочитанное
+    // Условия: приложение на переднем плане, пользователь в этом чате, сообщение не наше, режим скрытия онлайна выключен
+    bool shouldAutoMarkAsRead = false;
+    final isForegroundActiveChat = ApiService.instance.isAppInForeground && isInActiveChat;
+    
+    print('🔔 [MessageHandler] Проверка автопрочтения: isForegroundActiveChat=$isForegroundActiveChat, isMyMessage=$isMyMessage');
+    
+    if (isForegroundActiveChat && !isMyMessage) {
+      // Проверяем настройку скрытия онлайна
+      final prefs = await SharedPreferences.getInstance();
+      final isHiddenMode = prefs.getBool('privacy_hidden') ?? false;
+      // Автоматически отмечаем как прочитанное только если режим скрытия выключен
+      shouldAutoMarkAsRead = !isHiddenMode;
+      print('🔔 [MessageHandler] Режим скрытия онлайна: $isHiddenMode, shouldAutoMarkAsRead=$shouldAutoMarkAsRead');
+    }
+
+    // Если нужно автоматически отметить как прочитанное - делаем это
+    if (shouldAutoMarkAsRead) {
+      print('🔔 [MessageHandler] Автоматически отмечаем сообщение как прочитанное');
+      ApiService.instance.markMessageAsRead(chatId, newMessage.id);
+    }
+
     if (chatIndex != -1) {
       final oldChat = allChats[chatIndex];
 
-      // Определяем, наше ли это сообщение
-      final isMyMessage =
-          (myId != null && newMessage.senderId == myId) ||
-          newMessage.senderId == oldChat.ownerId;
+      // Увеличиваем счётчик непрочитанных только если:
+      // 1. Это не наше сообщение
+      // 2. Не включено автоматическое прочтение (скрытие онлайна выключено и мы в чате)
+      final shouldIncrementUnread = !isMyMessage && !shouldAutoMarkAsRead && !isInActiveChat;
+      print('🔔 [MessageHandler] shouldIncrementUnread=$shouldIncrementUnread (isMyMessage=$isMyMessage, shouldAutoMarkAsRead=$shouldAutoMarkAsRead)');
 
       final updatedChat = oldChat.copyWith(
         lastMessage: newMessage,
-        newMessages: !isMyMessage
+        newMessages: shouldIncrementUnread
             ? oldChat.newMessages + 1
             : oldChat.newMessages,
       );
@@ -484,9 +522,11 @@ class MessageHandler {
           }
           if (chatJson != null) {
             final newChat = Chat.fromJson(chatJson);
+            // Для новых чатов тоже учитываем автоматическое прочтение
+            final shouldIncrementUnread = !isMyMessage && !shouldAutoMarkAsRead && !isInActiveChat;
             final updatedChat = newChat.copyWith(
               lastMessage: Message.fromJson(payload['message']),
-              newMessages: newChat.newMessages + 1,
+              newMessages: shouldIncrementUnread ? newChat.newMessages + 1 : newChat.newMessages,
             );
             setState(() {
               allChats.add(updatedChat);
@@ -755,12 +795,18 @@ class MessageHandler {
     try {
       final foldersJson = payload['folders'] as List<dynamic>?;
       if (foldersJson != null) {
+        // Защищенный маппинг - пропускаем битые папки
         final newFolders = foldersJson.map((json) {
-          final jsonMap = json is Map<String, dynamic>
-              ? json
-              : Map<String, dynamic>.from(json as Map);
-          return ChatFolder.fromJson(jsonMap);
-        }).toList();
+          try {
+            final jsonMap = json is Map<String, dynamic>
+                ? json
+                : Map<String, dynamic>.from(json as Map);
+            return ChatFolder.fromJson(jsonMap);
+          } catch (err) {
+            print('⚠️ Ошибка парсинга папки: $err');
+            return null; // Пропускаем битую папку
+          }
+        }).whereType<ChatFolder>().toList(); // Оставляем только валидные
 
         final context = getContext();
         if (context.mounted) {
@@ -775,7 +821,7 @@ class MessageHandler {
         }
       }
     } catch (e) {
-      print('Ошибка обработки папок из opcode 272: $e');
+      print('❌ Критическая ошибка обработки папок из opcode 272: $e');
     }
   }
 
@@ -911,7 +957,7 @@ class MessageHandler {
     Chat channel, [
     Map<String, dynamic>? chatFromPayload,
   ]) {
-    final channelName = channel.title ?? channel.displayTitle ?? 'Канал';
+    final channelName = channel.displayTitle;
     final avatarUrl = channel.baseIconUrl;
 
     print('🔔 [MessageHandler] Показываем уведомление канала: $channelName');
@@ -1007,7 +1053,9 @@ class MessageHandler {
     // Ищем в allChats
     try {
       return allChats.firstWhere((c) => c.id == chatId);
-    } catch (_) {}
+    } catch (e) {
+      print('⚠️ Чат $chatId не найден в allChats: $e');
+    }
 
     // Из payload
     if (chatFromPayload != null) {
@@ -1020,7 +1068,9 @@ class MessageHandler {
       if (cachedChatJson != null) {
         return Chat.fromJson(cachedChatJson);
       }
-    } catch (_) {}
+    } catch (e) {
+      print('⚠️ Ошибка получения чата $chatId из кэша: $e');
+    }
 
     return null;
   }

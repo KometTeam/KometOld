@@ -9,7 +9,8 @@ extension ApiServiceConnection on ApiService {
     if (_onlineCompleter?.isCompleted ?? false) {
       _onlineCompleter = Completer<void>();
     }
-    _buffer = Uint8List(0);
+
+    _packetBuffer.reset();
 
     _socketSubscription?.cancel();
     _socketSubscription = null;
@@ -17,7 +18,9 @@ extension ApiServiceConnection on ApiService {
     if (close && _socket != null) {
       try {
         await _socket!.close();
-      } catch (_) {}
+      } catch (e) {
+        print('⚠️ Ошибка закрытия сокета: $e');
+      }
     }
     _socket = null;
   }
@@ -84,7 +87,8 @@ extension ApiServiceConnection on ApiService {
       );
 
       _socketConnected = true;
-      _buffer = Uint8List(0);
+
+      _packetBuffer.reset();
       _seq = 0;
 
       _listen();
@@ -174,7 +178,8 @@ extension ApiServiceConnection on ApiService {
       'userAgent': userAgentPayload,
     };
 
-    await _sendMessage(6, payload);
+
+    await _sendMessage(6, payload, requireSessionReady: false);
     _handshakeSent = true;
   }
 
@@ -189,40 +194,6 @@ extension ApiServiceConnection on ApiService {
         }
       }
     });
-  }
-
-  void _startAnalyticsTimer() {
-    _analyticsTimer?.cancel();
-    _analyticsTimer = Timer.periodic(
-      Duration(seconds: 10 + (DateTime.now().millisecondsSinceEpoch % 41)),
-      (timer) async {
-        if (_isSessionOnline && _isSessionReady && _userId != null) {
-          try {
-            final now = DateTime.now().millisecondsSinceEpoch;
-            final Map<String, dynamic> params = {
-              'session_id': _sessionId,
-              'action_id': _actionId++,
-              'screen_to': 150,
-            };
-
-            await _sendMessage(5, {
-              "events": [
-                {
-                  "type": "NAV",
-                  "event": "HEARTBEAT",
-                  "userId": _userId,
-                  "time": now,
-                  "params": params,
-                },
-              ],
-            });
-            _log('📊 Отправлена периодическая аналитика (opcode=5)');
-          } catch (e) {
-            print('Ошибка отправки аналитики: $e');
-          }
-        }
-      },
-    );
   }
 
   Future<void> connect() async {
@@ -252,7 +223,6 @@ extension ApiServiceConnection on ApiService {
 
   Future<void> reconnect() async {
     _reconnectAttempts = 0;
-    _currentUrlIndex = 0;
 
     _connectionStatusController.add("connecting");
     try {
@@ -289,41 +259,35 @@ extension ApiServiceConnection on ApiService {
   }
 
   Future<dynamic> sendRequest(
-    int opcode,
-    Map<String, dynamic> payload, {
-    Duration timeout = const Duration(seconds: 30),
-  }) async {
-    await waitUntilOnline();
+      int opcode,
+      Map<String, dynamic> payload, {
+        Duration timeout = const Duration(seconds: 30),
+      }) async {
+
+    // Не ждем готовности сессии для Opcode 19 (Auth), иначе она будет ждать саму себя
+    if (opcode != 19) {
+      await waitUntilOnline();
+    }
 
     if (!_socketConnected || _socket == null) {
       throw Exception('Socket is not connected. Connect first.');
     }
 
-    _seq = (_seq + 1) % 256;
-    final seq = _seq;
-    final packet = _packPacket(10, 0, seq, opcode, payload);
 
-    final completer = Completer<dynamic>();
-    _pending[seq] = completer;
+    final seq = await _sendMessage(opcode, payload, requireSessionReady: false);
 
-    try {
-      _log('📤 ОТПРАВКА (await): ver=10, cmd=0, seq=$seq, opcode=$opcode');
-      _log('📤 PAYLOAD (await): ${truncatePayloadObjectForLog(payload)}');
-      _socket!.add(packet);
-    } catch (e) {
-      await _resetSocket(close: true);
-      _pending.remove(seq);
-      throw Exception('Send failed: $e');
+    if (seq == -1) {
+      throw Exception('Ошибка отправки сообщения (сокет закрыт или не готов)');
     }
 
-    try {
-      return await completer.future.timeout(timeout);
-    } finally {
-      final current = _pending[seq];
-      if (identical(current, completer)) {
-        _pending.remove(seq);
-      }
+    final completer = _pendingManager.get(seq);
+
+    if (completer == null) {
+      // Такое маловероятно, если _sendMessage отработал корректно
+      throw Exception('Внутренняя ошибка: запрос не был зарегистрирован');
     }
+
+    return completer.future.timeout(timeout);
   }
 
   Future<int> sendAndTrackFullJsonRequest(String jsonString) async {
@@ -338,44 +302,6 @@ extension ApiServiceConnection on ApiService {
     return await _sendMessage(opcode, payload);
   }
 
-  Future<int> _sendMessage(int opcode, Map<String, dynamic> payload) async {
-    if (!_socketConnected || _socket == null) {
-      print('⚠️ Сокет не подключен, пропускаем opcode=$opcode');
-      _reconnect();
-      return -1;
-    }
-
-    try {
-      if (_socket == null) {
-        print('⚠️ Сокет не инициализирован, пропускаем opcode=$opcode');
-        return -1;
-      }
-      _socket!.remoteAddress;
-    } catch (e) {
-      print('⚠️ Сокет закрыт, пропускаем opcode=$opcode');
-      _socketConnected = false;
-      _socket = null;
-      return -1;
-    }
-
-    _seq = (_seq + 1) % 256;
-    final seq = _seq;
-    final packet = _packPacket(10, 0, seq, opcode, payload);
-
-    _log('📤 ОТПРАВКА: ver=10, cmd=0, seq=$seq, opcode=$opcode');
-    _log('📤 PAYLOAD: ${truncatePayloadObjectForLog(payload)}');
-    _log('📤 Размер пакета: ${packet.length} байт');
-
-    try {
-      _socket!.add(packet);
-    } catch (e) {
-      print('❌ Ошибка отправки пакета: $e');
-      await _resetSocket(close: true);
-      return -1;
-    }
-
-    return seq;
-  }
 
   void _listen() async {
     if (!_socketConnected || _socket == null) {
@@ -387,12 +313,13 @@ extension ApiServiceConnection on ApiService {
     }
 
     _socketSubscription = _socket!.listen(
-      _handleSocketData,
+      _handleSocketData, // Метод определен в ApiService (main file)
       onError: (error) {
         print('← ERROR Socket: $error');
         _isSessionOnline = false;
         _isSessionReady = false;
         _socketConnected = false;
+        _pendingManager.clearAll(reason: 'Socket error: $error');
         _healthMonitor.onError(error.toString());
         _updateConnectionState(
           conn_state.ConnectionState.error,
@@ -405,6 +332,7 @@ extension ApiServiceConnection on ApiService {
         _isSessionOnline = false;
         _isSessionReady = false;
         _socketConnected = false;
+        _pendingManager.clearAll(reason: 'Connection closed');
         _stopHealthMonitoring();
         _updateConnectionState(
           conn_state.ConnectionState.disconnected,
@@ -440,7 +368,15 @@ extension ApiServiceConnection on ApiService {
         '📥 ПОЛУЧЕНО: ver=$ver, cmd=$cmd ($cmdType), seq=$seq, opcode=$opcode',
       );
       if (opcode != 19) {
-        _log('📥 PAYLOAD: ${truncatePayloadObjectForLog(payload)}');
+        final bool shouldLogPayload =
+            opcode != 129 &&
+            opcode != 132 &&
+            opcode != 48 &&
+            opcode != 49;
+
+        if (shouldLogPayload) {
+          _log('📥 PAYLOAD: ${truncatePayloadObjectForLog(payload)}');
+        }
       }
 
       if (opcode == 2) {
@@ -496,7 +432,7 @@ extension ApiServiceConnection on ApiService {
         }
       }
 
-      if ((decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
+      if (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768) {
         final error = decodedMessage['payload'];
         final errorMsg = error?['message'] ?? error?['error'] ?? 'server_error';
         print('← ERROR: $errorMsg');
@@ -523,7 +459,7 @@ extension ApiServiceConnection on ApiService {
             final messagePayload = decodedMessage['payload'];
             if (messagePayload != null && messagePayload['message'] != null) {
               final messageData =
-                  messagePayload['message'] as Map<String, dynamic>;
+              messagePayload['message'] as Map<String, dynamic>;
               final cid = messageData['cid'] as int?;
               if (cid != null) {
                 final queueItem = QueueItem(
@@ -555,7 +491,7 @@ extension ApiServiceConnection on ApiService {
             _messageController.add({
               'type': 'invalid_token',
               'message':
-                  'Токен авторизации недействителен. Требуется повторная авторизация.',
+              'Токен авторизации недействителен. Требуется повторная авторизация.',
             });
             _reconnect();
           });
@@ -713,6 +649,25 @@ extension ApiServiceConnection on ApiService {
         });
       }
 
+      // Обработка ответа на loadChat (opcode 49) - обновляем данные чата
+      if (decodedMessage['opcode'] == 49 &&
+          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+        final payload = decodedMessage['payload'];
+        print('📥 [Connection] Ответ на opcode 49. Ключи payload: ${payload?.keys.toList()}');
+        final chat = payload['chat'] as Map<String, dynamic>?;
+        
+        if (chat != null) {
+          print('✅ [Connection] Получены данные чата из opcode 49, обновляем кэш');
+          print('   Ключи chat: ${chat.keys.toList()}');
+          if (chat.containsKey('admins')) {
+            print('   Админы: ${chat['admins']}');
+          }
+          updateChatInCacheFromJson(chat);
+        } else {
+          print('⚠️ [Connection] payload[\'chat\'] отсутствует в opcode 49!');
+        }
+      }
+
       if (decodedMessage['opcode'] == 89 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         final payload = decodedMessage['payload'];
@@ -810,10 +765,15 @@ extension ApiServiceConnection on ApiService {
     _socketSubscription?.cancel();
     _socketSubscription = null;
 
+    // Очищаем все pending requests при переподключении
+    _pendingManager.clearAll(reason: 'Reconnecting');
+
     if (_socket != null) {
       try {
         _socket!.close();
-      } catch (e) {}
+      } catch (e) {
+        print('⚠️ Ошибка закрытия сокета при переподключении: $e');
+      }
       _socket = null;
     }
     _socketConnected = false;
@@ -825,8 +785,6 @@ extension ApiServiceConnection on ApiService {
       _onlineCompleter = Completer<void>();
     }
     _chatsFetchedInThisSession = false;
-
-    _currentUrlIndex = 0;
 
     _reconnectDelaySeconds = (_reconnectDelaySeconds * 2).clamp(1, 30);
     final jitter = (DateTime.now().millisecondsSinceEpoch % 1000) / 1000.0;
@@ -886,16 +844,16 @@ extension ApiServiceConnection on ApiService {
       unawaited(
         _sendMessage(item.opcode, item.payload)
             .then((_) {
-              print(
-                'Сообщение из очереди успешно отправлено, удаляем из очереди: ${item.id}',
-              );
+          print(
+            'Сообщение из очереди успешно отправлено, удаляем из очереди: ${item.id}',
+          );
 
-              _queueService.markMessageAsProcessed(item.id);
-              _queueService.removeFromQueue(item.id);
-            })
+          _queueService.markMessageAsProcessed(item.id);
+          _queueService.removeFromQueue(item.id);
+        })
             .catchError((e) {
-              print('Ошибка отправки из очереди: $e, оставляем в очереди');
-            }),
+          print('Ошибка отправки из очереди: $e, оставляем в очереди');
+        }),
       );
     }
 
@@ -908,11 +866,11 @@ extension ApiServiceConnection on ApiService {
           unawaited(
             _sendMessage(item.opcode, item.payload)
                 .then((_) {
-                  _queueService.removeFromQueue(item.id);
-                })
+              _queueService.removeFromQueue(item.id);
+            })
                 .catchError((e) {
-                  print('Ошибка загрузки чата из очереди: $e');
-                }),
+              print('Ошибка загрузки чата из очереди: $e');
+            }),
           );
         } else {
           print(
@@ -934,13 +892,15 @@ extension ApiServiceConnection on ApiService {
     }
     _socketConnected = false;
 
+    // Очищаем все pending requests при принудительном переподключении
+    _pendingManager.clearAll(reason: 'Force reconnect');
+
     _isReconnecting = false;
     _reconnectAttempts = 0;
     _reconnectDelaySeconds = 2;
     _isSessionOnline = false;
     _isSessionReady = false;
     _chatsFetchedInThisSession = false;
-    _currentUrlIndex = 0;
     if (_onlineCompleter?.isCompleted ?? false) {
       _onlineCompleter = Completer<void>();
     }
@@ -966,10 +926,15 @@ extension ApiServiceConnection on ApiService {
       if (_socket != null) {
         try {
           _socket!.close();
-        } catch (e) {}
+        } catch (e) {
+          print('⚠️ Ошибка закрытия сокета при полном переподключении: $e');
+        }
         _socket = null;
       }
       _socketConnected = false;
+
+      // Очищаем все pending requests при полном переподключении
+      _pendingManager.clearAll(reason: 'Full reconnection');
 
       _isReconnecting = false;
       _reconnectAttempts = 0;
@@ -978,7 +943,6 @@ extension ApiServiceConnection on ApiService {
       _isSessionReady = false;
       _handshakeSent = false;
       _chatsFetchedInThisSession = false;
-      _currentUrlIndex = 0;
       if (_onlineCompleter?.isCompleted ?? false) {
         _onlineCompleter = Completer<void>();
       }
@@ -1019,6 +983,9 @@ extension ApiServiceConnection on ApiService {
       conn_state.ConnectionState.disconnected,
       message: 'Отключено пользователем',
     );
+
+    // Очищаем все pending requests при отключении
+    _pendingManager.clearAll(reason: 'Disconnected by user');
 
     _socket?.close();
     _socket = null;

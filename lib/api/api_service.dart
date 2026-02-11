@@ -4,7 +4,9 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:gwid/consts.dart';
 import 'package:gwid/connection/connection_logger.dart';
 import 'package:gwid/connection/connection_state.dart' as conn_state;
 import 'package:gwid/connection/health_monitor.dart';
@@ -13,7 +15,7 @@ import 'package:gwid/models/complaint.dart';
 import 'package:gwid/models/contact.dart';
 import 'package:gwid/models/message.dart';
 import 'package:gwid/models/profile.dart';
-import 'package:gwid/utils/proxy_service.dart';
+
 import 'package:gwid/services/account_manager.dart';
 import 'package:gwid/services/avatar_cache_service.dart';
 import 'package:gwid/services/cache_service.dart';
@@ -29,14 +31,16 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
-import 'package:gwid/app_urls.dart';
+
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
-import 'package:ffi/ffi.dart';
-import 'package:msgpack_dart/msgpack_dart.dart' as msgpack;
 
+import 'package:msgpack_dart/msgpack_dart.dart' as msgpack;
+import 'packet_buffer.dart';
+import 'protocol_handler.dart';
+import 'pending_requests_manager.dart';
 part 'api_service_connection.dart';
 part 'api_service_auth.dart';
 part 'api_service_contacts.dart';
@@ -45,23 +49,32 @@ part 'api_service_media.dart';
 part 'api_service_privacy.dart';
 part 'api_service_complaints.dart';
 
+
 typedef Lz4DecompressFunction =
-    Int32 Function(
-      Pointer<Uint8> src,
-      Pointer<Uint8> dst,
-      Int32 compressedSize,
-      Int32 dstCapacity,
+Int32 Function(
+    Pointer<Uint8> src,
+    Pointer<Uint8> dst,
+    Int32 compressedSize,
+    Int32 dstCapacity,
     );
 typedef Lz4Decompress =
-    int Function(
-      Pointer<Uint8> src,
-      Pointer<Uint8> dst,
-      int compressedSize,
-      int dstCapacity,
+int Function(
+    Pointer<Uint8> src,
+    Pointer<Uint8> dst,
+    int compressedSize,
+    int dstCapacity,
     );
 
 class ApiService {
-  ApiService._privateConstructor();
+  ApiService._privateConstructor() {
+    _packetBuffer = PacketBuffer();
+    _pendingManager = PendingRequestsManager(
+      requestTimeout: const Duration(seconds: 30),
+      onTimeout: (seq, label) {
+        print('⚠️ Запрос seq=$seq${label != null ? " ($label)" : ""} превысил таймаут');
+      },
+    );
+  }
   static final ApiService instance = ApiService._privateConstructor();
 
   int? _userId;
@@ -72,24 +85,26 @@ class ApiService {
 
   bool _isAppInForeground = true;
 
-  int _currentUrlIndex = 0;
   Socket? _socket;
   StreamSubscription? _socketSubscription;
   Timer? _pingTimer;
   Timer? _analyticsTimer;
   int _seq = 0;
-  final Map<int, Completer<dynamic>> _pending = {};
+
+  late final PendingRequestsManager _pendingManager;
   bool _socketConnected = false;
-  Uint8List? _buffer = Uint8List(0);
+  late final PacketBuffer _packetBuffer;
+
   DynamicLibrary? _lz4Lib;
   Lz4Decompress? _lz4BlockDecompress;
+  bool _lz4InitAttempted = false;
 
   final StreamController<Contact> _contactUpdatesController =
-      StreamController<Contact>.broadcast();
+  StreamController<Contact>.broadcast();
   Stream<Contact> get contactUpdates => _contactUpdatesController.stream;
 
   final StreamController<String> _errorController =
-      StreamController<String>.broadcast();
+  StreamController<String>.broadcast();
   Stream<String> get errorStream => _errorController.stream;
 
   final _reconnectionCompleteController = StreamController<void>.broadcast();
@@ -125,7 +140,7 @@ class ApiService {
 
   final ConnectionLogger _connectionLogger = ConnectionLogger();
   final conn_state.ConnectionStateManager _connectionStateManager =
-      conn_state.ConnectionStateManager();
+  conn_state.ConnectionStateManager();
   final HealthMonitor _healthMonitor = HealthMonitor();
 
   String? _currentServerUrl;
@@ -159,7 +174,7 @@ class ApiService {
   bool get isOnline => _isSessionOnline;
 
   Future<void> waitUntilOnline() async {
-    if (_isSessionOnline && _isSessionReady) return;
+    if (_isSessionOnline) return;
     if (_onlineCompleter == null || _onlineCompleter!.isCompleted) {
       _onlineCompleter = Completer<void>();
     }
@@ -179,6 +194,7 @@ class ApiService {
   }
 
   Completer<Map<String, dynamic>>? _inflightChatsCompleter;
+  Completer<Map<String, dynamic>>? _authBootstrapCompleter;
   Map<String, dynamic>? _lastChatsPayload;
   DateTime? _lastChatsAt;
   final Duration _chatsCacheTtl = const Duration(seconds: 5);
@@ -186,11 +202,84 @@ class ApiService {
 
   Map<String, dynamic>? get lastChatsPayload => _lastChatsPayload;
 
+  /// Сбрасывает флаг загруженных чатов для принудительной перезагрузки
+  void resetChatsFetchedFlag() {
+    _chatsFetchedInThisSession = false;
+  }
+
+  /// Загружает данные конкретного чата с сервера (включая список админов)
+  Future<void> loadChatData(int chatId) async {
+    try {
+      await waitUntilOnline();
+      final payload = {
+        'chatId': chatId,
+        'from': DateTime.now().add(const Duration(days: 1)).millisecondsSinceEpoch,
+        'forward': 0,
+        'backward': 1, // Запрашиваем хотя бы 1 сообщение, чтобы получить данные чата
+        'getMessages': true, // Нужно true, иначе сервер возвращает пустой ответ
+      };
+      await sendRequest(49, payload); // opcode 49 = loadChat
+      print('📥 [ApiService] Запрошены данные чата $chatId (opcode 49)');
+    } catch (e) {
+      print('❌ [ApiService] Ошибка загрузки данных чата $chatId: $e');
+      rethrow;
+    }
+  }
+
+  /// Получает детальную информацию о канале (opcode 48)
+  Future<Map<String, dynamic>?> getChannelDetails(int chatId) async {
+    try {
+      await waitUntilOnline();
+      
+      final payload = {
+        'chatIds': [chatId],
+      };
+
+      final response = await sendRequest(48, payload).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw TimeoutException('Таймаут получения деталей канала');
+        },
+      );
+      
+      // Проверяем ответ
+      final cmd = response['cmd'] as int?;
+      if (cmd != 0x100 && cmd != 256) {
+        return null;
+      }
+      
+      final responsePayload = response['payload'] as Map<String, dynamic>?;
+      if (responsePayload == null) {
+        print('❌ [ApiService] Пустой payload в ответе');
+        return null;
+      }
+      
+      final chats = responsePayload['chats'] as List<dynamic>?;
+      if (chats == null || chats.isEmpty) {
+        print('❌ [ApiService] Нет чатов в ответе');
+        return null;
+      }
+      
+      final chat = chats[0] as Map<String, dynamic>;
+      if (chat['id'] != chatId) {
+        return null;
+      }
+      return chat;
+    } on TimeoutException catch (e) {
+      print('⏱️ [ApiService] Таймаут получения деталей канала $chatId: $e');
+      return null;
+    } catch (e, stackTrace) {
+      print('❌ [ApiService] Ошибка получения деталей канала $chatId: $e');
+      print('❌ [ApiService] Stack trace: $stackTrace');
+      return null;
+    }
+  }
+
   void updateChatInListLocally(
-    int chatId,
-    Map<String, dynamic> messageJson, [
-    Map<String, dynamic>? chatJson,
-  ]) {
+      int chatId,
+      Map<String, dynamic> messageJson, [
+        Map<String, dynamic>? chatJson,
+      ]) {
     try {
       _lastChatsPayload ??= {
         'chats': <dynamic>[],
@@ -202,7 +291,7 @@ class ApiService {
 
       final chats = _lastChatsPayload!['chats'] as List<dynamic>;
       final existingIndex = chats.indexWhere(
-        (c) => c is Map && c['id'] == chatId,
+            (c) => c is Map && c['id'] == chatId,
       );
 
       if (existingIndex != -1) {
@@ -213,8 +302,8 @@ class ApiService {
         final newMessageSenderId = messageJson['sender'];
         final isMyMessage =
             currentUserId != null &&
-            (newMessageSenderId.toString() == currentUserId ||
-                chat['ownerId'] == newMessageSenderId);
+                (newMessageSenderId.toString() == currentUserId ||
+                    chat['ownerId'] == newMessageSenderId);
 
         if (!isMyMessage) {
           final currentCount = chat['newMessages'] as int? ?? 0;
@@ -241,7 +330,9 @@ class ApiService {
           'payload': {'chatId': chatId, 'chat': chatJson},
         });
       }
-    } catch (e) {}
+    } catch (e) {
+      _log('Ошибка обновления чата в списке', level: LogLevel.error, data: {'error': e.toString()});
+    }
   }
 
   int _reconnectDelaySeconds = 2;
@@ -262,11 +353,11 @@ class ApiService {
   }
 
   void _log(
-    String message, {
-    LogLevel level = LogLevel.info,
-    String category = 'API',
-    Map<String, dynamic>? data,
-  }) {
+      String message, {
+        LogLevel level = LogLevel.info,
+        String category = 'API',
+        Map<String, dynamic>? data,
+      }) {
     _connectionLogCache.add(message);
     if (!_connectionLogController.isClosed) {
       _connectionLogController.add(message);
@@ -282,7 +373,9 @@ class ApiService {
   void _emitLocal(Map<String, dynamic> frame) {
     try {
       _messageController.add(frame);
-    } catch (_) {}
+    } catch (e) {
+      _log('Ошибка отправки сообщения в контроллер', level: LogLevel.error, data: {'error': e.toString()});
+    }
   }
 
   String generateRandomDeviceId() {
@@ -301,22 +394,14 @@ class ApiService {
     final spoofedData = await SpoofingService.getSpoofedSessionData();
 
     if (spoofedData != null) {
-      final String finalDeviceId;
-      final String? idFromSpoofing = spoofedData['device_id'] as String?;
-
-      if (idFromSpoofing != null && idFromSpoofing.isNotEmpty) {
-        finalDeviceId = idFromSpoofing;
-      } else {
-        finalDeviceId = generateRandomDeviceId();
-      }
       return {
         'deviceType': spoofedData['device_type'] as String? ?? 'ANDROID',
         'locale': spoofedData['locale'] as String? ?? 'ru',
         'deviceLocale': spoofedData['locale'] as String? ?? 'ru',
         'osVersion': spoofedData['os_version'] as String? ?? 'Android 14',
         'deviceName':
-            spoofedData['device_name'] as String? ?? 'Samsung Galaxy S23',
-        'appVersion': SpoofingService.hardcodedAppVersion,
+        spoofedData['device_name'] as String? ?? 'Samsung Galaxy S23',
+        'appVersion': spoofedData['app_version'] as String? ?? '25.21.3',
         'screen': spoofedData['screen'] as String? ?? 'xxhdpi 480dpi 1080x2340',
         'timezone': spoofedData['timezone'] as String? ?? 'Europe/Moscow',
         'pushDeviceType': 'GCM',
@@ -334,10 +419,10 @@ class ApiService {
           'deviceLocale': generatedData['locale'] as String? ?? 'ru',
           'osVersion': generatedData['os_version'] as String? ?? 'Android 14',
           'deviceName':
-              generatedData['device_name'] as String? ?? 'Samsung Galaxy S23',
-          'appVersion': SpoofingService.hardcodedAppVersion,
+          generatedData['device_name'] as String? ?? 'Samsung Galaxy S23',
+          'appVersion': generatedData['app_version'] as String? ?? '25.21.3',
           'screen':
-              generatedData['screen'] as String? ?? 'xxhdpi 480dpi 1080x2340',
+          generatedData['screen'] as String? ?? 'xxhdpi 480dpi 1080x2340',
           'timezone': generatedData['timezone'] as String? ?? 'Europe/Moscow',
           'pushDeviceType': 'GCM',
           'arch': generatedData['arch'] as String? ?? 'arm64-v8a',
@@ -415,13 +500,13 @@ class ApiService {
   }
 
   void _updateConnectionState(
-    conn_state.ConnectionState state, {
-    String? message,
-    int? attemptNumber,
-    Duration? reconnectDelay,
-    int? latency,
-    Map<String, dynamic>? metadata,
-  }) {
+      conn_state.ConnectionState state, {
+        String? message,
+        int? attemptNumber,
+        Duration? reconnectDelay,
+        int? latency,
+        Map<String, dynamic>? metadata,
+      }) {
     _connectionStateManager.setState(
       state,
       message: message,
@@ -461,93 +546,109 @@ class ApiService {
     return data?.text;
   }
 
-  void dispose() {
-    _pingTimer?.cancel();
-    _analyticsTimer?.cancel();
-    _socketSubscription?.cancel();
-    _socket?.close();
-    _reconnectionCompleteController.close();
-    _messageController.close();
-  }
-
   void _initLz4BlockDecompress() {
-    if (_lz4BlockDecompress != null) return;
+    if (_lz4BlockDecompress != null || _lz4InitAttempted) return;
+    _lz4InitAttempted = true;
 
     try {
-      if (Platform.isWindows) {
-        final dllPath = 'eslz4-win64.dll';
-        _lz4Lib = DynamicLibrary.open(dllPath);
+      if (!Platform.isWindows) return;
+
+      const dllPath = 'eslz4-win64.dll';
+      _lz4Lib = DynamicLibrary.open(dllPath);
+      try {
+        _lz4BlockDecompress = _lz4Lib!
+            .lookup<NativeFunction<Lz4DecompressFunction>>(
+          'LZ4_decompress_safe',
+        )
+            .asFunction();
+      } catch (_) {
         try {
           _lz4BlockDecompress = _lz4Lib!
               .lookup<NativeFunction<Lz4DecompressFunction>>(
-                'LZ4_decompress_safe',
-              )
+            'LZ4_decompress_fast',
+          )
               .asFunction();
         } catch (e) {
-          try {
-            _lz4BlockDecompress = _lz4Lib!
-                .lookup<NativeFunction<Lz4DecompressFunction>>(
-                  'LZ4_decompress_fast',
-                )
-                .asFunction();
-          } catch (e2) {}
+          print(
+            'LZ4 DLL loaded, but no supported decompress symbol found. '
+            'Using Dart fallback: $e',
+          );
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      // Optional optimization only; message decoding continues via Dart fallback.
+      print('LZ4 DLL unavailable, using Dart fallback: $e');
+    }
   }
 
+  //  обработка входящих данных
   void _handleSocketData(Uint8List data) {
     _processIncomingData(data);
   }
 
   void _processIncomingData(Uint8List newData) {
-    _buffer = Uint8List.fromList([..._buffer!, ...newData]);
-    while (_buffer!.length >= 10) {
-      final header = _buffer!.sublist(0, 10);
-      final payloadLen =
-          ByteData.view(header.buffer, 6, 4).getUint32(0, Endian.big) &
-          0xFFFFFF;
-      if (_buffer!.length < 10 + payloadLen) {
-        break;
-      }
-      final fullPacket = _buffer!.sublist(0, 10 + payloadLen);
-      _buffer = _buffer!.sublist(10 + payloadLen);
+    // Добавляем новые данные в буфер (БЕЗ пересоздания массива!)
+    _packetBuffer.append(newData);
+
+    // Обрабатываем все полные пакеты из буфера
+    while (true) {
+      // Пытаемся прочитать заголовок
+      final headerBytes = _packetBuffer.peek(ProtocolHandler.headerSize);
+      if (headerBytes == null) break; // Недостаточно данных для заголовка
+
+      // Парсим длину payload из заголовка
+      final payloadLen = ProtocolHandler.tryParseHeader(headerBytes);
+      if (payloadLen == null) break; // Некорректный заголовок
+
+      // Проверяем, что пришел полный пакет
+      final fullPacketSize = ProtocolHandler.headerSize + payloadLen;
+      if (_packetBuffer.length < fullPacketSize) break; // Ждем еще данных
+
+      // Извлекаем полный пакет из буфера
+      final fullPacket = _packetBuffer.extract(fullPacketSize);
+      if (fullPacket == null) break; // Не должно случиться, но на всякий случай
+
+      // Обрабатываем пакет
       _processPacket(fullPacket);
     }
   }
 
   void _processPacket(Uint8List packet) {
     try {
-      final ver = packet[0];
-      final cmd = ByteData.view(packet.buffer).getUint16(1, Endian.big);
-      final seq = packet[3];
-      final opcode = ByteData.view(packet.buffer).getUint16(4, Endian.big);
-      final packedLen = ByteData.view(
-        packet.buffer,
-        6,
-        4,
-      ).getUint32(0, Endian.big);
+      final parsed = ProtocolHandler.parsePacket(packet);
+      if (parsed == null) {
+        print('⚠️ Не удалось распарсить пакет длиной ${packet.length} байт');
+        return;
+      }
 
-      final compFlag = packedLen >> 24;
-      final payloadLen = packedLen & 0x00FFFFFF;
+      final message = parsed.toMap();
 
-      final payloadBytes = packet.sublist(10, 10 + payloadLen);
-      final payload = _unpackPacketPayload(payloadBytes, compFlag != 0);
 
-      final message = {
-        'ver': ver,
-        'cmd': cmd,
-        'seq': seq,
-        'opcode': opcode,
-        'payload': payload,
-      };
+      if (!_socketConnected) {
+        _socketConnected = true;
+        _log('🔌 Соединение восстановлено (получены данные)', level: LogLevel.info);
+      }
 
+      if (!_isSessionOnline) {
+        _isSessionOnline = true;
+        if (_onlineCompleter != null && !_onlineCompleter!.isCompleted) {
+          _onlineCompleter!.complete();
+        }
+      }
+
+      // Если получаем данные (opcode 32 - контакты/чаты), значит сессия точно готова
+      if (!_isSessionReady && (parsed.opcode == 32 || parsed.opcode == 64 || parsed.opcode == 128)) {
+        _isSessionReady = true;
+        _updateConnectionState(conn_state.ConnectionState.connected,
+            message: 'Сессия активна', latency: 0);
+        _connectionStatusController.add('connected');
+      }
+
+      // Отправляем в стрим
       _emitLocal(message);
 
-      final completer = _pending[seq];
-      if (completer != null && !completer.isCompleted) {
-        completer.complete(payload);
-      }
+      // Передаем ВЕСЬ message (включая cmd), а не только payload
+      _pendingManager.complete(parsed.seq, message);
 
       try {
         handleSocketMessage(message);
@@ -555,18 +656,66 @@ class ApiService {
         print('Ошибка вызова handleSocketMessage: $e');
         print('Stack trace: $stackTrace');
       }
-    } catch (e) {
-      print('Ошибка обработки пакета: $e');
+
+    } catch (e, stack) {
+      print('❌ Ошибка обработки пакета: $e');
+      print(stack);
     }
   }
 
+  Future<Map<String, dynamic>> sendRequest(int opcode, Map<String, dynamic> payload) async {
+    // Opcode 19 (auth) и 6 (handshake) создают сессию, они не требуют готовой сессии
+    final bool isAuthOpcode = opcode == 19 || opcode == 6;
+
+    if (isAuthOpcode) {
+      // Для авторизации достаточно, чтобы сокет был подключен
+      await waitUntilOnline();
+    } else {
+      // Для остальных запросов ждем полной готовности сессии
+      await waitUntilOnline();
+      if (!_isSessionReady) {
+        // Если сессия не готова, ждем (с таймаутом)
+        await Future.any([
+          Future.doWhile(() async {
+            if (_isSessionReady) return false;
+            await Future.delayed(const Duration(milliseconds: 50));
+            return true;
+          }),
+          Future.delayed(const Duration(seconds: 10)).then((_) =>
+          throw TimeoutException('Session not ready after 10s')
+          ),
+        ]);
+      }
+    }
+
+    final seq = _seq++ % 256;
+
+    final completer = _pendingManager.register(
+      seq,
+      debugLabel: 'opcode_$opcode',
+    );
+
+    try {
+      final packet = _packPacket(11, 0, seq, opcode, payload);
+
+      _socket?.add(packet);
+      _lastActionTime = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    } catch (e) {
+      _pendingManager.completeError(seq, e);
+      rethrow;
+    }
+
+    final result = await completer.future;
+    return result as Map<String, dynamic>;
+  }
+
   Uint8List _packPacket(
-    int ver,
-    int cmd,
-    int seq,
-    int opcode,
-    Map<String, dynamic> payload,
-  ) {
+      int ver,
+      int cmd,
+      int seq,
+      int opcode,
+      Map<String, dynamic> payload,
+      ) {
     final verB = Uint8List(1)..[0] = ver;
     final cmdB = Uint8List(2)
       ..buffer.asByteData().setUint16(0, cmd, Endian.big);
@@ -584,237 +733,82 @@ class ApiService {
     );
   }
 
-  dynamic _decodeBlockTokens(dynamic value) {
-    if (value is Map) {
-      final maybeDecoded = _tryDecodeSingleBlock(value);
-      if (maybeDecoded != null) {
-        return maybeDecoded;
-      }
+  Future<int> _sendMessage(
+      int opcode,
+      Map<String, dynamic> payload, {
+        String? debugLabel,
+        bool requireSessionReady = true,
+      }) async {
 
-      final result = <String, dynamic>{};
-      value.forEach((k, v) {
-        final key = k is String ? k : k.toString();
-        result[key] = _decodeBlockTokens(v);
-      });
-      return result;
-    } else if (value is List) {
-      return value.map(_decodeBlockTokens).toList();
-    }
 
-    return value;
-  }
+    // Мы принудительно отключаем ожидание сессии для Opcode 19 (Auth) и 6 (Handshake),
+    // даже если requireSessionReady = true.
+    // Это нужно, потому что эти пакеты и создают сессию.
+    final bool isAuthOpcode = opcode == 19 || opcode == 6 || opcode == 17 || opcode == 18;
+    final bool shouldWait = requireSessionReady && !isAuthOpcode;
 
-  dynamic _tryDecodeSingleBlock(Map value) {
-    try {
-      if (value['type'] != 'block') {
-        return null;
-      }
-
-      final rawData = value['data'];
-      if (rawData is! List && rawData is! Uint8List) {
-        return null;
-      }
-
-      final uncompressedSize =
-          (value['uncompressed_size'] ??
-                  value['uncompressedSize'] ??
-                  value['size'])
-              as int?;
-
-      Uint8List compressedBytes = rawData is Uint8List
-          ? rawData
-          : Uint8List.fromList(List<int>.from(rawData as List));
-
-      if (_lz4BlockDecompress != null && uncompressedSize != null) {
-        if (uncompressedSize <= 0 || uncompressedSize > 10 * 1024 * 1024) {
-          return null;
+    if (shouldWait) {
+      await waitUntilOnline();
+      // Дополнительная проверка: если сессия требуется но не готова, ждем
+      if (requireSessionReady && !_isSessionReady) {
+        print('⏳ _sendMessage opcode=$opcode: ждем готовности сессии...');
+        int attempts = 0;
+        while (!_isSessionReady && attempts < 50) {
+          await Future.delayed(const Duration(milliseconds: 50));
+          attempts++;
         }
-
-        final srcSize = compressedBytes.length;
-        final srcPtr = malloc.allocate<Uint8>(srcSize);
-        final dstPtr = malloc.allocate<Uint8>(uncompressedSize);
-
-        try {
-          final srcList = srcPtr.asTypedList(srcSize);
-          srcList.setAll(0, compressedBytes);
-
-          final result = _lz4BlockDecompress!(
-            srcPtr,
-            dstPtr,
-            srcSize,
-            uncompressedSize,
-          );
-
-          if (result <= 0) {
-            return null;
-          }
-
-          final actualSize = result;
-          final dstList = dstPtr.asTypedList(actualSize);
-          final decompressed = Uint8List.fromList(dstList);
-
-          final nested = _deserializeMsgpack(decompressed);
-          if (nested != null) {
-            return nested;
-          }
-
-          return decompressed;
-        } finally {
-          malloc.free(srcPtr);
-          malloc.free(dstPtr);
+        if (!_isSessionReady) {
+          print('❌ _sendMessage opcode=$opcode: сессия не готова после ожидания, отменяем');
+          return -1;
         }
       }
-
-      try {
-        final decompressed = _lz4DecompressBlockPure(compressedBytes, 500000);
-
-        final nested = _deserializeMsgpack(decompressed);
-        return nested ?? decompressed;
-      } catch (e) {
-        return null;
+    } else {
+      // Для служебных сообщений достаточно проверить подключение сокета
+      if (!_socketConnected || _socket == null) {
+        print('⚠️ Сокет не подключен, пропускаем opcode=$opcode');
+        return -1;
       }
-    } catch (e) {
-      return null;
     }
-  }
 
-  dynamic _unpackPacketPayload(
-    Uint8List payloadBytes, [
-    bool isCompressed = false,
-  ]) {
-    if (payloadBytes.isEmpty) {
-      return null;
-    }
+    final seq = _seq++ % 256;
+
+    // Регистрируем pending request ДО отправки
+    _pendingManager.register(
+      seq,
+      debugLabel: debugLabel ?? 'opcode_$opcode',
+    );
 
     try {
-      Uint8List decompressedBytes = payloadBytes;
+      final packet = _packPacket(11, 0, seq, opcode, payload);
 
-      try {
-        decompressedBytes = _lz4DecompressBlockPure(payloadBytes, 500000);
-      } catch (lz4Error) {
-        decompressedBytes = payloadBytes;
-      }
+      _log('📤 ОТПРАВКА: ver=10, cmd=0, seq=$seq, opcode=$opcode');
+      _log('📤 PAYLOAD: ${truncatePayloadObjectForLog(payload)}');
+      _log('📤 Размер пакета: ${packet.length} байт');
 
-      return _deserializeMsgpack(decompressedBytes);
+      _socket?.add(packet);
+      _lastActionTime = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     } catch (e) {
-      return null;
-    }
-  }
-
-  Uint8List _lz4DecompressBlockPure(Uint8List src, int maxOutputSize) {
-    final dst = BytesBuilder(copy: false);
-    int srcPos = 0;
-
-    while (srcPos < src.length) {
-      if (srcPos >= src.length) break;
-      final token = src[srcPos++];
-      var literalLen = token >> 4;
-
-      if (literalLen == 15) {
-        while (srcPos < src.length) {
-          final b = src[srcPos++];
-          literalLen += b;
-          if (b != 255) break;
-        }
-      }
-
-      if (literalLen > 0) {
-        if (srcPos + literalLen > src.length) {
-          throw StateError(
-            'LZ4: literal length выходит за пределы входного буфера',
-          );
-        }
-        final literals = src.sublist(srcPos, srcPos + literalLen);
-        srcPos += literalLen;
-        dst.add(literals);
-        if (dst.length > maxOutputSize) {
-          throw StateError(
-            'LZ4: превышен максимально допустимый размер вывода',
-          );
-        }
-      }
-
-      if (srcPos >= src.length) {
-        break;
-      }
-
-      if (srcPos + 1 >= src.length) {
-        throw StateError('LZ4: неполный offset в потоке');
-      }
-      final offset = src[srcPos] | (src[srcPos + 1] << 8);
-      srcPos += 2;
-
-      if (offset == 0) {
-        throw StateError('LZ4: offset не может быть 0');
-      }
-
-      var matchLen = (token & 0x0F) + 4;
-
-      if ((token & 0x0F) == 0x0F) {
-        while (srcPos < src.length) {
-          final b = src[srcPos++];
-          matchLen += b;
-          if (b != 255) break;
-        }
-      }
-
-      final dstBytes = dst.toBytes();
-      final dstLen = dstBytes.length;
-      final matchPos = dstLen - offset;
-      if (matchPos < 0) {
-        throw StateError(
-          'LZ4: match указывает за пределы уже декодированных данных',
-        );
-      }
-
-      final match = <int>[];
-      for (int i = 0; i < matchLen; i++) {
-        match.add(dstBytes[matchPos + (i % offset)]);
-      }
-      dst.add(Uint8List.fromList(match));
-
-      if (dst.length > maxOutputSize) {
-        throw StateError('LZ4: превышен максимально допустимый размер вывода');
-      }
+      // Если отправка не удалась, сразу завершаем с ошибкой
+      _pendingManager.completeError(seq, e);
+      rethrow;
     }
 
-    return Uint8List.fromList(dst.toBytes());
+    return seq;
   }
 
-  dynamic _deserializeMsgpack(Uint8List data) {
-    try {
-      dynamic payload = msgpack.deserialize(data);
 
-      if (payload is int &&
-          data.length > 1 &&
-          payload <= -1 &&
-          payload >= -32) {
-        final candidateOffsets = <int>[1, 2, 3, 4];
 
-        dynamic recovered;
+  void dispose() {
+    _pingTimer?.cancel();
+    _analyticsTimer?.cancel();
+    _socketSubscription?.cancel();
+    _socket?.close();
+    _reconnectionCompleteController.close();
+    _messageController.close();
 
-        for (final offset in candidateOffsets) {
-          if (offset >= data.length) continue;
-
-          try {
-            final tail = data.sublist(offset);
-            final realPayload = msgpack.deserialize(tail);
-            recovered = realPayload;
-            break;
-          } catch (e) {}
-        }
-
-        if (recovered != null) {
-          payload = recovered;
-        }
-      }
-
-      final decoded = _decodeBlockTokens(payload);
-      return decoded;
-    } catch (e) {
-      return null;
-    }
+    _pendingManager.dispose();
   }
+
   Future<void> sendVoiceMessage(
       int chatId, {
         required String localPath,
@@ -865,7 +859,9 @@ class ApiService {
       if (decoded is Map) {
         token = decoded['token']?.toString();
       }
-    } catch (_) {}
+    } catch (e) {
+      _log('Ошибка парсинга ответа загрузки аудио', level: LogLevel.warning, data: {'error': e.toString()});
+    }
 
     token ??= uploadInfo['token']?.toString();
 

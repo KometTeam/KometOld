@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:provider/provider.dart';
 import 'package:gwid/utils/theme_provider.dart';
+
 import 'package:battery_plus/battery_plus.dart';
 import 'dart:io' show Platform;
 
@@ -201,7 +202,9 @@ class _ResourceStatsWidgetState extends State<_ResourceStatsWidget> {
             _batteryState = batteryState;
           });
         }
-      } catch (e) {}
+      } catch (e) {
+        print('⚠️ Ошибка получения уровня батареи: $e');
+      }
     }
   }
 

@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:gwid/screens/chats_screen.dart';
 import 'package:gwid/screens/phone_entry_screen.dart';
 import 'package:gwid/api/api_service.dart';
-import 'package:gwid/screens/settings/reconnection_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:gwid/services/version_checker.dart';
 import 'package:app_links/app_links.dart';
 import 'package:gwid/models/chat.dart';
 import 'package:gwid/models/contact.dart';
@@ -22,25 +22,19 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  static final bool _isDialogShowing = false;
-  late Future<Map<String, dynamic>> _chatsFuture;
-  Profile? _myProfile;
-  bool _isProfileLoading = true;
-  String? _connectionStatus;
+  static bool _isDialogShowing = false;
   StreamSubscription? _connectionSubscription;
   StreamSubscription? _messageSubscription;
 
   late final AppLinks _appLinks;
   StreamSubscription<Uri>? _linkSubscription;
 
-  Uri? _initialUri;
-
   @override
   void initState() {
     super.initState();
 
     _loadMyProfile();
-    _chatsFuture = (() async {
+    (() async {
       try {
         await ApiService.instance.waitUntilOnline();
         return ApiService.instance.getChatsAndContacts();
@@ -52,19 +46,14 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     })();
 
+    _checkVersionInBackground();
     _initDeepLinking();
+    _showSpoofUpdateDialogIfNeeded();
 
     _connectionSubscription = ApiService.instance.connectionStatus.listen((
       status,
     ) {
-      if (mounted) {
-        setState(() => _connectionStatus = status);
-        Future.delayed(const Duration(seconds: 3), () {
-          if (mounted) {
-            setState(() => _connectionStatus = null);
-          }
-        });
-      }
+      // Connection status listener - status: $status
     });
 
     _messageSubscription = ApiService.instance.messages.listen((message) {
@@ -82,18 +71,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadMyProfile() async {
     if (!mounted) return;
-    setState(() => _isProfileLoading = true);
     try {
       final cachedProfile = ApiService.instance.lastChatsPayload?['profile'];
       Profile? loadedProfile;
       if (cachedProfile != null) {
         loadedProfile = Profile.fromJson(cachedProfile);
-        if (mounted) {
-          setState(() {
-            _myProfile = loadedProfile;
-            _isProfileLoading = false;
-          });
-        }
       } else {
         final result = await ApiService.instance.getChatsAndContacts(
           force: false,
@@ -102,12 +84,6 @@ class _HomeScreenState extends State<HomeScreen> {
           final profileJson = result['profile'];
           if (profileJson != null) {
             loadedProfile = Profile.fromJson(profileJson);
-            setState(() {
-              _myProfile = loadedProfile;
-              _isProfileLoading = false;
-            });
-          } else {
-            setState(() => _isProfileLoading = false);
           }
         }
       }
@@ -143,8 +119,117 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
     } catch (e) {
-      if (mounted) setState(() => _isProfileLoading = false);
       print("Ошибка загрузки профиля в _HomeScreenState: $e");
+    }
+  }
+
+  Future<void> _showUpdateDialog(
+    BuildContext context,
+    String newVersion,
+  ) async {
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('Доступно обновление'),
+          content: Text(
+            'Найдена новая версия приложения: $newVersion. Рекомендуется обновить данные сессии, чтобы соответствовать последней версии.',
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: const Text('Отменить'),
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+              },
+            ),
+            FilledButton(
+              child: const Text('Обновить'),
+              onPressed: () async {
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.setString('spoof_appversion', newVersion);
+
+                try {
+                  await ApiService.instance.performFullReconnection();
+                  print("Переподключение выполнено успешно");
+                } catch (e) {
+                  print("Ошибка переподключения: $e");
+                }
+
+                if (mounted) {
+                  Navigator.of(dialogContext).pop();
+                }
+
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Версия сессии обновлена до $newVersion!'),
+                      backgroundColor: Colors.green.shade700,
+                    ),
+                  );
+                }
+              },
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _checkVersionInBackground() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      final isWebVersionCheckEnabled =
+          prefs.getBool('enable_web_version_check') ?? false;
+
+      if (!isWebVersionCheckEnabled) {
+        print("Web version checking is disabled, skipping check");
+        return;
+      }
+
+      final isAutoUpdateEnabled = prefs.getBool('auto_update_enabled') ?? false;
+      final showUpdateNotification =
+          prefs.getBool('show_update_notification') ?? true;
+
+      final currentVersion = prefs.getString('spoof_appversion') ?? '0.0.0';
+      final latestVersion = await VersionChecker.getLatestVersion();
+
+      if (latestVersion != currentVersion) {
+        if (isAutoUpdateEnabled) {
+          await prefs.setString('spoof_appversion', latestVersion);
+          print("Версия сессии автоматически обновлена до $latestVersion");
+
+          try {
+            await ApiService.instance.performFullReconnection();
+            print("Переподключение выполнено успешно");
+          } catch (e) {
+            print("Ошибка переподключения: $e");
+          }
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Спуф сессии автоматически обновлен до версии $latestVersion',
+                ),
+                backgroundColor: Colors.green.shade700,
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                margin: const EdgeInsets.all(10),
+              ),
+            );
+          }
+        } else if (showUpdateNotification) {
+          if (mounted) {
+            _showUpdateDialog(context, latestVersion);
+          }
+        }
+      }
+    } catch (e) {
+      print("Фоновая проверка версии не удалась: $e");
     }
   }
 
@@ -759,6 +844,157 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> _showSpoofUpdateDialogIfNeeded() async {
+    if (_isDialogShowing) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final shouldShow = prefs.getBool('show_spoof_update_dialog') ?? true;
+
+    if (!shouldShow || !mounted) return;
+
+    _isDialogShowing = true;
+
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (!mounted) {
+        _isDialogShowing = false;
+        return;
+      }
+
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          bool dontShowAgain = false;
+
+          return StatefulBuilder(
+            builder: (context, setState) {
+              return AlertDialog(
+                title: const Text('Проверка обновлений'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Хотите проверить обновления спуфа?'),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Checkbox(
+                          value: dontShowAgain,
+                          onChanged: (value) {
+                            setState(() {
+                              dontShowAgain = value ?? false;
+                            });
+                          },
+                        ),
+                        const Expanded(child: Text('Больше не показывать')),
+                      ],
+                    ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () async {
+                      if (dontShowAgain) {
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.setBool('show_spoof_update_dialog', false);
+                      }
+                      Navigator.of(context).pop();
+                    },
+                    child: const Text('Нет'),
+                  ),
+                  TextButton(
+                    onPressed: () async {
+                      if (dontShowAgain) {
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.setBool('show_spoof_update_dialog', false);
+                      }
+                      Navigator.of(context).pop();
+                      await _checkSpoofUpdateManually();
+                    },
+                    child: const Text('Ок!'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      ).then((_) {
+        _isDialogShowing = false;
+      });
+    });
+  }
+
+  Future<void> _checkSpoofUpdateManually() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      final isAutoUpdateEnabled = prefs.getBool('auto_update_enabled') ?? false;
+      final currentVersion = prefs.getString('spoof_appversion') ?? '0.0.0';
+      final latestVersion = await VersionChecker.getLatestVersion();
+
+      if (latestVersion != currentVersion) {
+        if (isAutoUpdateEnabled) {
+          await prefs.setString('spoof_appversion', latestVersion);
+          print("Версия сессии обновлена до $latestVersion");
+
+          try {
+            await ApiService.instance.performFullReconnection();
+            print("Переподключение выполнено успешно");
+          } catch (e) {
+            print("Ошибка переподключения: $e");
+          }
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Спуф сессии обновлен до версии $latestVersion'),
+                backgroundColor: Colors.green.shade700,
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                margin: const EdgeInsets.all(10),
+              ),
+            );
+          }
+        } else {
+          if (mounted) {
+            _showUpdateDialog(context, latestVersion);
+          }
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Версия спуфа актуальна'),
+              backgroundColor: Colors.blue.shade700,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              margin: const EdgeInsets.all(10),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print("Проверка версии спуфа не удалась: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Ошибка проверки обновлений: $e'),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            margin: const EdgeInsets.all(10),
+          ),
+        );
+      }
+    }
+  }
+
   void _handleGroupJoinError(Map<String, dynamic> message) {
     final errorPayload = message['payload'];
     String errorMessage = 'Неизвестная ошибка';
@@ -779,30 +1015,6 @@ class _HomeScreenState extends State<HomeScreen> {
         margin: const EdgeInsets.all(10),
       ),
     );
-  }
-
-  Future<void> _checkAndConnect() async {
-    final hasToken = await ApiService.instance.hasToken();
-    if (hasToken) {
-      print("В HomeScreen: токен найден, проверяем подключение...");
-      try {
-        await ApiService.instance.connect();
-        print("В HomeScreen: подключение к WebSocket успешно");
-      } catch (e) {
-        print("В HomeScreen: ошибка подключения к WebSocket: $e");
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Ошибка подключения к серверу: $e'),
-              backgroundColor: Colors.red,
-              duration: const Duration(seconds: 5),
-            ),
-          );
-        }
-      }
-    } else {
-      print("В HomeScreen: токен не найден, пользователь не авторизован");
-    }
   }
 
   void _handleSessionTerminated(String message) {
@@ -829,15 +1041,6 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
     });
-  }
-
-  void _showReconnectionScreen() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => const ReconnectionScreen(),
-        fullscreenDialog: true,
-      ),
-    );
   }
 
   void _handleInvalidToken(String message) {
@@ -877,6 +1080,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 themeProvider.useDesktopLayout &&
                 constraints.maxWidth >= kDesktopLayoutBreakpoint;
 
+            print('🔘 HomeScreen: shouldUseDesktopLayout=$shouldUseDesktopLayout, width=${constraints.maxWidth}');
             if (shouldUseDesktopLayout) {
               return const _DesktopLayout();
             } else {
@@ -917,6 +1121,7 @@ class _DesktopLayoutState extends State<_DesktopLayout> {
 
   Future<void> _loadMyProfile() async {
     if (!mounted) return;
+    print('🔘 DesktopLayout._loadMyProfile: начало загрузки');
     setState(() => _isProfileLoading = true);
     try {
       final result = await ApiService.instance.getChatsAndContacts(
@@ -924,17 +1129,22 @@ class _DesktopLayoutState extends State<_DesktopLayout> {
       );
       if (mounted) {
         final profileJson = result['profile'];
+        print('🔘 DesktopLayout._loadMyProfile: profileJson=${profileJson != null}');
         if (profileJson != null) {
           setState(() {
             _myProfile = Profile.fromJson(profileJson);
             _isProfileLoading = false;
           });
+        } else {
+          // Важно: сбрасываем флаг загрузки даже если профиль null
+          setState(() => _isProfileLoading = false);
         }
       }
     } catch (e) {
       if (mounted) setState(() => _isProfileLoading = false);
       print("Ошибка загрузки профиля в _DesktopLayout: $e");
     }
+    print('🔘 DesktopLayout._loadMyProfile: завершено, _isProfileLoading=$_isProfileLoading');
   }
 
   void _onChatSelected(
@@ -944,6 +1154,9 @@ class _DesktopLayoutState extends State<_DesktopLayout> {
     bool isChannel,
     int? participantCount,
   ) {
+    print('🔘 DesktopLayout._onChatSelected: chatId=${chat.id}, contact=${contact.name}, isGroup=$isGroup, isChannel=$isChannel');
+    // Mark selected chat as active immediately to avoid race during screen rebuild.
+    ApiService.instance.currentActiveChatId = chat.id;
     setState(() {
       _selectedChat = chat;
       _selectedContact = contact;
@@ -956,6 +1169,7 @@ class _DesktopLayoutState extends State<_DesktopLayout> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    print('🔘 DesktopLayout.build: _selectedChat=$_selectedChat, _selectedContact=$_selectedContact, _isProfileLoading=$_isProfileLoading');
 
     return Scaffold(
       body: Row(
@@ -1014,7 +1228,7 @@ class _DesktopLayoutState extends State<_DesktopLayout> {
                           ),
                   )
                 : ChatScreen(
-                    key: ValueKey(_selectedChat!.id),
+                    key: ValueKey('chat_${_selectedChat!.id}'),
                     chatId: _selectedChat!.id,
                     contact: _selectedContact!,
                     myId: _myProfile?.id ?? 0,

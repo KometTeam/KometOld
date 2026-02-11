@@ -25,7 +25,6 @@ class _ManageAccountScreenState extends State<ManageAccountScreen> {
 
   Profile? _actualProfile;
   bool _isLoading = false;
-  bool _isProfileLoading = false;
 
   bool? _hasDeleteRequest;
   bool _isDeleteStatusLoading = false;
@@ -49,9 +48,7 @@ class _ManageAccountScreenState extends State<ManageAccountScreen> {
 
     try {
       final payload = await ApiService.instance.sendRequest(200, const {});
-      final timestamp = (payload is Map)
-          ? (payload['timestamp'] as int? ?? 0)
-          : 0;
+      final timestamp = payload['timestamp'] as int? ?? 0;
 
       if (mounted) {
         setState(() {
@@ -96,7 +93,6 @@ class _ManageAccountScreenState extends State<ManageAccountScreen> {
           'delete': delete,
           'type': 0,
         },
-        timeout: const Duration(seconds: 30),
       );
 
       if (mounted) {
@@ -287,17 +283,13 @@ class _ManageAccountScreenState extends State<ManageAccountScreen> {
     final serverProfile = Profile.fromJson(profileData);
     setState(() {
       _actualProfile = serverProfile;
-      _firstNameController.text = serverProfile.firstName ?? '';
-      _lastNameController.text = serverProfile.lastName ?? '';
+      _firstNameController.text = serverProfile.firstName;
+      _lastNameController.text = serverProfile.lastName;
       _descriptionController.text = serverProfile.description ?? '';
     });
   }
 
   Future<void> _refreshProfileFromServer() async {
-    setState(() {
-      _isProfileLoading = true;
-    });
-
     try {
       // Сначала проверяем кэш
       final cachedProfile = ApiService.instance.lastChatsPayload?['profile'];
@@ -314,12 +306,6 @@ class _ManageAccountScreenState extends State<ManageAccountScreen> {
       }
     } catch (e) {
       debugPrint('Ошибка загрузки профиля с сервера: $e');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isProfileLoading = false;
-        });
-      }
     }
   }
 
@@ -666,7 +652,7 @@ class _ManageAccountScreenState extends State<ManageAccountScreen> {
             if (_isLoading)
               Positioned.fill(
                 child: Container(
-                  decoration: BoxDecoration(
+                  decoration: const BoxDecoration(
                     color: Colors.black54,
                     shape: BoxShape.circle,
                   ),

@@ -454,10 +454,10 @@ class _SearchContactScreenState extends State<SearchContactScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
+                        const Row(
                           children: [
                             Icon(Icons.check_circle, color: Colors.green),
-                            const SizedBox(width: 8),
+                            SizedBox(width: 8),
                             Text(
                               'Контакт найден',
                               style: TextStyle(
@@ -566,7 +566,7 @@ class _SearchContactScreenState extends State<SearchContactScreen> {
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.warning, color: Colors.orange),
+                        const Icon(Icons.warning, color: Colors.orange),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(

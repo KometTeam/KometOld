@@ -17,6 +17,7 @@ import 'package:gwid/screens/debug_screen.dart';
 import 'package:gwid/screens/settings/komet_misc_screen.dart';
 import 'package:gwid/screens/settings/special_settings_screen.dart';
 import 'package:gwid/screens/settings/optimization_screen.dart';
+import 'package:gwid/screens/settings/chat_settings_screen.dart';
 import 'package:gwid/screens/settings/plugin_section_screen.dart';
 import 'package:gwid/plugins/plugin_service.dart';
 import 'package:gwid/utils/theme_provider.dart';
@@ -473,6 +474,13 @@ class _SettingsScreenState extends State<SettingsScreen>
         title: "Данные и хранилище",
         subtitle: "Использование хранилища, очистка кэша",
         screen: StorageScreen(isModal: widget.isModal),
+      ),
+      _SettingsItem(
+        type: _SettingsItemType.category,
+        icon: Icons.chat_bubble_outline,
+        title: "Настройки чатов",
+        subtitle: "Шрифт, автозагрузка, отправка",
+        screen: ChatSettingsScreen(isModal: widget.isModal),
       ),
       _SettingsItem(
         type: _SettingsItemType.category,
