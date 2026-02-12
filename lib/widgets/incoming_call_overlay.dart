@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:gwid/services/calls_service.dart';
 import 'package:gwid/screens/call_screen.dart';
 import 'package:gwid/widgets/contact_avatar_widget.dart';
+import 'package:gwid/main.dart';
 
 /// Overlay виджет для отображения входящих звонков
 class IncomingCallOverlay extends StatefulWidget {
@@ -34,23 +35,16 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
     final currentCall = _currentCall!; // Сохраняем до изменения state
 
     try {
-      // Скрываем overlay сразу
       setState(() {
         _currentCall = null;
       });
 
-      // Принимаем звонок
       final response = await CallsService.instance.acceptCall(
         currentCall.conversationId,
         currentCall.callerId,
       );
       
-      if (!mounted) return;
-
-      // Открываем экран звонка
-      // Используем navigator key для надежной навигации
-      final navigator = Navigator.of(context, rootNavigator: true);
-      navigator.push(
+      navigatorKey.currentState?.push(
         MaterialPageRoute(
           builder: (context) => CallScreen(
             callData: response,
@@ -63,12 +57,13 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
         ),
       );
     } catch (e) {
-      print('❌ Ошибка принятия звонка: $e');
+      print('Error accepting call: $e');
       
-      if (mounted) {
+      final context = navigatorKey.currentContext;
+      if (context != null) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Не удалось принять звонок: $e'),
+            content: Text('Failed to accept call: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -82,7 +77,7 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
     try {
       await CallsService.instance.rejectCall(_currentCall!.conversationId);
     } catch (e) {
-      print('❌ Ошибка отклонения звонка: $e');
+      print('Error rejecting call: $e');
     } finally {
       if (mounted) {
         setState(() {

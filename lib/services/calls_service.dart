@@ -120,18 +120,15 @@ class CallsService {
     }
   }
 
-  /// Принять входящий звонок
   Future<CallResponse> acceptCall(String conversationId, int callerId) async {
     try {
-      print('📞 Принятие звонка: $conversationId');
+      print('Accepting call: $conversationId');
       
-      // Отправляем событие INCOMING_CALL_INIT
       await ApiService.instance.sendCallEvent(
         eventType: 'INCOMING_CALL_INIT',
         conversationId: conversationId,
       );
       
-      // Инициируем звонок (это вернет CallResponse с WebRTC данными)
       final response = await ApiService.instance.initiateCall(
         callerId,
         isVideo: false,
@@ -139,18 +136,22 @@ class CallsService {
       
       return response;
     } catch (e) {
-      print('❌ Ошибка принятия звонка: $e');
+      print('Error accepting call: $e');
       rethrow;
     }
   }
 
-  /// Отклонить входящий звонок
   Future<void> rejectCall(String conversationId) async {
     try {
-      // TODO: Отправить reject через API
-      print('📵 Звонок отклонен: $conversationId');
+      print('Rejecting call: $conversationId');
+      
+      await ApiService.instance.hangupCall(
+        conversationId: conversationId,
+        hangupType: 'REJECTED',
+        duration: 0,
+      );
     } catch (e) {
-      print('❌ Ошибка отклонения звонка: $e');
+      print('Error rejecting call: $e');
       rethrow;
     }
   }
