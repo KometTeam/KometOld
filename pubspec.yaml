@@ -3,7 +3,7 @@ name: gwid
 description: Альтернативный FOSS клиент для мессенджера MAX.
 
 # Версия приложения и номер сборки
-version: 0.4.1+9
+version: 0.4.2+10
 
 repository: https://github.com/KometTeam/Komet
 
@@ -75,6 +75,12 @@ dependencies:
   record: ^6.1.2
   record_windows: ^1.0.1
   platform_info: ^5.0.0
+  flutter_webrtc: ^0.11.7
+  
+  # Local dependencies
+  maxcalls_dart:
+    path: nullcalls/
+  any: ^0.0.0
 
 dev_dependencies:
   # SDK зависимости

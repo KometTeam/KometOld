@@ -28,9 +28,11 @@ import 'services/whitelist_service.dart';
 import 'services/notification_service.dart';
 import 'services/message_queue_service.dart';
 import 'services/cache_auto_cleanup_service.dart';
+import 'services/calls_service.dart';
 import 'utils/theme_provider.dart';
 import 'utils/device_presets.dart';
 import 'plugins/plugin_service.dart';
+import 'widgets/incoming_call_overlay.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
@@ -106,6 +108,9 @@ Future<void> main() async {
     await WhitelistService().loadWhitelist();
     await NotificationService().initialize();
     NotificationService().setNavigatorKey(navigatorKey);
+    
+    // Инициализация сервиса звонков
+    CallsService.instance.initialize();
 
     if (Platform.isAndroid) {
       await initializeBackgroundService();
@@ -261,6 +266,8 @@ class MyApp extends StatelessWidget {
               child: Stack(
                 children: [
                   ?child,
+                  // Overlay для входящих звонков
+                  const IncomingCallOverlay(),
                   if (showHud)
                     const Positioned(top: 8, right: 56, child: _MiniFpsHud()),
                 ],

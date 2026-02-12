@@ -240,6 +240,62 @@ extension on _ChatScreenState {
     _showForwardDialog(message);
   }
 
+  // Инициация звонка
+  void _initiateCall() async {
+    try {
+      // Вызываем API для инициации звонка
+      final response = await ApiService.instance.initiateCall(
+        widget.contact.id,
+        isVideo: false,
+      );
+
+      // Отправляем событие START_CALL
+      await ApiService.instance.sendCallEvent(
+        eventType: 'START_CALL',
+        conversationId: response.conversationId,
+      );
+
+      // Если дошли сюда, значит сервер ответил успешно
+      if (!mounted) return;
+      
+      // Получаем полную информацию о контакте для аватарки
+      String? avatarUrl;
+      try {
+        final contacts = await ApiService.instance.fetchContactsByIds([widget.contact.id]);
+        if (contacts.isNotEmpty && contacts.first.photoBaseUrl != null) {
+          avatarUrl = contacts.first.photoBaseUrl;
+        }
+      } catch (e) {
+        print('⚠️ Не удалось загрузить аватарку контакта: $e');
+      }
+      
+      // Открываем экран звонка
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => CallScreen(
+            callData: response,
+            contactName: widget.contact.name,
+            contactId: widget.contact.id,
+            contactAvatarUrl: avatarUrl,
+            isOutgoing: true,
+            isVideo: false,
+          ),
+        ),
+      );
+      
+    } catch (e) {
+      if (!mounted) return;
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Ошибка: $e'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    }
+  }
+
   void _showForwardDialog(Message message) async {
     print(' _showForwardDialog вызван для сообщения: ${message.id}');
 

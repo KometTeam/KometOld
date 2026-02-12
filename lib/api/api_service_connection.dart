@@ -372,13 +372,16 @@ extension ApiServiceConnection on ApiService {
       );
       if (opcode != 19) {
         final bool shouldLogPayload =
-            opcode != 129 &&
             opcode != 132 &&
             opcode != 48 &&
             opcode != 49;
 
         if (shouldLogPayload) {
-          _log('📥 PAYLOAD: ${truncatePayloadObjectForLog(payload)}');
+          if (opcode == 129) {
+            _log('📥 🔔 OPCODE 129 PAYLOAD: $payload');
+          } else {
+            _log('📥 PAYLOAD: ${truncatePayloadObjectForLog(payload)}');
+          }
         }
       }
 

@@ -74,6 +74,13 @@ extension on _ChatScreenState {
               onPressed: () => Navigator.of(context).pop(),
             ),
       actions: [
+        // Кнопка звонка только для обычных пользователей (не группы, не каналы)
+        if (!widget.isGroupChat && !widget.isChannel && widget.chatId != 0)
+          IconButton(
+            onPressed: _initiateCall,
+            icon: const Icon(Icons.call),
+            tooltip: 'Позвонить',
+          ),
         if (widget.isGroupChat)
           IconButton(
             onPressed: () {
