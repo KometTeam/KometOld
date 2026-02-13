@@ -82,6 +82,7 @@ class ApiService {
   static final ApiService instance = ApiService._privateConstructor();
 
   int? _userId;
+  int? get myUserId => _userId;
   late int _sessionId;
   int _actionId = 1;
   bool _isColdStartSent = false;

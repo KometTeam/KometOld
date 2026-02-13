@@ -53,6 +53,13 @@ class _CallScreenState extends State<CallScreen> {
   // Network Info
   NetworkInfo? _networkInfo;
   bool _showNetworkInfo = false;
+  
+  // Participant info
+  int? _remoteParticipantInternalId; // INTERNAL ID второго участника
+  
+  // Audio level tracking
+  bool _isRemoteSpeaking = false;
+  Timer? _audioLevelTimer;
 
   @override
   void initState() {
@@ -67,6 +74,9 @@ class _CallScreenState extends State<CallScreen> {
       await _remoteRenderer.initialize();
 
       print('📞 Инициализация звонка через WebSocket signaling');
+      print('🆔 МОЙ ID: ${widget.callData.internalCallerParams.id.internal}');
+      print('🆔 ID СОБЕСЕДНИКА: ${widget.contactId}');
+      print('🆔 isOutgoing: ${widget.isOutgoing}');
 
       // Подключаемся к WebSocket signaling серверу
       await _connectToSignaling();
@@ -104,6 +114,7 @@ class _CallScreenState extends State<CallScreen> {
         'version': '5',
         'device': 'browser',
         'capabilities': '2A03F',
+        'clientType': 'ONE_ME', // КРИТИЧЕСКИ ВАЖНО!
         'tgt': 'start', // ВАЖНО!
       });
       
@@ -138,17 +149,22 @@ class _CallScreenState extends State<CallScreen> {
         },
         onDone: () {
           print('🔌 WebSocket закрыт');
-          // Проверяем closeCode и closeReason
           final closeCode = _signalingChannel?.closeCode;
           final closeReason = _signalingChannel?.closeReason;
           print('🔌 Close code: $closeCode');
           print('🔌 Close reason: $closeReason');
+          
+          if (_callState != CallState.ended) {
+            print('⚠️ WebSocket закрылся неожиданно во время звонка!');
+          }
         },
       );
       
       // Ждем подключения
       await _signalingChannel!.ready;
       print('✅ WebSocket подключен');
+      print('🔍 WebSocket readyState: ${_signalingChannel!.closeCode}');
+      print('🔍 WebSocket протокол: ${_signalingChannel!.protocol}');
       
       // Отправляем mediaSettings (как в официальном клиенте!)
       if (widget.isOutgoing) {
@@ -176,9 +192,51 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
+  void _handleConnectionNotification(Map<String, dynamic> message) {
+    try {
+      final conversation = message['conversation'] as Map<String, dynamic>?;
+      if (conversation == null) {
+        print('⚠️ conversation отсутствует в notification:connection');
+        return;
+      }
+      
+      final participants = conversation['participants'] as List<dynamic>?;
+      if (participants == null || participants.isEmpty) {
+        print('⚠️ participants пуст');
+        return;
+      }
+      
+      final myInternalId = widget.callData.internalCallerParams.id.internal;
+      print('🔍 Ищем второго участника. Мой INTERNAL ID: $myInternalId');
+      
+      // Ищем второго участника (не меня)
+      for (final p in participants) {
+        if (p is! Map<String, dynamic>) continue;
+        
+        final participantId = p['id'] as int?;
+        if (participantId != null && participantId != myInternalId) {
+          _remoteParticipantInternalId = participantId;
+          
+          final externalId = p['externalId']?['id'] as String?;
+          print('✅ Найден второй участник:');
+          print('   INTERNAL ID: $participantId');
+          print('   EXTERNAL ID: $externalId');
+          print('   Мой contactId (external): ${widget.contactId}');
+          break;
+        }
+      }
+      
+      if (_remoteParticipantInternalId == null) {
+        print('❌ Не удалось найти INTERNAL ID второго участника!');
+      }
+    } catch (e) {
+      print('❌ Ошибка парсинга connection notification: $e');
+    }
+  }
+
   void _handleSignalingMessage(Map<String, dynamic> message) {
-    print('📥 Signaling message type: ${message['type'] ?? message['command']}');
-    print('📥 Full message: $message');
+    print('📥 Signaling message type: ${message['type'] ?? message['command'] ?? message['notification']}');
+    print('📥 Full message: ${message.toString().substring(0, message.toString().length > 500 ? 500 : message.toString().length)}...');
     
     // Парсим сетевую информацию из аналитики
     _parseNetworkInfo(message);
@@ -204,30 +262,48 @@ class _CallScreenState extends State<CallScreen> {
       print('🔔 Notification: $notification');
       
       switch (notification) {
+        case 'connection':
+          // ПЕРВОЕ сообщение от сервера с информацией об участниках!
+          print('🎉 Получено notification:connection');
+          _handleConnectionNotification(message);
+          break;
+          
         case 'transmitted-data':
           // Данные от ДРУГОГО участника (не от нас!)
           final participantId = message['participantId'] as int?;
           final myId = widget.callData.internalCallerParams.id.internal;
           
+          print('🔍 transmitted-data: participantId=$participantId, myId=$myId');
+          
           if (participantId != null && participantId != myId) {
             print('📨 Получены данные от участника $participantId');
             final data = message['data'] as Map<String, dynamic>?;
             if (data != null) {
+              print('📦 Data keys: ${data.keys.toList()}');
+              
               // Проверяем есть ли SDP
               if (data.containsKey('sdp')) {
+                print('🎯 Получен SDP от участника!');
                 _handleRemoteDescription(data['sdp'] as Map<String, dynamic>);
               }
               // Проверяем есть ли ICE candidate
               if (data.containsKey('candidate')) {
+                print('🧊 Получен ICE candidate от участника!');
                 _handleRemoteCandidate(data['candidate'] as Map<String, dynamic>);
               }
+            } else {
+              print('⚠️ Data is null!');
             }
+          } else {
+            print('⏭️ Пропускаем transmitted-data от себя или без participantId');
           }
           break;
           
         case 'accepted-call':
           print('✅ Звонок принят другим участником!');
-          setState(() => _callState = CallState.connected);
+          print('⏳ Ожидаем SDP answer от второго участника...');
+          // НЕ меняем статус на connected, ждём SDP answer!
+          setState(() => _callState = CallState.ringing);
           break;
           
         case 'hungup':
@@ -350,6 +426,9 @@ class _CallScreenState extends State<CallScreen> {
           _remoteRenderer.srcObject = _remoteStream;
           _callState = CallState.connected;
         });
+        
+        // Начинаем отслеживать уровень звука
+        _startAudioLevelMonitoring();
       }
     };
 
@@ -408,10 +487,15 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   void _sendCredentials(RTCSessionDescription description) {
+    // Используем INTERNAL ID второго участника, если получили
+    final recipientId = _remoteParticipantInternalId ?? widget.contactId;
+    
+    print('📤 Отправляем SDP на participantId=$recipientId (internal=${_remoteParticipantInternalId != null})');
+    
     final message = {
       'command': 'transmit-data',
       'sequence': _sequenceNumber++,
-      'participantId': widget.contactId, // ID собеседника (получателя)
+      'participantId': recipientId, // INTERNAL ID собеседника!
       'data': {
         'sdp': {
           'type': description.type,
@@ -430,10 +514,13 @@ class _CallScreenState extends State<CallScreen> {
       _parseLocalCandidate(candidate.candidate!);
     }
     
+    // Используем INTERNAL ID второго участника, если получили
+    final recipientId = _remoteParticipantInternalId ?? widget.contactId;
+    
     final message = {
       'command': 'transmit-data',
       'sequence': _sequenceNumber++,
-      'participantId': widget.contactId, // ID собеседника
+      'participantId': recipientId, // INTERNAL ID собеседника!
       'data': {
         'candidate': {
           'candidate': candidate.candidate,
@@ -522,6 +609,20 @@ class _CallScreenState extends State<CallScreen> {
       }
     });
   }
+  
+  void _startAudioLevelMonitoring() {
+    // Симуляция определения речи (в реальности нужен анализ аудио)
+    // Для простоты будем рандомно показывать "говорит"
+    _audioLevelTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
+      if (_remoteStream != null && _callState == CallState.connected) {
+        // TODO: Реализовать реальное определение уровня звука через Web Audio API
+        // Пока просто рандом для демонстрации
+        setState(() {
+          _isRemoteSpeaking = DateTime.now().millisecondsSinceEpoch % 3 == 0;
+        });
+      }
+    });
+  }
 
   void _toggleMute() {
     if (_localStream != null) {
@@ -592,15 +693,80 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> _cleanup() async {
-    _durationTimer?.cancel();
-    _signalingSubscription?.cancel();
-    await _signalingChannel?.sink.close();
+    print('🧹 Начинаем cleanup...');
     
-    await _localStream?.dispose();
-    await _remoteStream?.dispose();
-    await _peerConnection?.close();
-    await _localRenderer.dispose();
-    await _remoteRenderer.dispose();
+    // 1. Останавливаем таймеры
+    _durationTimer?.cancel();
+    _durationTimer = null;
+    _audioLevelTimer?.cancel();
+    _audioLevelTimer = null;
+    
+    // 2. СНАЧАЛА отменяем subscription (чтобы не читать из закрытого сокета)
+    await _signalingSubscription?.cancel();
+    _signalingSubscription = null;
+    
+    // 3. ПОТОМ закрываем WebSocket
+    try {
+      await _signalingChannel?.sink.close();
+    } catch (e) {
+      print('⚠️ Ошибка при закрытии WebSocket (игнорируем): $e');
+    }
+    _signalingChannel = null;
+    
+    // 4. Останавливаем треки ПЕРЕД dispose стримов
+    try {
+      _localStream?.getTracks().forEach((track) {
+        track.stop();
+      });
+    } catch (e) {
+      print('⚠️ Ошибка при остановке локальных треков: $e');
+    }
+    
+    try {
+      _remoteStream?.getTracks().forEach((track) {
+        track.stop();
+      });
+    } catch (e) {
+      print('⚠️ Ошибка при остановке удалённых треков: $e');
+    }
+    
+    // 5. Закрываем peer connection ПЕРЕД dispose стримов
+    try {
+      await _peerConnection?.close();
+      _peerConnection = null;
+    } catch (e) {
+      print('⚠️ Ошибка при закрытии peer connection: $e');
+    }
+    
+    // 6. Dispose стримов
+    try {
+      await _localStream?.dispose();
+      _localStream = null;
+    } catch (e) {
+      print('⚠️ Ошибка при dispose локального стрима (игнорируем): $e');
+    }
+    
+    try {
+      await _remoteStream?.dispose();
+      _remoteStream = null;
+    } catch (e) {
+      print('⚠️ Ошибка при dispose удалённого стрима (игнорируем): $e');
+    }
+    
+    // 7. Dispose рендереров
+    try {
+      await _localRenderer.dispose();
+    } catch (e) {
+      print('⚠️ Ошибка при dispose локального рендерера: $e');
+    }
+    
+    try {
+      await _remoteRenderer.dispose();
+    } catch (e) {
+      print('⚠️ Ошибка при dispose удалённого рендерера: $e');
+    }
+    
+    print('✅ Cleanup завершён');
   }
 
   String _formatDuration(int seconds) {
@@ -699,26 +865,50 @@ class _CallScreenState extends State<CallScreen> {
                 ),
               ),
             ] else ...[
-              // Аватар для аудио звонка
+              // Аватар для аудио звонка с анимированным фоном
               Expanded(
-                child: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      // Аватар контакта
-                      ContactAvatarWidget(
-                        contactId: widget.contactId,
-                        originalAvatarUrl: widget.contactAvatarUrl,
-                        radius: 60,
-                        fallbackText: widget.contactName.isNotEmpty
-                            ? widget.contactName[0].toUpperCase()
-                            : '?',
+                child: Stack(
+                  children: [
+                    // Анимированный фон с волнами
+                    _AnimatedCallBackground(
+                      isConnected: _callState == CallState.connected,
+                      accentColor: colors.primary,
+                    ),
+                    
+                    // Аватар контакта поверх
+                    Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          // Аватар контакта с обводкой при разговоре
+                          Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              // Зелёная пульсирующая обводка когда говорит
+                              if (_isRemoteSpeaking && _callState == CallState.connected)
+                                _SpeakingIndicator(
+                                  size: 140,
+                                  color: Colors.green,
+                                ),
+                              
+                              // Сам аватар
+                              ContactAvatarWidget(
+                                contactId: widget.contactId,
+                                originalAvatarUrl: widget.contactAvatarUrl,
+                                radius: 60,
+                                fallbackText: widget.contactName.isNotEmpty
+                                    ? widget.contactName[0].toUpperCase()
+                                    : '?',
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 24),
+                          if (_callState == CallState.connecting)
+                            CircularProgressIndicator(color: colors.primary),
+                        ],
                       ),
-                      const SizedBox(height: 24),
-                      if (_callState == CallState.connecting)
-                        CircularProgressIndicator(color: colors.primary),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -790,7 +980,12 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   void dispose() {
-    _cleanup();
+    // Используем unawaited чтобы не блокировать dispose
+    _cleanup().then((_) {
+      print('✅ Cleanup в dispose завершён');
+    }).catchError((e) {
+      print('❌ Ошибка в cleanup при dispose: $e');
+    });
     super.dispose();
   }
 }
@@ -999,6 +1194,190 @@ class _NetworkInfoPanel extends StatelessWidget {
     if (rtt < 100) return Colors.green;
     if (rtt < 200) return Colors.orange;
     return Colors.red;
+  }
+}
+
+/// Анимированный фон для звонка с волнами
+class _AnimatedCallBackground extends StatefulWidget {
+  final bool isConnected;
+  final Color accentColor;
+
+  const _AnimatedCallBackground({
+    required this.isConnected,
+    required this.accentColor,
+  });
+
+  @override
+  State<_AnimatedCallBackground> createState() => _AnimatedCallBackgroundState();
+}
+
+class _AnimatedCallBackgroundState extends State<_AnimatedCallBackground>
+    with TickerProviderStateMixin {
+  late AnimationController _controller1;
+  late AnimationController _controller2;
+  late AnimationController _controller3;
+
+  @override
+  void initState() {
+    super.initState();
+    
+    // Создаём 3 контроллера для разных волн с разной скоростью
+    _controller1 = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 3),
+    )..repeat();
+    
+    _controller2 = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2500),
+    )..repeat();
+    
+    _controller3 = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 3500),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller1.dispose();
+    _controller2.dispose();
+    _controller3.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Вычисляем центр аватара (чуть выше центра экрана)
+        final avatarCenterY = constraints.maxHeight / 2;
+        
+        return CustomPaint(
+          painter: _WavesPainter(
+            animation1: _controller1,
+            animation2: _controller2,
+            animation3: _controller3,
+            accentColor: widget.accentColor,
+            isConnected: widget.isConnected,
+            avatarCenter: Offset(constraints.maxWidth / 2, avatarCenterY),
+          ),
+          child: Container(),
+        );
+      },
+    );
+  }
+}
+
+/// Painter для рисования волн
+class _WavesPainter extends CustomPainter {
+  final Animation<double> animation1;
+  final Animation<double> animation2;
+  final Animation<double> animation3;
+  final Color accentColor;
+  final bool isConnected;
+  final Offset avatarCenter;
+
+  _WavesPainter({
+    required this.animation1,
+    required this.animation2,
+    required this.animation3,
+    required this.accentColor,
+    required this.isConnected,
+    required this.avatarCenter,
+  }) : super(
+          repaint: Listenable.merge([animation1, animation2, animation3]),
+        );
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final maxRadius = size.width > size.height ? size.width : size.height;
+
+    // Рисуем 3 волны с разными параметрами ОТ ЦЕНТРА АВАТАРА
+    _drawWave(canvas, avatarCenter, maxRadius, animation1.value, 0.15, 0.8);
+    _drawWave(canvas, avatarCenter, maxRadius, animation2.value, 0.10, 0.6);
+    _drawWave(canvas, avatarCenter, maxRadius, animation3.value, 0.08, 0.4);
+  }
+
+  void _drawWave(Canvas canvas, Offset center, double maxRadius,
+      double progress, double opacity, double scale) {
+    final radius = maxRadius * progress * scale;
+    
+    // Прозрачность уменьшается по мере расширения волны
+    final alpha = ((1 - progress) * opacity * 255).toInt().clamp(0, 255);
+    
+    final paint = Paint()
+      ..color = accentColor.withAlpha(alpha)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+
+    canvas.drawCircle(center, radius, paint);
+  }
+
+  @override
+  bool shouldRepaint(_WavesPainter oldDelegate) {
+    return oldDelegate.accentColor != accentColor ||
+        oldDelegate.isConnected != isConnected ||
+        oldDelegate.avatarCenter != avatarCenter;
+  }
+}
+
+/// Индикатор что собеседник говорит
+class _SpeakingIndicator extends StatefulWidget {
+  final double size;
+  final Color color;
+
+  const _SpeakingIndicator({
+    required this.size,
+    required this.color,
+  });
+
+  @override
+  State<_SpeakingIndicator> createState() => _SpeakingIndicatorState();
+}
+
+class _SpeakingIndicatorState extends State<_SpeakingIndicator>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    )..repeat(reverse: true);
+    
+    _animation = Tween<double>(begin: 0.8, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _animation,
+      builder: (context, child) {
+        return Container(
+          width: widget.size * _animation.value,
+          height: widget.size * _animation.value,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: widget.color.withOpacity(0.6),
+              width: 3.0,
+            ),
+          ),
+        );
+      },
+    );
   }
 }
 
