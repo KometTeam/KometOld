@@ -655,6 +655,28 @@ extension ApiServiceConnection on ApiService {
         });
       }
 
+      if ((decodedMessage['opcode'] == 68 || decodedMessage['opcode'] == 60) &&
+          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+        final payload = decodedMessage['payload'];
+        _messageController.add({
+          'type': 'global_search_result',
+          'payload': payload,
+          'opcode': decodedMessage['opcode'],
+          'seq': decodedMessage['seq'],
+        });
+      }
+
+      if ((decodedMessage['opcode'] == 68 || decodedMessage['opcode'] == 60) &&
+          (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
+        final payload = decodedMessage['payload'];
+        _messageController.add({
+          'type': 'global_search_error',
+          'payload': payload,
+          'opcode': decodedMessage['opcode'],
+          'seq': decodedMessage['seq'],
+        });
+      }
+
       // Обработка ответа на loadChat (opcode 49) - обновляем данные чата
       if (decodedMessage['opcode'] == 49 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {

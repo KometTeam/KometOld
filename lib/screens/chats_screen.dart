@@ -95,6 +95,14 @@ class _ChatsScreenState extends State<ChatsScreen>
   // Используем Debouncer из OptimizedStateMixin вместо Timer
   List<SearchResult> _searchResults = [];
   String _searchFilter = 'all';
+
+  Timer? _globalSearchDebounce;
+  int _globalSearchToken = 0;
+  bool _isGlobalSearchLoading = false;
+  String? _globalSearchError;
+  List<Map<String, dynamic>> _globalSearchResults = [];
+  String? _globalSearchMarker;
+  bool _globalSearchHasMore = false;
   bool _hasRequestedBlockedContacts = false;
   final Set<int> _loadingContactIds = {};
   bool _isSwitchingAccounts = false;
@@ -1084,6 +1092,95 @@ class _ChatsScreenState extends State<ChatsScreen>
     // Используем debouncedSetState для оптимизации
     debouncedSetState('search', delay: const Duration(milliseconds: 300));
     _performSearch();
+    _scheduleGlobalSearch();
+  }
+
+  void _scheduleGlobalSearch() {
+    _globalSearchDebounce?.cancel();
+
+    final q = _searchQuery.trim();
+    if (q.isEmpty) {
+      setState(() {
+        _isGlobalSearchLoading = false;
+        _globalSearchError = null;
+        _globalSearchResults = [];
+        _globalSearchMarker = null;
+        _globalSearchHasMore = false;
+      });
+      return;
+    }
+
+    _globalSearchDebounce = Timer(const Duration(milliseconds: 400), () {
+      unawaited(_performGlobalSearch(reset: true));
+    });
+  }
+
+  Future<void> _performGlobalSearch({required bool reset}) async {
+    final q = _searchQuery.trim();
+    if (q.isEmpty) return;
+
+    final int token = ++_globalSearchToken;
+
+    if (reset) {
+      setState(() {
+        _isGlobalSearchLoading = true;
+        _globalSearchError = null;
+        _globalSearchResults = [];
+        _globalSearchMarker = null;
+        _globalSearchHasMore = false;
+      });
+    } else {
+      setState(() {
+        _isGlobalSearchLoading = true;
+        _globalSearchError = null;
+      });
+    }
+
+    try {
+      final payload = await ApiService.instance.globalSearch(
+        q,
+        count: 30,
+        marker: reset ? null : _globalSearchMarker,
+        useTypeAll: false,
+      );
+
+      if (!mounted || token != _globalSearchToken) return;
+
+      final result = payload['result'];
+      final List<Map<String, dynamic>> items = [];
+      if (result is List) {
+        for (final item in result) {
+          if (item is! Map) continue;
+          final map = item.cast<String, dynamic>();
+          final section = map['section']?.toString();
+          if (section == 'MESSAGES') continue;
+          items.add(map);
+        }
+      }
+
+      final marker = payload['marker']?.toString();
+      final hasMore = marker != null && marker.isNotEmpty;
+
+      setState(() {
+        _globalSearchMarker = marker;
+        _globalSearchHasMore = hasMore;
+        if (reset) {
+          _globalSearchResults = items;
+        } else {
+          _globalSearchResults = [..._globalSearchResults, ...items];
+        }
+      });
+    } catch (e) {
+      if (!mounted || token != _globalSearchToken) return;
+      setState(() {
+        _globalSearchError = e.toString();
+      });
+    } finally {
+      if (!mounted || token != _globalSearchToken) return;
+      setState(() {
+        _isGlobalSearchLoading = false;
+      });
+    }
   }
 
   void _onSearchFocusChanged() {
@@ -1245,10 +1342,16 @@ class _ChatsScreenState extends State<ChatsScreen>
   void _clearSearch() {
     _searchController.clear();
     _searchFocusNode.unfocus();
+    _globalSearchDebounce?.cancel();
     setState(() {
       _searchQuery = '';
       _searchResults.clear();
       _isSearchExpanded = false;
+      _isGlobalSearchLoading = false;
+      _globalSearchError = null;
+      _globalSearchResults = [];
+      _globalSearchMarker = null;
+      _globalSearchHasMore = false;
     });
     _searchAnimationController.reverse();
   }
@@ -2269,7 +2372,19 @@ class _ChatsScreenState extends State<ChatsScreen>
       );
     }
 
-    if (_searchResults.isEmpty) {
+    final int globalHeaderCount = 1;
+    final int globalItemsCount = _globalSearchResults.length;
+    final int globalMoreCount = _globalSearchHasMore ? 1 : 0;
+    final int localHeaderCount = 1;
+    final int localItemsCount = _searchResults.length;
+
+    final int totalCount =
+        globalHeaderCount + globalItemsCount + globalMoreCount + localHeaderCount + localItemsCount;
+
+    if (!_isGlobalSearchLoading &&
+        _globalSearchError == null &&
+        _globalSearchResults.isEmpty &&
+        _searchResults.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -2301,9 +2416,101 @@ class _ChatsScreenState extends State<ChatsScreen>
     }
 
     return ListView.builder(
-      itemCount: _searchResults.length,
+      itemCount: totalCount,
       itemBuilder: (context, index) {
-        return _buildSearchResultItem(_searchResults[index]);
+        int i = index;
+
+        if (i == 0) {
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Глобальный поиск',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                if (_isGlobalSearchLoading)
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+              ],
+            ),
+          );
+        }
+
+        i -= globalHeaderCount;
+
+        if (i < globalItemsCount) {
+          final item = _globalSearchResults[i];
+          final chat = item['chat'];
+          final highlights = item['highlights'];
+
+          String title = '';
+          String subtitle = '';
+
+          if (chat is Map) {
+            final chatMap = chat.cast<String, dynamic>();
+            title = chatMap['title']?.toString() ?? chatMap['link']?.toString() ?? '';
+            subtitle = chatMap['description']?.toString() ?? '';
+          }
+
+          if (title.isEmpty) {
+            title = item['chatId']?.toString() ?? 'Результат';
+          }
+
+          if (highlights is List && highlights.isNotEmpty) {
+            final h = highlights.map((e) => e.toString()).join(', ');
+            subtitle = subtitle.isEmpty ? h : '$subtitle\n$h';
+          }
+
+          return ListTile(
+            title: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis),
+            subtitle: subtitle.isEmpty
+                ? null
+                : Text(subtitle, maxLines: 3, overflow: TextOverflow.ellipsis),
+          );
+        }
+
+        i -= globalItemsCount;
+
+        if (_globalSearchHasMore && i == 0) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton(
+                onPressed: _isGlobalSearchLoading
+                    ? null
+                    : () => _performGlobalSearch(reset: false),
+                child: const Text('Загрузить еще (глобально)'),
+              ),
+            ),
+          );
+        }
+
+        i -= globalMoreCount;
+
+        if (i == 0) {
+          return const Padding(
+            padding: EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Text(
+              'Локальные результаты',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          );
+        }
+
+        i -= localHeaderCount;
+
+        if (i < localItemsCount) {
+          return _buildSearchResultItem(_searchResults[i]);
+        }
+
+        return const SizedBox.shrink();
       },
     );
   }
@@ -4770,16 +4977,15 @@ class _ChatsScreenState extends State<ChatsScreen>
     }
 
     return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Icon(callIcon, size: 16, color: callColor),
         const SizedBox(width: 4),
-        Expanded(
-          child: Text(
-            callText,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: callColor),
-          ),
+        Text(
+          callText,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: callColor),
         ),
       ],
     );

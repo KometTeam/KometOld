@@ -24,6 +24,8 @@ import 'package:gwid/widgets/pinned_message_widget.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:gwid/services/chat_cache_service.dart';
 import 'package:gwid/services/chat_read_settings_service.dart';
+import 'package:gwid/services/floating_call_manager.dart';
+import 'package:gwid/services/call_overlay_service.dart';
 import 'package:gwid/services/contact_local_names_service.dart';
 import 'package:gwid/services/notification_service.dart';
 import 'package:gwid/services/message_queue_service.dart';
@@ -307,6 +309,13 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     super.initState();
     // Set active chat as early as possible to keep notifications/unread in sync.
     ApiService.instance.currentActiveChatId = widget.chatId;
+    
+    // Уведомляем FloatingCallManager что мы в чате
+    // Используем postFrameCallback чтобы избежать вызова notifyListeners во время build
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      FloatingCallManager.instance.setInChatScreen(true);
+    });
+    
     _currentContact = widget.contact;
     _pinnedMessage = widget.pinnedMessage;
     _pinnedMessageNotifier.value = widget.pinnedMessage;
@@ -405,6 +414,13 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     if (ApiService.instance.currentActiveChatId == widget.chatId) {
       ApiService.instance.currentActiveChatId = null;
     }
+    
+    // Уведомляем FloatingCallManager что мы вышли из чата
+    // Используем postFrameCallback чтобы избежать вызова notifyListeners во время dispose
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      FloatingCallManager.instance.setInChatScreen(false);
+    });
+    
     super.dispose();
   }
 

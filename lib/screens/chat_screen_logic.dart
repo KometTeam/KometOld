@@ -242,6 +242,19 @@ extension on _ChatScreenState {
 
   // Инициация звонка
   void _initiateCall() async {
+    // Проверяем, есть ли уже активный НЕ минимизированный звонок
+    if (FloatingCallManager.instance.hasActiveCall && 
+        !FloatingCallManager.instance.isMinimized) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('⚠️ У вас уже есть активный звонок'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+    
     try {
       // Вызываем API для инициации звонка
       final response = await ApiService.instance.initiateCall(
@@ -269,18 +282,15 @@ extension on _ChatScreenState {
         print('⚠️ Не удалось загрузить аватарку контакта: $e');
       }
       
-      // Открываем экран звонка
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (context) => CallScreen(
-            callData: response,
-            contactName: widget.contact.name,
-            contactId: widget.contact.id,
-            contactAvatarUrl: avatarUrl,
-            isOutgoing: true,
-            isVideo: false,
-          ),
-        ),
+      // Открываем экран звонка через CallOverlayService
+      CallOverlayService.instance.showCall(
+        context,
+        callData: response,
+        contactId: widget.contact.id,
+        contactName: widget.contact.name,
+        contactAvatarUrl: avatarUrl,
+        isVideo: false,
+        isOutgoing: true,
       );
       
     } catch (e) {

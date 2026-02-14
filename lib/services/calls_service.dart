@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:gwid/api/api_service.dart';
 import 'package:gwid/models/call_response.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
 /// Сервис для обработки входящих звонков
-class CallsService {
+class CallsService extends ChangeNotifier {
   CallsService._privateConstructor();
   static final CallsService instance = CallsService._privateConstructor();
 
@@ -15,6 +18,18 @@ class CallsService {
 
   StreamSubscription? _apiSubscription;
   bool _isInitialized = false;
+  
+  /// Текущий входящий звонок
+  IncomingCallData? _currentIncomingCall;
+  
+  /// Геттер для текущего входящего звонка
+  IncomingCallData? get currentIncomingCall => _currentIncomingCall;
+  
+  /// Очистить текущий входящий звонок
+  void clearIncomingCall() {
+    _currentIncomingCall = null;
+    notifyListeners();
+  }
 
   /// Инициализирует прослушивание входящих звонков
   void initialize() {
@@ -65,6 +80,10 @@ class CallsService {
         timestamp: DateTime.now(),
       );
 
+      // Сохраняем как текущий входящий звонок
+      _currentIncomingCall = incomingCall;
+      notifyListeners();
+      
       // Отправляем в stream
       _incomingCallController.add(incomingCall);
     } catch (e) {
@@ -113,6 +132,10 @@ class CallsService {
         timestamp: DateTime.now(),
       );
 
+      // Сохраняем как текущий входящий звонок
+      _currentIncomingCall = incomingCall;
+      notifyListeners();
+      
       // Отправляем в stream
       _incomingCallController.add(incomingCall);
     } catch (e) {
@@ -141,25 +164,80 @@ class CallsService {
     }
   }
 
-  Future<void> rejectCall(String conversationId) async {
+  Future<void> rejectCall(String conversationId, int callerId) async {
     try {
-      print('Rejecting call: $conversationId');
+      print('📴 Rejecting incoming call: $conversationId');
       
-      await ApiService.instance.hangupCall(
-        conversationId: conversationId,
-        hangupType: 'REJECTED',
-        duration: 0,
+      // Для отклонения входящего звонка нужно:
+      // 1. Подключиться к WebSocket signaling
+      // 2. Отправить команду hangup с reason=REJECTED
+      // 3. Закрыть соединение
+      
+      // Сначала инициируем "звонок" чтобы получить endpoint
+      final response = await ApiService.instance.initiateCall(
+        callerId,
+        isVideo: false,
       );
+      
+      print('📞 Получен endpoint для отклонения: ${response.internalCallerParams.endpoint}');
+      
+      // Подключаемся к WebSocket signaling
+      final uri = Uri.parse(response.internalCallerParams.endpoint);
+      final wsUri = uri.replace(queryParameters: {
+        ...uri.queryParameters,
+        'platform': 'WEB',
+        'appVersion': '1.1',
+        'version': '5',
+        'device': 'browser',
+        'capabilities': '2A03F',
+        'clientType': 'ONE_ME',
+        'tgt': 'start',
+      });
+      
+      print('🔌 Подключаемся к WebSocket для отклонения...');
+      final channel = WebSocketChannel.connect(wsUri);
+      
+      await channel.ready;
+      print('✅ WebSocket подключен');
+      
+      // Отправляем hangup с reason=REJECTED
+      final hangupMessage = {
+        'command': 'hangup',
+        'sequence': 1,
+        'reason': 'REJECTED',
+      };
+      
+      channel.sink.add(json.encode(hangupMessage));
+      print('📤 Отправлено: hangup reason=REJECTED');
+      
+      // Ждём немного чтобы сообщение ушло
+      await Future.delayed(const Duration(milliseconds: 500));
+      
+      // Закрываем соединение
+      await channel.sink.close();
+      print('✅ Звонок отклонён');
+      
     } catch (e) {
-      print('Error rejecting call: $e');
-      rethrow;
+      print('❌ Error rejecting call: $e');
+      // Fallback на старый метод через REST API
+      try {
+        await ApiService.instance.hangupCall(
+          conversationId: conversationId,
+          hangupType: 'REJECTED',
+          duration: 0,
+        );
+      } catch (e2) {
+        print('❌ Fallback также не сработал: $e2');
+      }
     }
   }
 
+  @override
   void dispose() {
     _apiSubscription?.cancel();
     _incomingCallController.close();
     _isInitialized = false;
+    super.dispose();
   }
 }
 

@@ -2533,7 +2533,7 @@ class ChatMessageBubble extends StatelessWidget {
         final callTypeText = callType == 'VIDEO' ? 'Видеозвонок' : 'Звонок';
         callText = '$callTypeText, $durationText';
         callIcon = callType == 'VIDEO' ? Icons.videocam : Icons.call;
-        callColor = Theme.of(context).colorScheme.primary;
+        callColor = Colors.green; // Зелёный цвет для успешных звонков
         break;
 
       case 'MISSED':
@@ -2570,45 +2570,22 @@ class ChatMessageBubble extends StatelessWidget {
         break;
     }
 
-    return Container(
-      decoration: BoxDecoration(
-        color: callColor.withValues(alpha: 0.1),
-        borderRadius: borderRadius,
-        border: Border.all(color: callColor.withValues(alpha: 0.3), width: 1),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: callColor.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(callIcon, color: callColor, size: 24),
+    // Компактный вид как в оригинале - просто иконка + текст
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(callIcon, size: 18, color: callColor),
+          const SizedBox(width: 6),
+          Text(
+            callText,
+            style: TextStyle(
+              color: callColor,
+              fontSize: 14,
             ),
-            const SizedBox(width: 12),
-
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    callText,
-                    style: TextStyle(
-                      color: callColor,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

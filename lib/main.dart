@@ -33,6 +33,7 @@ import 'utils/theme_provider.dart';
 import 'utils/device_presets.dart';
 import 'plugins/plugin_service.dart';
 import 'widgets/incoming_call_overlay.dart';
+import 'widgets/floating_call_overlay.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
@@ -262,15 +263,17 @@ class MyApp extends StatelessWidget {
           builder: (context, child) {
             final showHud = themeProvider.debugShowPerformanceOverlay ||
                 themeProvider.showFpsOverlay;
-            return SizedBox.expand(
-              child: Stack(
-                children: [
-                  ?child,
-                  // Overlay для входящих звонков
-                  const IncomingCallOverlay(),
-                  if (showHud)
-                    const Positioned(top: 8, right: 56, child: _MiniFpsHud()),
-                ],
+            return FloatingCallOverlay(
+              child: SizedBox.expand(
+                child: Stack(
+                  children: [
+                    child ?? const SizedBox(),
+                    // Overlay для входящих звонков
+                    const IncomingCallOverlay(),
+                    if (showHud)
+                      const Positioned(top: 8, right: 56, child: _MiniFpsHud()),
+                  ],
+                ),
               ),
             );
           },

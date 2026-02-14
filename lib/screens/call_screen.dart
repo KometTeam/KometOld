@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:gwid/models/call_response.dart';
 import 'package:gwid/api/api_service.dart';
+import 'package:gwid/services/floating_call_manager.dart';
+import 'package:gwid/services/call_overlay_service.dart';
 import 'package:gwid/widgets/contact_avatar_widget.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'dart:async';
@@ -15,6 +17,8 @@ class CallScreen extends StatefulWidget {
   final String? contactAvatarUrl;
   final bool isOutgoing;
   final bool isVideo;
+  final VoidCallback? onMinimize; // Callback для минимизации через Overlay
+  final DateTime? callStartTime; // Опциональное время начала (для восстановления таймера)
 
   const CallScreen({
     super.key,
@@ -24,6 +28,8 @@ class CallScreen extends StatefulWidget {
     this.contactAvatarUrl,
     required this.isOutgoing,
     this.isVideo = false,
+    this.onMinimize,
+    this.callStartTime,
   });
 
   @override
@@ -49,6 +55,7 @@ class _CallScreenState extends State<CallScreen> {
   bool _isSpeakerOn = false;
   int _callDuration = 0;
   Timer? _durationTimer;
+  late DateTime _callStartTime;
   
   // Network Info
   NetworkInfo? _networkInfo;
@@ -60,11 +67,35 @@ class _CallScreenState extends State<CallScreen> {
   // Audio level tracking
   bool _isRemoteSpeaking = false;
   Timer? _audioLevelTimer;
+  
+  // Cleanup protection
+  bool _isCleaningUp = false;
+  
+  // Drag to minimize
+  double _dragOffset = 0;
 
   @override
   void initState() {
     super.initState();
+    _callStartTime = widget.callStartTime ?? DateTime.now();
     _initializeCall();
+    
+    // Слушаем изменения FloatingCallManager для разворачивания
+    FloatingCallManager.instance.addListener(_onFloatingCallStateChanged);
+    
+    // Устанавливаем callback для завершения звонка из панели/кнопки
+    FloatingCallManager.instance.onEndCall = _endCall;
+  }
+  
+  void _onFloatingCallStateChanged() {
+    if (mounted) {
+      setState(() {
+        // При разворачивании - сбрасываем dragOffset
+        if (!FloatingCallManager.instance.isMinimized) {
+          _dragOffset = 0;
+        }
+      });
+    }
   }
 
   Future<void> _initializeCall() async {
@@ -87,13 +118,18 @@ class _CallScreenState extends State<CallScreen> {
       // Устанавливаем локальный стрим
       await _setupLocalMedia();
 
-      // Создаем и отправляем offer СРАЗУ после подключения
-      await _createAndSendOffer();
+      // ИСХОДЯЩИЙ ЗВОНОК: создаем и отправляем offer
+      if (widget.isOutgoing) {
+        await _createAndSendOffer();
+        print('✅ WebRTC инициализирован (исходящий), ожидаем ответа...');
+      } else {
+        // ВХОДЯЩИЙ ЗВОНОК: отправляем accept-call и ждём offer от звонящего
+        _sendAcceptCall();
+        print('✅ WebRTC инициализирован (входящий), ожидаем offer от звонящего...');
+      }
 
       setState(() => _callState = CallState.ringing);
       _startDurationTimer();
-      
-      print('✅ WebRTC инициализирован, ожидаем ответа...');
     } catch (e) {
       print('❌ Ошибка инициализации звонка: $e');
       _showErrorAndClose('Не удалось установить соединение');
@@ -309,7 +345,21 @@ class _CallScreenState extends State<CallScreen> {
         case 'hungup':
         case 'closed-conversation':
           print('📴 Звонок завершен');
-          Navigator.of(context).pop();
+          // Защита от двойного вызова
+          if (_callState != CallState.ended && mounted) {
+            setState(() => _callState = CallState.ended);
+            _cleanup().then((_) {
+              // Если используется Overlay - закрываем через сервис
+              if (widget.onMinimize != null) {
+                CallOverlayService.instance.closeCall();
+              } else {
+                // Иначе через Navigator
+                if (mounted) {
+                  Navigator.of(context).pop();
+                }
+              }
+            });
+          }
           break;
           
         default:
@@ -363,6 +413,9 @@ class _CallScreenState extends State<CallScreen> {
       
       print('🧊 Получен remote ICE candidate');
       
+      // Парсим IP собеседника из candidate
+      _parseRemoteCandidate(candidateStr);
+      
       final candidate = RTCIceCandidate(
         candidateStr,
         data['sdpMid'] as String?,
@@ -376,6 +429,36 @@ class _CallScreenState extends State<CallScreen> {
       print('❌ Ошибка добавления remote candidate: $e');
     }
   }
+  
+  void _parseRemoteCandidate(String candidateStr) {
+    try {
+      final parts = candidateStr.split(' ');
+      if (parts.length >= 5) {
+        final ip = parts[4];
+        final type = candidateStr.contains('typ srflx') ? 'srflx' : 
+                     candidateStr.contains('typ host') ? 'host' : 
+                     candidateStr.contains('typ relay') ? 'relay' : 'unknown';
+        
+        // Обновляем IP собеседника (приоритет: srflx > host > relay)
+        setState(() {
+          _networkInfo ??= NetworkInfo();
+          
+          // Если ещё нет IP или новый тип приоритетнее
+          final shouldUpdate = _networkInfo!.remoteAddress == null ||
+              (type == 'srflx' && _networkInfo!.remoteConnectionType != 'srflx') ||
+              (type == 'host' && _networkInfo!.remoteConnectionType == 'relay');
+          
+          if (shouldUpdate) {
+            _networkInfo!.remoteAddress = ip;
+            _networkInfo!.remoteConnectionType = type;
+            print('Remote IP updated: $ip ($type)');
+          }
+        });
+      }
+    } catch (e) {
+      print('Error parsing remote candidate: $e');
+    }
+  }
 
   void _sendSignalingMessage(Map<String, dynamic> message) {
     if (_signalingChannel == null) {
@@ -386,6 +469,22 @@ class _CallScreenState extends State<CallScreen> {
     final jsonString = json.encode(message);
     _signalingChannel!.sink.add(jsonString);
     print('📤 Отправлено signaling сообщение: ${message['command']}');
+  }
+
+  void _sendAcceptCall() {
+    print('📞 Отправляем accept-call');
+    _sendSignalingMessage({
+      'command': 'accept-call',
+      'sequence': _sequenceNumber++,
+      'mediaSettings': {
+        'isAudioEnabled': true,
+        'isVideoEnabled': widget.isVideo,
+        'isScreenSharingEnabled': false,
+        'isFastScreenSharingEnabled': false,
+        'isAudioSharingEnabled': false,
+        'isAnimojiEnabled': false,
+      }
+    });
   }
 
 
@@ -604,7 +703,7 @@ class _CallScreenState extends State<CallScreen> {
 
   void _startDurationTimer() {
     _durationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_callState == CallState.connected) {
+      if (_callState == CallState.connected && mounted) {
         setState(() => _callDuration++);
       }
     });
@@ -614,7 +713,7 @@ class _CallScreenState extends State<CallScreen> {
     // Симуляция определения речи (в реальности нужен анализ аудио)
     // Для простоты будем рандомно показывать "говорит"
     _audioLevelTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
-      if (_remoteStream != null && _callState == CallState.connected) {
+      if (_remoteStream != null && _callState == CallState.connected && mounted) {
         // TODO: Реализовать реальное определение уровня звука через Web Audio API
         // Пока просто рандом для демонстрации
         setState(() {
@@ -639,40 +738,94 @@ class _CallScreenState extends State<CallScreen> {
     // TODO: Реализовать переключение динамика через platform channel
   }
 
+  void _minimizeCall() {
+    print('🔽 Минимизация звонка');
+    
+    // Если есть callback - используем его (для Overlay режима)
+    if (widget.onMinimize != null) {
+      widget.onMinimize!();
+      return;
+    }
+    
+    // Иначе используем старый способ через Navigator
+    FloatingCallManager.instance.minimizeCall(
+      callerName: widget.contactName,
+      callerAvatarUrl: widget.contactAvatarUrl,
+      callerId: widget.contactId,
+      callResponse: widget.callData,
+      callStartTime: _callStartTime,
+      isVideo: widget.isVideo,
+    );
+    
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
   void _endCall() async {
+    // Защита от множественных вызовов
+    if (_isCleaningUp) {
+      print('⚠️ Cleanup уже в процессе, пропускаем');
+      return;
+    }
+    
     try {
       print('📴 Завершение звонка...');
+      
+      setState(() => _callState = CallState.ended);
       
       final hangupType = _callState == CallState.connected ? 'HUNGUP' : 'CANCELED';
       
       if (_signalingChannel != null) {
-        final hangupMessage = {
-          'command': 'hangup',
-          'sequence': _sequenceNumber++,
-          'reason': hangupType,
-        };
-        _sendSignalingMessage(hangupMessage);
-        print('Sent hangup command via WebSocket: $hangupType');
+        try {
+          final hangupMessage = {
+            'command': 'hangup',
+            'sequence': _sequenceNumber++,
+            'reason': hangupType,
+          };
+          _sendSignalingMessage(hangupMessage);
+          print('Sent hangup command via WebSocket: $hangupType');
+        } catch (e) {
+          print('⚠️ Ошибка отправки hangup через WebSocket: $e');
+        }
       }
       
-      await ApiService.instance.hangupCall(
-        conversationId: widget.callData.conversationId,
-        hangupType: hangupType,
-        duration: _callDuration * 1000, // в миллисекундах
-      );
+      // REST API hangup с таймаутом
+      try {
+        await ApiService.instance.hangupCall(
+          conversationId: widget.callData.conversationId,
+          hangupType: hangupType,
+          duration: _callDuration * 1000,
+        ).timeout(const Duration(seconds: 3));
+      } catch (e) {
+        print('⚠️ Ошибка REST API hangup (продолжаем cleanup): $e');
+      }
       
       await _cleanup();
       
-      if (mounted) {
-        Navigator.of(context).pop();
+      // Если используется Overlay - закрываем через сервис
+      if (widget.onMinimize != null) {
+        CallOverlayService.instance.closeCall();
+      } else {
+        // Иначе через Navigator
+        FloatingCallManager.instance.endCall();
+        if (mounted) {
+          Navigator.of(context).pop();
+        }
       }
     } catch (e) {
       print('❌ Ошибка при завершении звонка: $e');
       
       await _cleanup();
       
-      if (mounted) {
-        Navigator.of(context).pop();
+      // Если используется Overlay - закрываем через сервис
+      if (widget.onMinimize != null) {
+        CallOverlayService.instance.closeCall();
+      } else {
+        FloatingCallManager.instance.endCall();
+        if (mounted) {
+          Navigator.of(context).pop();
+        }
       }
     }
   }
@@ -693,80 +846,118 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> _cleanup() async {
+    // Защита от повторного вызова
+    if (_isCleaningUp) {
+      print('⚠️ Cleanup уже выполняется, пропускаем');
+      return;
+    }
+    
+    _isCleaningUp = true;
     print('🧹 Начинаем cleanup...');
     
-    // 1. Останавливаем таймеры
-    _durationTimer?.cancel();
-    _durationTimer = null;
-    _audioLevelTimer?.cancel();
-    _audioLevelTimer = null;
-    
-    // 2. СНАЧАЛА отменяем subscription (чтобы не читать из закрытого сокета)
-    await _signalingSubscription?.cancel();
-    _signalingSubscription = null;
-    
-    // 3. ПОТОМ закрываем WebSocket
     try {
-      await _signalingChannel?.sink.close();
+      // 1. Останавливаем таймеры
+      _durationTimer?.cancel();
+      _durationTimer = null;
+      _audioLevelTimer?.cancel();
+      _audioLevelTimer = null;
+      
+      // 2. СНАЧАЛА отменяем subscription (чтобы не читать из закрытого сокета)
+      try {
+        await _signalingSubscription?.cancel();
+      } catch (e) {
+        print('⚠️ Ошибка отмены subscription: $e');
+      }
+      _signalingSubscription = null;
+      
+      // 3. ПОТОМ закрываем WebSocket с таймаутом
+      try {
+        await _signalingChannel?.sink.close().timeout(
+          const Duration(seconds: 2),
+          onTimeout: () {
+            print('⚠️ Таймаут закрытия WebSocket');
+          },
+        );
+      } catch (e) {
+        print('⚠️ Ошибка при закрытии WebSocket (игнорируем): $e');
+      }
+      _signalingChannel = null;
+      
+      // 4. Останавливаем треки ПЕРЕД dispose стримов
+      try {
+        _localStream?.getTracks().forEach((track) {
+          try {
+            track.stop();
+          } catch (e) {
+            print('⚠️ Ошибка остановки трека: $e');
+          }
+        });
+      } catch (e) {
+        print('⚠️ Ошибка при остановке локальных треков: $e');
+      }
+      
+      try {
+        _remoteStream?.getTracks().forEach((track) {
+          try {
+            track.stop();
+          } catch (e) {
+            print('⚠️ Ошибка остановки удалённого трека: $e');
+          }
+        });
+      } catch (e) {
+        print('⚠️ Ошибка при остановке удалённых треков: $e');
+      }
+      
+      // 5. Закрываем peer connection ПЕРЕД dispose стримов с таймаутом
+      try {
+        await _peerConnection?.close().timeout(
+          const Duration(seconds: 2),
+          onTimeout: () {
+            print('⚠️ Таймаут закрытия peer connection');
+          },
+        );
+        _peerConnection = null;
+      } catch (e) {
+        print('⚠️ Ошибка при закрытии peer connection: $e');
+        _peerConnection = null;
+      }
+      
+      // 6. Dispose стримов
+      try {
+        await _localStream?.dispose();
+        _localStream = null;
+      } catch (e) {
+        print('⚠️ Ошибка при dispose локального стрима (игнорируем): $e');
+        _localStream = null;
+      }
+      
+      try {
+        await _remoteStream?.dispose();
+        _remoteStream = null;
+      } catch (e) {
+        print('⚠️ Ошибка при dispose удалённого стрима (игнорируем): $e');
+        _remoteStream = null;
+      }
+      
+      // 7. Dispose рендереров
+      try {
+        await _localRenderer.dispose();
+      } catch (e) {
+        print('⚠️ Ошибка при dispose локального рендерера: $e');
+      }
+      
+      try {
+        await _remoteRenderer.dispose();
+      } catch (e) {
+        print('⚠️ Ошибка при dispose удалённого рендерера: $e');
+      }
+      
+      print('✅ Cleanup завершён');
     } catch (e) {
-      print('⚠️ Ошибка при закрытии WebSocket (игнорируем): $e');
+      print('❌ Критическая ошибка в cleanup: $e');
+    } finally {
+      _isCleaningUp = false;
     }
-    _signalingChannel = null;
-    
-    // 4. Останавливаем треки ПЕРЕД dispose стримов
-    try {
-      _localStream?.getTracks().forEach((track) {
-        track.stop();
-      });
-    } catch (e) {
-      print('⚠️ Ошибка при остановке локальных треков: $e');
-    }
-    
-    try {
-      _remoteStream?.getTracks().forEach((track) {
-        track.stop();
-      });
-    } catch (e) {
-      print('⚠️ Ошибка при остановке удалённых треков: $e');
-    }
-    
-    // 5. Закрываем peer connection ПЕРЕД dispose стримов
-    try {
-      await _peerConnection?.close();
-      _peerConnection = null;
-    } catch (e) {
-      print('⚠️ Ошибка при закрытии peer connection: $e');
-    }
-    
-    // 6. Dispose стримов
-    try {
-      await _localStream?.dispose();
-      _localStream = null;
-    } catch (e) {
-      print('⚠️ Ошибка при dispose локального стрима (игнорируем): $e');
-    }
-    
-    try {
-      await _remoteStream?.dispose();
-      _remoteStream = null;
-    } catch (e) {
-      print('⚠️ Ошибка при dispose удалённого стрима (игнорируем): $e');
-    }
-    
-    // 7. Dispose рендереров
-    try {
-      await _localRenderer.dispose();
-    } catch (e) {
-      print('⚠️ Ошибка при dispose локального рендерера: $e');
-    }
-    
-    try {
-      await _remoteRenderer.dispose();
-    } catch (e) {
-      print('⚠️ Ошибка при dispose удалённого рендерера: $e');
-    }
-    
-    print('✅ Cleanup завершён');
   }
 
   String _formatDuration(int seconds) {
@@ -779,12 +970,60 @@ class _CallScreenState extends State<CallScreen> {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
 
-    return Scaffold(
-      backgroundColor: colors.surface,
-      body: SafeArea(
-        child: Stack(
-          children: [
-            Column(
+    return WillPopScope(
+      onWillPop: () async {
+        // При back button - минимизируем вместо закрытия (только если есть onMinimize)
+        if (widget.onMinimize != null) {
+          _minimizeCall();
+          return false;
+        }
+        return true; // Разрешаем закрытие если нет onMinimize
+      },
+      child: GestureDetector(
+        onVerticalDragUpdate: (details) {
+          // Drag down to minimize
+          if (details.delta.dy > 0) {
+            setState(() {
+              _dragOffset = (_dragOffset + details.delta.dy).clamp(0.0, 300.0);
+            });
+          }
+        },
+        onVerticalDragEnd: (details) {
+          // If dragged down more than 150px - minimize
+          if (_dragOffset > 150) {
+            _minimizeCall();
+          } else {
+            // Snap back
+            setState(() {
+              _dragOffset = 0;
+            });
+          }
+        },
+        child: Transform.translate(
+          offset: Offset(0, _dragOffset),
+          child: Scaffold(
+            backgroundColor: colors.surface,
+          body: SafeArea(
+          child: Stack(
+            children: [
+              // Drag indicator
+              if (_dragOffset > 0)
+                Positioned(
+                  top: 8,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: colors.onSurface.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                ),
+              Column(
               children: [
                 // Заголовок
                 Padding(
@@ -932,7 +1171,7 @@ class _CallScreenState extends State<CallScreen> {
                   _CallButton(
                     icon: Icons.call_end,
                     label: 'Завершить',
-                    onPressed: _endCall,
+                    onPressed: _isCleaningUp ? () {} : _endCall,
                     backgroundColor: colors.error,
                     foregroundColor: colors.onError,
                     isLarge: true,
@@ -961,8 +1200,10 @@ class _CallScreenState extends State<CallScreen> {
           ),
       ],
     ),
+          ),
+        ),
       ),
-    );
+    ));
   }
 
   String _getCallStateText() {
@@ -980,12 +1221,28 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   void dispose() {
-    // Используем unawaited чтобы не блокировать dispose
-    _cleanup().then((_) {
-      print('✅ Cleanup в dispose завершён');
-    }).catchError((e) {
-      print('❌ Ошибка в cleanup при dispose: $e');
-    });
+    FloatingCallManager.instance.removeListener(_onFloatingCallStateChanged);
+    
+    // Очищаем callback
+    FloatingCallManager.instance.onEndCall = null;
+    
+    // Если используется Overlay - НЕ вызываем cleanup при dispose
+    // (cleanup будет вызван только при closeCall)
+    if (widget.onMinimize == null) {
+      // Старый режим через Navigator - делаем cleanup
+      if (!FloatingCallManager.instance.isMinimized) {
+        _cleanup().then((_) {
+          print('✅ Cleanup в dispose завершён');
+        }).catchError((e) {
+          print('❌ Ошибка в cleanup при dispose: $e');
+        });
+      } else {
+        print('⏸️ CallScreen закрыт, но звонок минимизирован - cleanup пропущен');
+      }
+    } else {
+      print('🎯 CallScreen dispose в Overlay режиме - cleanup управляется CallOverlayService');
+    }
+    
     super.dispose();
   }
 }

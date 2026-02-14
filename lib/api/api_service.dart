@@ -49,6 +49,7 @@ part 'api_service_auth.dart';
 part 'api_service_calls.dart';
 part 'api_service_contacts.dart';
 part 'api_service_chats.dart';
+part 'api_service_search.dart';
 part 'api_service_media.dart';
 part 'api_service_privacy.dart';
 part 'api_service_complaints.dart';
@@ -704,6 +705,51 @@ class ApiService {
     try {
       final packet = _packPacket(11, 0, seq, opcode, payload);
 
+      _socket?.add(packet);
+      _lastActionTime = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    } catch (e) {
+      _pendingManager.completeError(seq, e);
+      rethrow;
+    }
+
+    final result = await completer.future;
+    return result as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> sendRequestWithVersion(
+    int ver,
+    int opcode,
+    Map<String, dynamic> payload,
+  ) async {
+    final bool isAuthOpcode = opcode == 19 || opcode == 6;
+
+    if (isAuthOpcode) {
+      await waitUntilOnline();
+    } else {
+      await waitUntilOnline();
+      if (!_isSessionReady) {
+        await Future.any([
+          Future.doWhile(() async {
+            if (_isSessionReady) return false;
+            await Future.delayed(const Duration(milliseconds: 50));
+            return true;
+          }),
+          Future.delayed(const Duration(seconds: 10)).then(
+            (_) => throw TimeoutException('Session not ready after 10s'),
+          ),
+        ]);
+      }
+    }
+
+    final seq = _seq++ % 256;
+
+    final completer = _pendingManager.register(
+      seq,
+      debugLabel: 'opcode_$opcode',
+    );
+
+    try {
+      final packet = _packPacket(ver, 0, seq, opcode, payload);
       _socket?.add(packet);
       _lastActionTime = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     } catch (e) {

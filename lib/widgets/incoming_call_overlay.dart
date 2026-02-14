@@ -1,66 +1,69 @@
 import 'package:flutter/material.dart';
 import 'package:gwid/services/calls_service.dart';
-import 'package:gwid/screens/call_screen.dart';
+import 'package:gwid/services/call_overlay_service.dart';
+import 'package:gwid/services/floating_call_manager.dart';
 import 'package:gwid/widgets/contact_avatar_widget.dart';
-import 'package:gwid/main.dart';
 
 /// Overlay виджет для отображения входящих звонков
-class IncomingCallOverlay extends StatefulWidget {
+class IncomingCallOverlay extends StatelessWidget {
   const IncomingCallOverlay({super.key});
 
   @override
-  State<IncomingCallOverlay> createState() => _IncomingCallOverlayState();
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: CallsService.instance,
+      builder: (context, _) {
+        final currentCall = CallsService.instance.currentIncomingCall;
+        
+        if (currentCall == null) {
+          return const SizedBox.shrink();
+        }
+
+        return _IncomingCallDialog(call: currentCall);
+      },
+    );
+  }
 }
 
-class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
-  IncomingCallData? _currentCall;
+/// Диалог входящего звонка
+class _IncomingCallDialog extends StatefulWidget {
+  final IncomingCallData call;
+  
+  const _IncomingCallDialog({required this.call});
 
   @override
-  void initState() {
-    super.initState();
-    
-    // Слушаем входящие звонки
-    CallsService.instance.incomingCalls.listen((call) {
-      if (mounted) {
-        setState(() {
-          _currentCall = call;
-        });
-      }
-    });
-  }
+  State<_IncomingCallDialog> createState() => _IncomingCallDialogState();
+}
 
+class _IncomingCallDialogState extends State<_IncomingCallDialog> {
   void _acceptCall() async {
-    if (_currentCall == null) return;
-
-    final currentCall = _currentCall!; // Сохраняем до изменения state
+    final call = widget.call;
 
     try {
-      setState(() {
-        _currentCall = null;
-      });
-
       final response = await CallsService.instance.acceptCall(
-        currentCall.conversationId,
-        currentCall.callerId,
+        call.conversationId,
+        call.callerId,
       );
       
-      navigatorKey.currentState?.push(
-        MaterialPageRoute(
-          builder: (context) => CallScreen(
-            callData: response,
-            contactName: currentCall.callerName,
-            contactId: currentCall.callerId,
-            contactAvatarUrl: currentCall.callerAvatarUrl,
-            isOutgoing: false,
-            isVideo: currentCall.isVideo,
-          ),
-        ),
-      );
-    } catch (e) {
-      print('Error accepting call: $e');
+      CallsService.instance.clearIncomingCall();
       
-      final context = navigatorKey.currentContext;
-      if (context != null) {
+      CallOverlayService.instance.showCall(
+        null,
+        callData: response,
+        contactName: call.callerName,
+        contactId: call.callerId,
+        contactAvatarUrl: call.callerAvatarUrl,
+        isOutgoing: false,
+        isVideo: call.isVideo,
+      );
+    } catch (e, stackTrace) {
+      print('❌ Error accepting call: $e');
+      print('❌ Stack trace: $stackTrace');
+      
+      CallsService.instance.clearIncomingCall();
+      FloatingCallManager.instance.endCall();
+      
+      if (mounted && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to accept call: $e'),
@@ -72,107 +75,106 @@ class _IncomingCallOverlayState extends State<IncomingCallOverlay> {
   }
 
   void _rejectCall() async {
-    if (_currentCall == null) return;
-
+    final call = widget.call;
+    
     try {
-      await CallsService.instance.rejectCall(_currentCall!.conversationId);
+      // Сначала очищаем входящий звонок из сервиса
+      CallsService.instance.clearIncomingCall();
+      
+      await CallsService.instance.rejectCall(
+        call.conversationId,
+        call.callerId,
+      );
     } catch (e) {
       print('Error rejecting call: $e');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _currentCall = null;
-        });
-      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_currentCall == null) {
-      return const SizedBox.shrink();
-    }
-
     final colors = Theme.of(context).colorScheme;
 
-    return Material(
-      color: Colors.black54,
-      child: SafeArea(
-        child: Center(
-          child: Container(
-            margin: const EdgeInsets.all(24),
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: colors.surface,
-              borderRadius: BorderRadius.circular(24),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.3),
-                  blurRadius: 20,
-                  spreadRadius: 5,
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Аватарка звонящего
-                ContactAvatarWidget(
-                  contactId: _currentCall!.callerId,
-                  originalAvatarUrl: _currentCall!.callerAvatarUrl,
-                  radius: 40,
-                  fallbackText: _currentCall!.callerName.isNotEmpty
-                      ? _currentCall!.callerName[0].toUpperCase()
-                      : '?',
-                ),
-
-                const SizedBox(height: 24),
-
-                // Имя звонящего
-                Text(
-                  _currentCall!.callerName,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
+    // Positioned.fill чтобы занять весь экран внутри Stack
+    return Positioned.fill(
+      child: Material(
+        color: Colors.black54,
+        child: SafeArea(
+          child: Center(
+            child: Container(
+              margin: const EdgeInsets.all(24),
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: colors.surface,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.3),
+                    blurRadius: 20,
+                    spreadRadius: 5,
                   ),
-                  textAlign: TextAlign.center,
-                ),
-
-                const SizedBox(height: 8),
-
-                // Тип звонка
-                Text(
-                  _currentCall!.isVideo ? 'Видеозвонок' : 'Аудиозвонок',
-                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: colors.onSurfaceVariant,
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Аватарка звонящего
+                  ContactAvatarWidget(
+                    contactId: widget.call.callerId,
+                    originalAvatarUrl: widget.call.callerAvatarUrl,
+                    radius: 40,
+                    fallbackText: widget.call.callerName.isNotEmpty
+                        ? widget.call.callerName[0].toUpperCase()
+                        : '?',
                   ),
-                ),
 
-                const SizedBox(height: 32),
+                  const SizedBox(height: 24),
 
-                // Кнопки
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    // Отклонить
-                    _IncomingCallButton(
-                      icon: Icons.call_end,
-                      label: 'Отклонить',
-                      backgroundColor: colors.error,
-                      foregroundColor: colors.onError,
-                      onPressed: _rejectCall,
+                  // Имя звонящего
+                  Text(
+                    widget.call.callerName,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
                     ),
+                    textAlign: TextAlign.center,
+                  ),
 
-                    // Принять
-                    _IncomingCallButton(
-                      icon: Icons.call,
-                      label: 'Принять',
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                      onPressed: _acceptCall,
+                  const SizedBox(height: 8),
+
+                  // Тип звонка
+                  Text(
+                    widget.call.isVideo ? 'Видеозвонок' : 'Аудиозвонок',
+                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: colors.onSurfaceVariant,
                     ),
-                  ],
-                ),
-              ],
+                  ),
+
+                  const SizedBox(height: 32),
+
+                  // Кнопки
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      // Отклонить
+                      _IncomingCallButton(
+                        icon: Icons.call_end,
+                        label: 'Отклонить',
+                        backgroundColor: colors.error,
+                        foregroundColor: colors.onError,
+                        onPressed: _rejectCall,
+                      ),
+
+                      // Принять
+                      _IncomingCallButton(
+                        icon: Icons.call,
+                        label: 'Принять',
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        onPressed: _acceptCall,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
