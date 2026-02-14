@@ -22,19 +22,40 @@ class FloatingCallPanel extends StatefulWidget {
   State<FloatingCallPanel> createState() => _FloatingCallPanelState();
 }
 
-class _FloatingCallPanelState extends State<FloatingCallPanel> {
+class _FloatingCallPanelState extends State<FloatingCallPanel> with SingleTickerProviderStateMixin {
   Timer? _timer;
   String _callDuration = '00:00';
+  late final AnimationController _slideController;
+  late final Animation<Offset> _slideAnimation;
 
   @override
   void initState() {
     super.initState();
     _startTimer();
+    
+    // Контроллер для slide анимации
+    _slideController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+    
+    // Slide вверх анимация (снизу вверх)
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0, 1),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _slideController,
+      curve: Curves.easeOut,
+    ));
+    
+    // Запускаем анимацию появления
+    _slideController.forward();
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    _slideController.dispose();
     super.dispose();
   }
 
@@ -60,16 +81,18 @@ class _FloatingCallPanelState extends State<FloatingCallPanel> {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
 
-    return Material(
-      elevation: 8,
-      color: colors.primaryContainer,
-      child: InkWell(
-        onTap: widget.onTap,
-        child: Container(
-          height: 64,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
-            children: [
+    return SlideTransition(
+      position: _slideAnimation,
+      child: Material(
+        elevation: 8,
+        color: colors.primaryContainer,
+        child: InkWell(
+          onTap: widget.onTap,
+          child: Container(
+            height: 64,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
               // Avatar
               CircleAvatar(
                 radius: 24,
@@ -117,7 +140,8 @@ class _FloatingCallPanelState extends State<FloatingCallPanel> {
                 onPressed: widget.onHangup,
                 // tooltip убран - требует Overlay
               ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

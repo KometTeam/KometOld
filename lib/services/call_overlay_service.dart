@@ -132,32 +132,63 @@ class _CallOverlayWidget extends StatefulWidget {
   State<_CallOverlayWidget> createState() => _CallOverlayWidgetState();
 }
 
-class _CallOverlayWidgetState extends State<_CallOverlayWidget> {
-  // GlobalKey для сохранения STATE CallScreen между перестроениями
+class _CallOverlayWidgetState extends State<_CallOverlayWidget> with SingleTickerProviderStateMixin {
   late final GlobalKey _callScreenKey;
+  late final AnimationController _animationController;
+  late final Animation<Offset> _slideAnimation;
+  late final Animation<double> _fadeAnimation;
   
   @override
   void initState() {
     super.initState();
     
-    // Создаем GlobalKey один раз
     _callScreenKey = GlobalKey();
     
-    // Слушаем изменения FloatingCallManager для перерисовки
+    // Контроллер анимации (300ms)
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+    
+    // Slide анимация (сверху вниз)
+    _slideAnimation = Tween<Offset>(
+      begin: Offset.zero,
+      end: const Offset(0, 1),
+    ).animate(CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeInOut,
+    ));
+    
+    // Fade анимация
+    _fadeAnimation = Tween<double>(
+      begin: 1.0,
+      end: 0.0,
+    ).animate(CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeInOut,
+    ));
+    
     FloatingCallManager.instance.addListener(_onStateChanged);
   }
 
   @override
   void dispose() {
+    _animationController.dispose();
     FloatingCallManager.instance.removeListener(_onStateChanged);
     super.dispose();
   }
 
   void _onStateChanged() {
     if (mounted) {
-      setState(() {
-        // Перерисовываем при изменении isMinimized
-      });
+      final isMinimized = CallOverlayService.instance.isMinimized;
+      
+      if (isMinimized) {
+        _animationController.forward();
+      } else {
+        _animationController.reverse();
+      }
+      
+      setState(() {});
     }
   }
 
@@ -165,19 +196,25 @@ class _CallOverlayWidgetState extends State<_CallOverlayWidget> {
   Widget build(BuildContext context) {
     final isMinimized = CallOverlayService.instance.isMinimized;
     
-    return Offstage(
-      offstage: isMinimized,
-      child: Material(
-        child: CallScreen(
-          key: _callScreenKey,
-          callData: widget.callData,
-          contactId: widget.contactId,
-          contactName: widget.contactName,
-          contactAvatarUrl: widget.contactAvatarUrl,
-          isVideo: widget.isVideo,
-          isOutgoing: widget.isOutgoing,
-          callStartTime: widget.callStartTime,
-          onMinimize: widget.onMinimize,
+    return SlideTransition(
+      position: _slideAnimation,
+      child: FadeTransition(
+        opacity: _fadeAnimation,
+        child: IgnorePointer(
+          ignoring: isMinimized,
+          child: Material(
+            child: CallScreen(
+              key: _callScreenKey,
+              callData: widget.callData,
+              contactId: widget.contactId,
+              contactName: widget.contactName,
+              contactAvatarUrl: widget.contactAvatarUrl,
+              isVideo: widget.isVideo,
+              isOutgoing: widget.isOutgoing,
+              callStartTime: widget.callStartTime,
+              onMinimize: widget.onMinimize,
+            ),
+          ),
         ),
       ),
     );

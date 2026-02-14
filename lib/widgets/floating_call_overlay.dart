@@ -28,7 +28,7 @@ class FloatingCallOverlay extends StatelessWidget {
           children: [
             child,
             
-            // Показываем панель внизу (на всех экранах кроме чатов)
+            // Показываем панель внизу или кружок
             if (manager.shouldShowAsPanel)
               Positioned(
                 left: 0,
@@ -43,7 +43,6 @@ class FloatingCallOverlay extends StatelessWidget {
                 ),
               ),
             
-            // Показываем кнопку (в чатах)
             if (manager.shouldShowAsButton)
               FloatingCallButton(
                 callerName: manager.callerName!,

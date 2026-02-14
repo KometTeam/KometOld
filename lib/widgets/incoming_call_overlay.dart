@@ -35,7 +35,54 @@ class _IncomingCallDialog extends StatefulWidget {
   State<_IncomingCallDialog> createState() => _IncomingCallDialogState();
 }
 
-class _IncomingCallDialogState extends State<_IncomingCallDialog> {
+class _IncomingCallDialogState extends State<_IncomingCallDialog> with TickerProviderStateMixin {
+  late final AnimationController _scaleController;
+  late final AnimationController _pulseController;
+  late final Animation<double> _scaleAnimation;
+  late final Animation<double> _pulseAnimation;
+  
+  @override
+  void initState() {
+    super.initState();
+    
+    // Контроллер для scale анимации (появление диалога)
+    _scaleController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 250),
+    );
+    
+    // Scale анимация - легкий bounce
+    _scaleAnimation = CurvedAnimation(
+      parent: _scaleController,
+      curve: Curves.easeOutBack,
+    );
+    
+    // Контроллер для пульсации аватарки
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2000),
+    )..repeat(reverse: true);
+    
+    // Pulse анимация - легкая пульсация
+    _pulseAnimation = Tween<double>(
+      begin: 1.0,
+      end: 1.05,
+    ).animate(CurvedAnimation(
+      parent: _pulseController,
+      curve: Curves.easeInOut,
+    ));
+    
+    // Запускаем анимацию появления
+    _scaleController.forward();
+  }
+  
+  @override
+  void dispose() {
+    _scaleController.dispose();
+    _pulseController.dispose();
+    super.dispose();
+  }
+  
   void _acceptCall() async {
     final call = widget.call;
 
@@ -100,80 +147,108 @@ class _IncomingCallDialogState extends State<_IncomingCallDialog> {
         color: Colors.black54,
         child: SafeArea(
           child: Center(
-            child: Container(
-              margin: const EdgeInsets.all(24),
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: colors.surface,
-                borderRadius: BorderRadius.circular(24),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.3),
-                    blurRadius: 20,
-                    spreadRadius: 5,
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Аватарка звонящего
-                  ContactAvatarWidget(
-                    contactId: widget.call.callerId,
-                    originalAvatarUrl: widget.call.callerAvatarUrl,
-                    radius: 40,
-                    fallbackText: widget.call.callerName.isNotEmpty
-                        ? widget.call.callerName[0].toUpperCase()
-                        : '?',
-                  ),
-
-                  const SizedBox(height: 24),
-
-                  // Имя звонящего
-                  Text(
-                    widget.call.callerName,
-                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
+            child: ScaleTransition(
+              scale: _scaleAnimation,
+              child: Container(
+                margin: const EdgeInsets.all(24),
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: colors.surface,
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.3),
+                      blurRadius: 20,
+                      spreadRadius: 5,
                     ),
-                    textAlign: TextAlign.center,
-                  ),
-
-                  const SizedBox(height: 8),
-
-                  // Тип звонка
-                  Text(
-                    widget.call.isVideo ? 'Видеозвонок' : 'Аудиозвонок',
-                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: colors.onSurfaceVariant,
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Аватарка с пульсацией и ripple эффектом
+                    Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        // Ripple эффект (пульсирующие круги)
+                        ScaleTransition(
+                          scale: _pulseAnimation,
+                          child: Container(
+                            width: 120,
+                            height: 120,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: Colors.green.withValues(alpha: 0.3),
+                                width: 3,
+                              ),
+                            ),
+                          ),
+                        ),
+                        
+                        // Аватарка
+                        ScaleTransition(
+                          scale: _pulseAnimation,
+                          child: ContactAvatarWidget(
+                            contactId: widget.call.callerId,
+                            originalAvatarUrl: widget.call.callerAvatarUrl,
+                            radius: 45,
+                            fallbackText: widget.call.callerName.isNotEmpty
+                                ? widget.call.callerName[0].toUpperCase()
+                                : '?',
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
 
-                  const SizedBox(height: 32),
+                    const SizedBox(height: 24),
 
-                  // Кнопки
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      // Отклонить
-                      _IncomingCallButton(
-                        icon: Icons.call_end,
-                        label: 'Отклонить',
-                        backgroundColor: colors.error,
-                        foregroundColor: colors.onError,
-                        onPressed: _rejectCall,
+                    // Имя звонящего
+                    Text(
+                      widget.call.callerName,
+                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
                       ),
+                      textAlign: TextAlign.center,
+                    ),
 
-                      // Принять
-                      _IncomingCallButton(
-                        icon: Icons.call,
-                        label: 'Принять',
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                        onPressed: _acceptCall,
+                    const SizedBox(height: 8),
+
+                    // Тип звонка
+                    Text(
+                      widget.call.isVideo ? 'Видеозвонок' : 'Аудиозвонок',
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: colors.onSurfaceVariant,
                       ),
-                    ],
-                  ),
-                ],
+                    ),
+
+                    const SizedBox(height: 32),
+
+                    // Кнопки
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        // Отклонить
+                        _IncomingCallButton(
+                          icon: Icons.call_end,
+                          label: 'Отклонить',
+                          backgroundColor: colors.error,
+                          foregroundColor: colors.onError,
+                          onPressed: _rejectCall,
+                        ),
+
+                        // Принять
+                        _IncomingCallButton(
+                          icon: Icons.call,
+                          label: 'Принять',
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                          onPressed: _acceptCall,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

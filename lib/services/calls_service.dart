@@ -49,6 +49,9 @@ class CallsService extends ChangeNotifier {
           _handleIncomingCall(payload);
         } else if (opcode == 137) {
           _handleIncomingCallV2(payload);
+        } else if (opcode == 132) {
+          // opcode 132 - notification о завершении звонка
+          _handleCallNotification(payload);
         }
       }
     });
@@ -140,6 +143,27 @@ class CallsService extends ChangeNotifier {
       _incomingCallController.add(incomingCall);
     } catch (e) {
       print('❌ Ошибка обработки входящего звонка v2: $e');
+    }
+  }
+
+  void _handleCallNotification(Map<String, dynamic> payload) {
+    try {
+      // Проверяем если это notification о завершении входящего звонка
+      final notification = payload['notification'] as String?;
+      final conversationId = payload['conversationId'] as String?;
+      
+      if (notification == 'closed-conversation' || 
+          notification == 'hungup' ||
+          notification == 'canceled') {
+        // Если есть активный входящий звонок с таким же conversationId - очищаем
+        if (_currentIncomingCall != null && 
+            _currentIncomingCall!.conversationId == conversationId) {
+          print('📴 Входящий звонок завершен/отменен собеседником');
+          clearIncomingCall();
+        }
+      }
+    } catch (e) {
+      print('❌ Ошибка обработки call notification: $e');
     }
   }
 

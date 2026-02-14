@@ -22,20 +22,38 @@ class FloatingCallButton extends StatefulWidget {
   State<FloatingCallButton> createState() => _FloatingCallButtonState();
 }
 
-class _FloatingCallButtonState extends State<FloatingCallButton> {
+class _FloatingCallButtonState extends State<FloatingCallButton> with SingleTickerProviderStateMixin {
   Timer? _timer;
   String _callDuration = '00:00';
   Offset _position = const Offset(20, 100);
+  late final AnimationController _scaleController;
+  late final Animation<double> _scaleAnimation;
   
   @override
   void initState() {
     super.initState();
     _startTimer();
+    
+    // Контроллер для scale анимации
+    _scaleController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+    
+    // Scale анимация с пружинящим эффектом
+    _scaleAnimation = CurvedAnimation(
+      parent: _scaleController,
+      curve: Curves.elasticOut,
+    );
+    
+    // Запускаем анимацию появления
+    _scaleController.forward();
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    _scaleController.dispose();
     super.dispose();
   }
 
@@ -69,23 +87,25 @@ class _FloatingCallButtonState extends State<FloatingCallButton> {
         onPanUpdate: (details) {
           setState(() {
             _position = Offset(
-              (_position.dx + details.delta.dx).clamp(0.0, screenSize.width - 80),
-              (_position.dy + details.delta.dy).clamp(0.0, screenSize.height - 120),
+              (_position.dx + details.delta.dx).clamp(0.0, screenSize.width - 60),
+              (_position.dy + details.delta.dy).clamp(0.0, screenSize.height - 80),
             );
           });
         },
-        child: GestureDetector(
-          onTap: widget.onTap,
-          child: Stack(
-            children: [
-              // Avatar - только аватарка без обводки
+        child: ScaleTransition(
+          scale: _scaleAnimation,
+          child: GestureDetector(
+            onTap: widget.onTap,
+            child: Stack(
+              children: [
+              // Avatar - уменьшенный размер
               CircleAvatar(
-                radius: 40,
+                radius: 30,
                 backgroundImage: widget.callerAvatarUrl != null
                     ? NetworkImage(widget.callerAvatarUrl!)
                     : null,
                 child: widget.callerAvatarUrl == null
-                    ? Icon(Icons.person, color: colors.onPrimary, size: 40)
+                    ? Icon(Icons.person, color: colors.onPrimary, size: 30)
                     : null,
               ),
               
@@ -111,7 +131,8 @@ class _FloatingCallButtonState extends State<FloatingCallButton> {
                   ),
                 ),
               ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
