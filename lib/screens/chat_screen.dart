@@ -462,3 +462,47 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   // Методы _initializeChat, _loadEncryptionConfig, _loadMore
   // реализованы в chat_screen_logic.dart как part of этого файла
 }
+
+/// Диалог для исходящего звонка с опцией DATA_CHANNEL
+class _OutgoingCallDialog extends StatefulWidget {
+  final String contactName;
+  
+  const _OutgoingCallDialog({required this.contactName});
+
+  @override
+  State<_OutgoingCallDialog> createState() => _OutgoingCallDialogState();
+}
+
+class _OutgoingCallDialogState extends State<_OutgoingCallDialog> {
+  bool _enableDataChannel = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Звонок: ${widget.contactName}'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CheckboxListTile(
+            value: _enableDataChannel,
+            onChanged: (value) => setState(() => _enableDataChannel = value ?? false),
+            title: const Text('Enable DATA_CHANNEL'),
+            subtitle: const Text('Для temporary chat и других функций'),
+            controlAffinity: ListTileControlAffinity.leading,
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(null),
+          child: const Text('Отмена'),
+        ),
+        FilledButton.icon(
+          onPressed: () => Navigator.of(context).pop(_enableDataChannel),
+          icon: const Icon(Icons.call),
+          label: const Text('Позвонить'),
+        ),
+      ],
+    );
+  }
+}

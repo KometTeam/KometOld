@@ -40,6 +40,7 @@ class _IncomingCallDialogState extends State<_IncomingCallDialog> with TickerPro
   late final AnimationController _pulseController;
   late final Animation<double> _scaleAnimation;
   late final Animation<double> _pulseAnimation;
+  bool _enableDataChannel = false;
   
   @override
   void initState() {
@@ -103,6 +104,7 @@ class _IncomingCallDialogState extends State<_IncomingCallDialog> with TickerPro
         contactAvatarUrl: call.callerAvatarUrl,
         isOutgoing: false,
         isVideo: call.isVideo,
+        enableDataChannel: _enableDataChannel, // Передаем флаг
       );
     } catch (e, stackTrace) {
       print('❌ Error accepting call: $e');
@@ -223,7 +225,19 @@ class _IncomingCallDialogState extends State<_IncomingCallDialog> with TickerPro
                       ),
                     ),
 
-                    const SizedBox(height: 32),
+                    const SizedBox(height: 24),
+
+                    // Опция DATA_CHANNEL
+                    CheckboxListTile(
+                      value: _enableDataChannel,
+                      onChanged: (value) => setState(() => _enableDataChannel = value ?? false),
+                      title: const Text('Enable DATA_CHANNEL'),
+                      subtitle: const Text('Для temporary chat'),
+                      controlAffinity: ListTileControlAffinity.leading,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+
+                    const SizedBox(height: 16),
 
                     // Кнопки
                     Row(

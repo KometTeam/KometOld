@@ -23,6 +23,7 @@ class CallOverlayService {
     String? contactAvatarUrl,
     bool isVideo = false,
     bool isOutgoing = true,
+    bool enableDataChannel = false,
   }) {
     if (_callOverlayEntry != null) {
       closeCall();
@@ -56,6 +57,7 @@ class CallOverlayService {
         contactAvatarUrl: contactAvatarUrl,
         isVideo: isVideo,
         isOutgoing: isOutgoing,
+        enableDataChannel: enableDataChannel,
         callStartTime: _callStartTime,
         onMinimize: () => _minimizeCall(contactName, contactAvatarUrl, contactId, callData, isVideo),
         onClose: closeCall,
@@ -113,6 +115,7 @@ class _CallOverlayWidget extends StatefulWidget {
   final String? contactAvatarUrl;
   final bool isVideo;
   final bool isOutgoing;
+  final bool enableDataChannel;
   final DateTime? callStartTime;
   final VoidCallback onMinimize;
   final VoidCallback onClose;
@@ -124,6 +127,7 @@ class _CallOverlayWidget extends StatefulWidget {
     this.contactAvatarUrl,
     required this.isVideo,
     required this.isOutgoing,
+    required this.enableDataChannel,
     this.callStartTime,
     required this.onMinimize,
     required this.onClose,
@@ -212,6 +216,7 @@ class _CallOverlayWidgetState extends State<_CallOverlayWidget> with SingleTicke
               contactAvatarUrl: widget.contactAvatarUrl,
               isVideo: widget.isVideo,
               isOutgoing: widget.isOutgoing,
+              enableDataChannel: widget.enableDataChannel,
               callStartTime: widget.callStartTime,
               onMinimize: widget.onMinimize,
             ),

@@ -51,21 +51,10 @@ class _CallScreenState extends State<CallScreen> {
   
   // DataChannel
   RTCDataChannel? _dataChannel;
-  OverlayEntry? _dataChannelOverlayEntry;
-  final ValueNotifier<bool> _isDataChannelOpenNotifier = ValueNotifier(false);
-  final ValueNotifier<String> _dataChannelStatusNotifier = ValueNotifier('⏳ Не инициализирован');
-  final ValueNotifier<List<String>> _dataChannelLogsNotifier = ValueNotifier([]);
-  final ValueNotifier<List<TemporaryChatMessage>> _temporaryChatMessagesNotifier = ValueNotifier([]);
-  
-  // Геттеры для обратной совместимости
-  bool get _isDataChannelOpen => _isDataChannelOpenNotifier.value;
-  set _isDataChannelOpen(bool value) => _isDataChannelOpenNotifier.value = value;
-  
-  String get _dataChannelStatus => _dataChannelStatusNotifier.value;
-  set _dataChannelStatus(String value) => _dataChannelStatusNotifier.value = value;
-  
-  List<String> get _dataChannelLogs => _dataChannelLogsNotifier.value;
-  List<TemporaryChatMessage> get _temporaryChatMessages => _temporaryChatMessagesNotifier.value;
+  bool _isDataChannelOpen = false;
+  String _dataChannelStatus = 'Отключен';
+  final List<String> _dataChannelLogs = [];
+  final List<TemporaryChatMessage> _temporaryChatMessages = [];
 
   // WebSocket signaling
   WebSocketChannel? _signalingChannel;
@@ -721,34 +710,19 @@ class _CallScreenState extends State<CallScreen> {
 
     _peerConnection = await createPeerConnection(configuration);
     
-    print('🔍 DataChannel настройка:');
-    print('   enableDataChannel: ${widget.enableDataChannel}');
-    print('   isOutgoing: ${widget.isOutgoing}');
-    
-    // Создаём DataChannel если включен И это исходящий звонок
+    // Создаём DataChannel если включен
     if (widget.enableDataChannel && widget.isOutgoing) {
       print('🔌 Создание DataChannel (исходящий звонок)');
       await _createDataChannel();
-    } else if (widget.enableDataChannel && !widget.isOutgoing) {
-      print('⏳ Входящий звонок с DataChannel - ожидаем канал от собеседника');
-      _addDataChannelLog('⏳ Ожидание DataChannel от собеседника...');
-    } else {
-      print('❌ DataChannel отключен пользователем');
-      _addDataChannelLog('❌ DATA_CHANNEL отключен');
     }
     
     // Обработчик входящего DataChannel
     _peerConnection!.onDataChannel = (RTCDataChannel channel) {
-      print('📥📥📥 ПОЛУЧЕН ВХОДЯЩИЙ DataChannel: ${channel.label}');
-      print('   widget.enableDataChannel: ${widget.enableDataChannel}');
-      print('   widget.isOutgoing: ${widget.isOutgoing}');
-      
+      print('📥 Получен входящий DataChannel: ${channel.label}');
       if (widget.enableDataChannel) {
-        print('✅ Принимаем DataChannel');
-        _addDataChannelLog('📥 Получен DataChannel от собеседника');
         _setupDataChannel(channel);
       } else {
-        print('❌ DataChannel отключен пользователем, закрываем канал');
+        print('❌ DataChannel отключен, закрываем канал');
         channel.close();
         _addDataChannelLog('❌ Отклонено: DATA_CHANNEL отключен');
       }
@@ -1341,10 +1315,7 @@ class _CallScreenState extends State<CallScreen> {
       _setupDataChannel(_dataChannel!);
       
       print('✅ DataChannel создан: ${_dataChannel!.label}');
-      _addDataChannelLog('⏳ DataChannel создан, ожидание подключения...');
-      
-      // НЕ устанавливаем _isDataChannelOpen = true здесь!
-      // Это будет сделано в onDataChannelState когда статус станет Open
+      _addDataChannelLog('✅ DataChannel создан');
     } catch (e) {
       print('❌ Ошибка создания DataChannel: $e');
       _addDataChannelLog('❌ Ошибка создания: $e');
@@ -1353,15 +1324,6 @@ class _CallScreenState extends State<CallScreen> {
   
   void _setupDataChannel(RTCDataChannel channel) {
     _dataChannel = channel;
-    
-    // Добавляем таймаут - если через 5 секунд канал не открылся, считаем что не поддерживается
-    Timer(const Duration(seconds: 5), () {
-      if (mounted && _dataChannel != null && !_isDataChannelOpen) {
-        _dataChannelStatus = '❌ Не поддерживается собеседником';
-        _addDataChannelLog('⏰ Таймаут 5 сек: собеседник не поддерживает DataChannel');
-        if (mounted) setState(() {});
-      }
-    });
     
     _dataChannel!.onDataChannelState = (RTCDataChannelState state) {
       print('📡 DataChannel state: $state');
@@ -1375,12 +1337,10 @@ class _CallScreenState extends State<CallScreen> {
               _addDataChannelLog('✅ DataChannel открыт');
               break;
             case RTCDataChannelState.RTCDataChannelConnecting:
-              _isDataChannelOpen = false;
               _dataChannelStatus = '⏳ Подключение...';
               _addDataChannelLog('⏳ Подключение...');
               break;
             case RTCDataChannelState.RTCDataChannelClosing:
-              _isDataChannelOpen = false;
               _dataChannelStatus = '⏳ Закрывается...';
               _addDataChannelLog('⏳ Закрывается...');
               break;
@@ -1408,16 +1368,15 @@ class _CallScreenState extends State<CallScreen> {
         
         if (type == 'chat') {
           final text = data['text'] as String?;
-          if (text != null) {
-            final newMessages = List<TemporaryChatMessage>.from(_temporaryChatMessages);
-            newMessages.add(TemporaryChatMessage(
-              text: text,
-              time: DateTime.now(),
-              isMine: false,
-            ));
-            _temporaryChatMessagesNotifier.value = newMessages;
+          if (text != null && mounted) {
+            setState(() {
+              _temporaryChatMessages.add(TemporaryChatMessage(
+                text: text,
+                time: DateTime.now(),
+                isMine: false,
+              ));
+            });
             _addDataChannelLog('📩 Получено: $text');
-            if (mounted) setState(() {});
           }
         }
       } catch (e) {
@@ -1428,13 +1387,8 @@ class _CallScreenState extends State<CallScreen> {
   }
   
   void _sendDataChannelMessage(String text) {
-    print('📤 _sendDataChannelMessage вызван: "$text"');
-    print('   _dataChannel: ${_dataChannel != null ? "exists" : "null"}');
-    print('   _isDataChannelOpen: $_isDataChannelOpen');
-    
     if (_dataChannel == null || !_isDataChannelOpen) {
       _addDataChannelLog('❌ DataChannel не подключен');
-      print('❌ Отправка невозможна - канал не подключен');
       return;
     }
     
@@ -1446,21 +1400,19 @@ class _CallScreenState extends State<CallScreen> {
       });
       
       _dataChannel!.send(RTCDataChannelMessage(message));
-      print('✅ Сообщение отправлено через DataChannel');
       
-      // Добавляем в список через ValueNotifier
-      final newMessages = List<TemporaryChatMessage>.from(_temporaryChatMessages);
-      newMessages.add(TemporaryChatMessage(
-        text: text,
-        time: DateTime.now(),
-        isMine: true,
-      ));
-      _temporaryChatMessagesNotifier.value = newMessages;
+      if (mounted) {
+        setState(() {
+          _temporaryChatMessages.add(TemporaryChatMessage(
+            text: text,
+            time: DateTime.now(),
+            isMine: true,
+          ));
+        });
+      }
+      
       _addDataChannelLog('📤 Отправлено: $text');
-      
-      if (mounted) setState(() {});
-      
-      print('📤 Сообщение добавлено в список, всего: ${_temporaryChatMessages.length}');
+      print('📤 Отправлено через DataChannel: $text');
     } catch (e) {
       print('❌ Ошибка отправки через DataChannel: $e');
       _addDataChannelLog('❌ Ошибка отправки: $e');
@@ -1468,59 +1420,28 @@ class _CallScreenState extends State<CallScreen> {
   }
   
   void _addDataChannelLog(String log) {
-    final newLogs = List<String>.from(_dataChannelLogs);
-    newLogs.add('[${DateTime.now().toString().substring(11, 19)}] $log');
-    if (newLogs.length > 50) {
-      newLogs.removeAt(0);
+    if (mounted) {
+      setState(() {
+        _dataChannelLogs.add('[${DateTime.now().toString().substring(11, 19)}] $log');
+        if (_dataChannelLogs.length > 50) {
+          _dataChannelLogs.removeAt(0);
+        }
+      });
     }
-    _dataChannelLogsNotifier.value = newLogs;
-    
-    if (mounted) setState(() {});
   }
   
   void _showDataChannelPanel() {
-    print('🔍 Открываем панель DataChannel');
-    print('   isOpen: $_isDataChannelOpen');
-    print('   status: $_dataChannelStatus');  
-    print('   logs: ${_dataChannelLogs.length}');
-    print('   messages: ${_temporaryChatMessages.length}');
-    
-    // Получаем Overlay из CallOverlayService чтобы показать поверх
-    final overlayState = Overlay.of(context, rootOverlay: true);
-    
-    late OverlayEntry overlayEntry; // Объявляем сначала
-    overlayEntry = OverlayEntry(
-      builder: (context) => Material(
-        color: Colors.black54,
-        child: GestureDetector(
-          onTap: () {
-            overlayEntry.remove();
-            _dataChannelOverlayEntry = null;
-          },
-          child: Container(
-            color: Colors.transparent,
-            child: GestureDetector(
-              onTap: () {}, // Не закрывать при клике на панель
-              child: Align(
-                alignment: Alignment.bottomCenter,
-                child: _DataChannelPanel(
-                  isOpenNotifier: _isDataChannelOpenNotifier,
-                  statusNotifier: _dataChannelStatusNotifier,
-                  logsNotifier: _dataChannelLogsNotifier,
-                  messagesNotifier: _temporaryChatMessagesNotifier,
-                  onSendMessage: _sendDataChannelMessage,
-                ),
-              ),
-            ),
-          ),
-        ),
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => _DataChannelPanel(
+        isOpen: _isDataChannelOpen,
+        status: _dataChannelStatus,
+        logs: _dataChannelLogs,
+        messages: _temporaryChatMessages,
+        onSendMessage: _sendDataChannelMessage,
       ),
     );
-    
-    overlayState.insert(overlayEntry);
-    
-    // Сохраняем ссылку чтобы можно было закрыть
-    _dataChannelOverlayEntry = overlayEntry;
   }
 
   Future<void> _updateNetworkStats() async {
@@ -1617,11 +1538,6 @@ class _CallScreenState extends State<CallScreen> {
     
     _isCleaningUp = true;
     print('🧹 Начинаем cleanup...');
-    
-    // Закрываем DataChannel overlay если открыт
-    _dataChannelOverlayEntry?.remove();
-    _dataChannelOverlayEntry = null;
-    print('✅ DataChannel overlay закрыт');
     
     // Глобальный таймаут на весь cleanup - 5 секунд максимум
     final cleanupFuture = _performCleanup();
@@ -2077,16 +1993,6 @@ class _CallScreenState extends State<CallScreen> {
                     backgroundColor: _isSpeakerOn ? colors.primary : colors.surfaceContainerHighest,
                     foregroundColor: _isSpeakerOn ? colors.onPrimary : colors.onSurface,
                   ),
-                  
-                  // DataChannel (только если включен)
-                  if (widget.enableDataChannel)
-                    _CallButton(
-                      icon: Icons.chat_bubble_outline,
-                      label: 'DATA_CH',
-                      onPressed: _showDataChannelPanel,
-                      backgroundColor: _isDataChannelOpen ? colors.primary : colors.surfaceContainerHighest,
-                      foregroundColor: _isDataChannelOpen ? colors.onPrimary : colors.onSurface,
-                    ),
                 ],
               ),
             ),
@@ -2101,8 +2007,24 @@ class _CallScreenState extends State<CallScreen> {
             child: _NetworkInfoPanel(networkInfo: _networkInfo!),
           ),
         
-        // Кнопка чата (DataChannel) - размещаем в ряд с другими кнопками
-        // (убрано отсюда, перенесено в основной ряд кнопок)
+        // Кнопка чата (DataChannel) справа снизу
+        if (widget.enableDataChannel)
+          Positioned(
+            right: 16,
+            bottom: 180,
+            child: FloatingActionButton(
+              onPressed: _showDataChannelPanel,
+              backgroundColor: _isDataChannelOpen 
+                ? colors.primary 
+                : colors.surfaceContainerHighest,
+              child: Icon(
+                Icons.chat_bubble_outline,
+                color: _isDataChannelOpen 
+                  ? colors.onPrimary 
+                  : colors.onSurface,
+              ),
+            ),
+          ),
       ],
     ),
           ),
@@ -2126,16 +2048,6 @@ class _CallScreenState extends State<CallScreen> {
 
   @override
   void dispose() {
-    // Закрываем DataChannel overlay
-    _dataChannelOverlayEntry?.remove();
-    _dataChannelOverlayEntry = null;
-    
-    // Dispose ValueNotifier
-    _isDataChannelOpenNotifier.dispose();
-    _dataChannelStatusNotifier.dispose();
-    _dataChannelLogsNotifier.dispose();
-    _temporaryChatMessagesNotifier.dispose();
-    
     FloatingCallManager.instance.removeListener(_onFloatingCallStateChanged);
     
     // Очищаем callback
@@ -2957,17 +2869,17 @@ class TemporaryChatMessage {
 
 /// Панель DataChannel с temporary chat и логами
 class _DataChannelPanel extends StatefulWidget {
-  final ValueNotifier<bool> isOpenNotifier;
-  final ValueNotifier<String> statusNotifier;
-  final ValueNotifier<List<String>> logsNotifier;
-  final ValueNotifier<List<TemporaryChatMessage>> messagesNotifier;
+  final bool isOpen;
+  final String status;
+  final List<String> logs;
+  final List<TemporaryChatMessage> messages;
   final void Function(String) onSendMessage;
 
   const _DataChannelPanel({
-    required this.isOpenNotifier,
-    required this.statusNotifier,
-    required this.logsNotifier,
-    required this.messagesNotifier,
+    required this.isOpen,
+    required this.status,
+    required this.logs,
+    required this.messages,
     required this.onSendMessage,
   });
 
@@ -2996,63 +2908,57 @@ class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerP
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     
-    return ValueListenableBuilder<String>(
-      valueListenable: widget.statusNotifier,
-      builder: (context, status, _) {
-        return ValueListenableBuilder<bool>(
-          valueListenable: widget.isOpenNotifier,
-          builder: (context, isOpen, _) {
-            return DraggableScrollableSheet(
-              initialChildSize: 0.7,
-              minChildSize: 0.5,
-              maxChildSize: 0.95,
-              expand: false,
-              builder: (context, scrollController) {
-                return Container(
-                  decoration: BoxDecoration(
-                    color: colors.surface,
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-                  ),
-                  child: Column(
-                    children: [
-                      // Header
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          border: Border(bottom: BorderSide(color: colors.outline.withOpacity(0.2))),
-                        ),
-                        child: Column(
-                          children: [
-                            // Drag handle
-                            Container(
-                              width: 40,
-                              height: 4,
-                              decoration: BoxDecoration(
-                                color: colors.onSurfaceVariant.withOpacity(0.4),
-                                borderRadius: BorderRadius.circular(2),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Icon(Icons.data_usage, color: colors.primary),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'DATA_CHANNEL',
-                                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const Spacer(),
-                                Chip(
-                                  label: Text(status),
-                                  backgroundColor: isOpen ? colors.primaryContainer : colors.errorContainer,
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
+    return DraggableScrollableSheet(
+      initialChildSize: 0.7,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scrollController) {
+        return Container(
+          decoration: BoxDecoration(
+            color: colors.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+          ),
+          child: Column(
+            children: [
+              // Header
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  border: Border(bottom: BorderSide(color: colors.outline.withOpacity(0.2))),
+                ),
+                child: Column(
+                  children: [
+                    // Drag handle
+                    Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: colors.onSurfaceVariant.withOpacity(0.4),
+                        borderRadius: BorderRadius.circular(2),
                       ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Icon(Icons.data_usage, color: colors.primary),
+                        const SizedBox(width: 8),
+                        Text(
+                          'DATA_CHANNEL',
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const Spacer(),
+                        Chip(
+                          label: Text(widget.status),
+                          backgroundColor: widget.isOpen ? colors.primaryContainer : colors.errorContainer,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
               
               // Tabs
               TabBar(
@@ -3063,92 +2969,83 @@ class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerP
                 ],
               ),
               
-                      // Content
-                      Expanded(
-                        child: TabBarView(
-                          controller: _tabController,
-                          children: [
-                            // Chat tab
-                            _buildChatTab(colors, scrollController, isOpen),
-                            // Logs tab
-                            _buildLogsTab(colors, scrollController),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            );
-          },
+              // Content
+              Expanded(
+                child: TabBarView(
+                  controller: _tabController,
+                  children: [
+                    // Chat tab
+                    _buildChatTab(colors, scrollController),
+                    // Logs tab
+                    _buildLogsTab(colors, scrollController),
+                  ],
+                ),
+              ),
+            ],
+          ),
         );
       },
     );
   }
 
-  Widget _buildChatTab(ColorScheme colors, ScrollController scrollController, bool isOpen) {
-    return ValueListenableBuilder<List<TemporaryChatMessage>>(
-      valueListenable: widget.messagesNotifier,
-      builder: (context, messages, _) {
-        return Column(
-          children: [
-            Expanded(
-              child: messages.isEmpty
-                  ? Center(
-                      child: Text(
-                        isOpen
-                            ? 'Чат пуст. Отправьте первое сообщение!'
-                            : 'DataChannel не подключен',
-                        style: TextStyle(color: colors.onSurfaceVariant),
-                      ),
-                    )
-                  : ListView.builder(
-                      controller: scrollController,
-                      reverse: true,
-                      padding: const EdgeInsets.all(16),
-                      itemCount: messages.length,
-                      itemBuilder: (context, index) {
-                        final message = messages[messages.length - 1 - index];
-                        return _buildMessageBubble(message, colors);
-                      },
-                    ),
-            ),
+  Widget _buildChatTab(ColorScheme colors, ScrollController scrollController) {
+    return Column(
+      children: [
+        Expanded(
+          child: widget.messages.isEmpty
+              ? Center(
+                  child: Text(
+                    widget.isOpen
+                        ? 'Чат пуст. Отправьте первое сообщение!'
+                        : 'DataChannel не подключен',
+                    style: TextStyle(color: colors.onSurfaceVariant),
+                  ),
+                )
+              : ListView.builder(
+                  controller: scrollController,
+                  reverse: true,
+                  padding: const EdgeInsets.all(16),
+                  itemCount: widget.messages.length,
+                  itemBuilder: (context, index) {
+                    final message = widget.messages[widget.messages.length - 1 - index];
+                    return _buildMessageBubble(message, colors);
+                  },
+                ),
+        ),
         
-            // Input field
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: colors.surfaceContainerHighest,
-                border: Border(top: BorderSide(color: colors.outline.withOpacity(0.2))),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _messageController,
-                      enabled: isOpen,
-                      decoration: InputDecoration(
-                        hintText: isOpen ? 'Сообщение...' : 'DataChannel отключен',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      ),
-                      onSubmitted: isOpen ? _sendMessage : null,
+        // Input field
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: colors.surfaceContainerHighest,
+            border: Border(top: BorderSide(color: colors.outline.withOpacity(0.2))),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _messageController,
+                  enabled: widget.isOpen,
+                  decoration: InputDecoration(
+                    hintText: widget.isOpen ? 'Сообщение...' : 'DataChannel отключен',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(24),
                     ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    onPressed: isOpen ? _sendMessage : null,
-                    icon: const Icon(Icons.send),
-                    color: isOpen ? colors.primary : colors.onSurfaceVariant,
-                  ),
-                ],
+                  onSubmitted: widget.isOpen ? _sendMessage : null,
+                ),
               ),
-            ),
-          ],
-        );
-      },
+              const SizedBox(width: 8),
+              IconButton(
+                onPressed: widget.isOpen ? _sendMessage : null,
+                icon: const Icon(Icons.send),
+                color: widget.isOpen ? colors.primary : colors.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -3186,41 +3083,33 @@ class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerP
   }
 
   Widget _buildLogsTab(ColorScheme colors, ScrollController scrollController) {
-    return ValueListenableBuilder<List<String>>(
-      valueListenable: widget.logsNotifier,
-      builder: (context, logs, _) {
-        print('🔍 _buildLogsTab: logs.length = ${logs.length}');
-        logs.forEach((log) => print('  - $log'));
-        
-        return logs.isEmpty
-            ? Center(
+    return widget.logs.isEmpty
+        ? Center(
+            child: Text(
+              'Логов пока нет',
+              style: TextStyle(color: colors.onSurfaceVariant),
+            ),
+          )
+        : ListView.builder(
+            controller: scrollController,
+            reverse: true,
+            padding: const EdgeInsets.all(16),
+            itemCount: widget.logs.length,
+            itemBuilder: (context, index) {
+              final log = widget.logs[widget.logs.length - 1 - index];
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
                 child: Text(
-                  'Логов пока нет',
-                  style: TextStyle(color: colors.onSurfaceVariant),
+                  log,
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                    color: colors.onSurface,
+                  ),
                 ),
-              )
-            : ListView.builder(
-                controller: scrollController,
-                reverse: false,
-                padding: const EdgeInsets.all(16),
-                itemCount: logs.length,
-                itemBuilder: (context, index) {
-                  final log = logs[index];
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Text(
-                      log,
-                      style: TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: 12,
-                        color: colors.onSurface,
-                      ),
-                    ),
-                  );
-                },
               );
-      },
-    );
+            },
+          );
   }
 
   void _sendMessage([String? _]) {
@@ -3231,3 +3120,19 @@ class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerP
     _messageController.clear();
   }
 }
+
+// Модель для temporary chat сообщений
+class TemporaryChatMessage {
+  final String text;
+  final DateTime time;
+  final bool isMine;
+  
+  TemporaryChatMessage({
+    required this.text,
+    required this.time,
+    required this.isMine,
+  });
+}
+
+// Модель для сетевой информации
+class NetworkInfo {

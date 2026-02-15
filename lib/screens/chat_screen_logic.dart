@@ -255,6 +255,17 @@ extension on _ChatScreenState {
       return;
     }
     
+    // Показываем диалог с опцией DATA_CHANNEL
+    final enableDataChannel = await showDialog<bool>(
+      context: context,
+      builder: (context) => _OutgoingCallDialog(
+        contactName: widget.contact.name,
+      ),
+    );
+    
+    // Если пользователь отменил - выходим
+    if (enableDataChannel == null) return;
+    
     try {
       // Вызываем API для инициации звонка
       final response = await ApiService.instance.initiateCall(
@@ -291,6 +302,7 @@ extension on _ChatScreenState {
         contactAvatarUrl: avatarUrl,
         isVideo: false,
         isOutgoing: true,
+        enableDataChannel: enableDataChannel, // Передаем флаг
       );
       
     } catch (e) {
