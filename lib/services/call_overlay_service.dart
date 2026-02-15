@@ -45,7 +45,8 @@ class CallOverlayService {
     _isMinimized = false;
     _callStartTime = DateTime.now();
     
-    FloatingCallManager.instance.startCall();
+    // НЕ вызываем startCall() здесь - это будет сделано при подключении звонка в CallScreen
+    // FloatingCallManager.instance.startCall() вызывается в onTrack и onConnectionState
 
     _callOverlayEntry = OverlayEntry(
       builder: (context) => _CallOverlayWidget(
