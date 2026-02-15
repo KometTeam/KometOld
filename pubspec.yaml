@@ -76,6 +76,7 @@ dependencies:
   record_windows: ^1.0.1
   platform_info: ^5.0.0
   flutter_webrtc: ^0.11.7
+  permission_handler: ^11.3.0
   
   # Local dependencies
   maxcalls_dart:

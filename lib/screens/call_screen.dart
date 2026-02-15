@@ -6,6 +6,9 @@ import 'package:gwid/services/floating_call_manager.dart';
 import 'package:gwid/services/call_overlay_service.dart';
 import 'package:gwid/widgets/contact_avatar_widget.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:permission_handler/permission_handler.dart';
+import 'dart:io' show Platform;
 import 'dart:async';
 import 'dart:convert';
 
@@ -53,6 +56,9 @@ class _CallScreenState extends State<CallScreen> {
   CallState _callState = CallState.connecting;
   bool _isMuted = false;
   bool _isSpeakerOn = false;
+  bool _isVideoEnabled = false;
+  bool _isRemoteVideoEnabled = false;
+  bool _isRemoteMuted = false;
   int _callDuration = 0;
   Timer? _durationTimer;
   late DateTime _callStartTime;
@@ -78,6 +84,8 @@ class _CallScreenState extends State<CallScreen> {
   void initState() {
     super.initState();
     _callStartTime = widget.callStartTime ?? DateTime.now();
+    _isVideoEnabled = widget.isVideo;
+    _isRemoteVideoEnabled = widget.isVideo;
     _initializeCall();
     
     // Слушаем изменения FloatingCallManager для разворачивания
@@ -733,6 +741,68 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
+  Future<void> _toggleVideo() async {
+    if (_localStream == null || _isCleaningUp) return;
+    final videoTracks = _localStream!.getVideoTracks();
+    if (_isVideoEnabled) {
+      for (var track in videoTracks) {
+        track.enabled = false;
+        await track.stop();
+      }
+      if (mounted) setState(() => _isVideoEnabled = false);
+    } else {
+      Future.microtask(() async {
+        try {
+          if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
+            final cameraPermission = await Permission.camera.request();
+            if (!cameraPermission.isGranted) return;
+          }
+          final videoStream = await navigator.mediaDevices.getUserMedia({'video': {'facingMode': 'user'}});
+          if (_localStream == null || _isCleaningUp || !mounted) {
+            videoStream.getTracks().forEach((t) => t.stop());
+            return;
+          }
+          final newVideoTracks = videoStream.getVideoTracks();
+          for (var track in newVideoTracks) {
+            await _localStream!.addTrack(track);
+            if (_peerConnection != null) {
+              await _peerConnection!.addTrack(track, _localStream!);
+            }
+          }
+          _localRenderer.srcObject = _localStream;
+          if (mounted) setState(() => _isVideoEnabled = true);
+          if (_peerConnection != null) {
+            final offer = await _peerConnection!.createOffer();
+            await _peerConnection!.setLocalDescription(offer);
+            final recipientId = _remoteParticipantInternalId ?? widget.contactId;
+            _sendSignalingMessage({
+              'command': 'transmit-data',
+              'sequence': _sequenceNumber++,
+              'participantId': recipientId,
+              'data': {'sdp': {'type': offer.type, 'sdp': offer.sdp}},
+              'participantType': 'USER',
+            });
+          }
+        } catch (e) {
+          print('❌ Ошибка включения видео: $e');
+        }
+      });
+      return;
+    }
+    _sendSignalingMessage({
+      'command': 'change-media-settings',
+      'sequence': _sequenceNumber++,
+      'mediaSettings': {
+        'isAudioEnabled': !_isMuted,
+        'isVideoEnabled': _isVideoEnabled,
+        'isScreenSharingEnabled': false,
+        'isFastScreenSharingEnabled': false,
+        'isAudioSharingEnabled': false,
+        'isAnimojiEnabled': false,
+      }
+    });
+  }
+
   void _toggleSpeaker() {
     setState(() => _isSpeakerOn = !_isSpeakerOn);
     // TODO: Реализовать переключение динамика через platform channel
@@ -1298,6 +1368,15 @@ class _CallButton extends StatelessWidget {
               ),
             ),
           ),
+                  _CallButton(
+                    key: const ValueKey('video_button'),
+                    icon: _isVideoEnabled ? Icons.videocam : Icons.videocam_off,
+                    label: _isVideoEnabled ? 'Видео' : 'Камера',
+                    onPressed: _toggleVideo,
+                    backgroundColor: _isVideoEnabled ? colors.primary : colors.surfaceContainerHighest,
+                    foregroundColor: _isVideoEnabled ? colors.onPrimary : colors.onSurface,
+                  ),
+
         ),
         const SizedBox(height: 8),
         Text(

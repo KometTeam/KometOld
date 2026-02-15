@@ -87,6 +87,7 @@ class _IncomingCallDialogState extends State<_IncomingCallDialog> with TickerPro
     final call = widget.call;
 
     try {
+      CallsService.instance.markCallAsAccepted(call.conversationId);
       final response = await CallsService.instance.acceptCall(
         call.conversationId,
         call.callerId,

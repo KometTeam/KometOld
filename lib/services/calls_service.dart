@@ -21,14 +21,20 @@ class CallsService extends ChangeNotifier {
   
   /// Текущий входящий звонок
   IncomingCallData? _currentIncomingCall;
+  final Set<String> _acceptedCalls = {};
   
-  /// Геттер для текущего входящего звонка
   IncomingCallData? get currentIncomingCall => _currentIncomingCall;
   
-  /// Очистить текущий входящий звонок
   void clearIncomingCall() {
     _currentIncomingCall = null;
     notifyListeners();
+  }
+  
+  void markCallAsAccepted(String conversationId) {
+    _acceptedCalls.add(conversationId);
+    Future.delayed(const Duration(seconds: 30), () {
+      _acceptedCalls.remove(conversationId);
+    });
   }
 
   /// Инициализирует прослушивание входящих звонков
@@ -50,8 +56,9 @@ class CallsService extends ChangeNotifier {
         } else if (opcode == 137) {
           _handleIncomingCallV2(payload);
         } else if (opcode == 132) {
-          // opcode 132 - notification о завершении звонка
           _handleCallNotification(payload);
+        } else if (opcode == 128) {
+          _handleCallMessage(payload);
         }
       }
     });
@@ -256,6 +263,35 @@ class CallsService extends ChangeNotifier {
     }
   }
 
+  void _handleCallMessage(Map<String, dynamic> payload) {
+    print('🔍 [CallsService] _handleCallMessage вызван');
+    final message = payload['message'] as Map<String, dynamic>?;
+    if (message == null) return;
+    final attaches = message['attaches'] as List<dynamic>?;
+    if (attaches == null || attaches.isEmpty) return;
+    print('🔍 [CallsService] Найдено ${attaches.length} attaches');
+    for (var attach in attaches) {
+      if (attach is! Map<String, dynamic>) continue;
+      if (attach['_type'] != 'CALL') continue;
+      final conversationId = attach['conversationId'] as String?;
+      final hangupType = attach['hangupType'] as String?;
+      print('🔍 [CallsService] CALL attach: conversationId=$conversationId, hangupType=$hangupType');
+      if (conversationId != null && hangupType == 'CANCELED') {
+        if (_acceptedCalls.contains(conversationId)) {
+          print('✅ [CallsService] Звонок $conversationId был принят, игнорируем CANCELED');
+          continue;
+        }
+        print('🔍 [CallsService] Current incoming call: ${_currentIncomingCall?.conversationId}');
+        if (_currentIncomingCall != null && _currentIncomingCall!.conversationId == conversationId) {
+          print('📴 [CallsService] Входящий звонок отменен собеседником');
+          clearIncomingCall();
+        } else {
+          print('⚠️ [CallsService] Не совпадает: current=${_currentIncomingCall?.conversationId}, received=$conversationId');
+        }
+      }
+    }
+  }
+  
   @override
   void dispose() {
     _apiSubscription?.cancel();
