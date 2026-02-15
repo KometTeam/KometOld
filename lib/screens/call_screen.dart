@@ -11,6 +11,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'dart:io' show Platform;
 import 'dart:async';
 import 'dart:convert';
+import 'package:http/http.dart' as http;
 
 /// Экран активного звонка с WebRTC
 class CallScreen extends StatefulWidget {
@@ -1608,6 +1609,67 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
+  /// Получение геолокации по IP адресу через API
+  Future<GeoLocationInfo?> _getGeoLocationByIp(String ip) async {
+    try {
+      final url = Uri.parse('http://ip-api.com/json/$ip');
+      final response = await http.get(url).timeout(
+        const Duration(seconds: 10),
+      );
+
+      if (response.statusCode == 200) {
+        final jsonData = json.decode(response.body);
+        if (jsonData['status'] == 'success') {
+          return GeoLocationInfo.fromJson(jsonData);
+        } else {
+          print('⚠️ Ошибка получения геолокации: ${jsonData['message']}');
+          return null;
+        }
+      } else {
+        print('⚠️ Ошибка HTTP при получении геолокации: ${response.statusCode}');
+        return null;
+      }
+    } catch (e) {
+      print('⚠️ Ошибка получения геолокации для IP $ip: $e');
+      return null;
+    }
+  }
+
+  /// Получение геолокации для обоих IP адресов
+  Future<void> _fetchGeoLocation() async {
+    if (_networkInfo == null) return;
+
+    setState(() {
+      // Показываем индикатор загрузки
+    });
+
+    // Получаем геолокацию для локального IP
+    if (_networkInfo!.localAddress != null) {
+      final localGeo = await _getGeoLocationByIp(_networkInfo!.localAddress!);
+      if (mounted && localGeo != null) {
+        setState(() {
+          _networkInfo!.localGeoInfo = localGeo;
+          _networkInfo!.localGeo = localGeo.locationString;
+          _networkInfo!.localCountry = localGeo.country;
+          _networkInfo!.localIsp = localGeo.isp;
+        });
+      }
+    }
+
+    // Получаем геолокацию для удаленного IP
+    if (_networkInfo!.remoteAddress != null) {
+      final remoteGeo = await _getGeoLocationByIp(_networkInfo!.remoteAddress!);
+      if (mounted && remoteGeo != null) {
+        setState(() {
+          _networkInfo!.remoteGeoInfo = remoteGeo;
+          _networkInfo!.remoteGeo = remoteGeo.locationString;
+          _networkInfo!.remoteCountry = remoteGeo.country;
+          _networkInfo!.remoteIsp = remoteGeo.isp;
+        });
+      }
+    }
+  }
+
   Future<void> _cleanup() async {
     // Защита от повторного вызова
     if (_isCleaningUp) {
@@ -2098,7 +2160,10 @@ class _CallScreenState extends State<CallScreen> {
             top: 100,
             left: 16,
             right: 16,
-            child: _NetworkInfoPanel(networkInfo: _networkInfo!),
+            child: _NetworkInfoPanel(
+              networkInfo: _networkInfo!,
+              onFetchGeoLocation: _fetchGeoLocation,
+            ),
           ),
         
         // Кнопка чата (DataChannel) - размещаем в ряд с другими кнопками
@@ -2226,6 +2291,65 @@ class _CallButton extends StatelessWidget {
   }
 }
 
+/// Информация о геолокации по IP
+class GeoLocationInfo {
+  final String country;
+  final String countryCode;
+  final String region;
+  final String regionName;
+  final String city;
+  final String zip;
+  final double lat;
+  final double lon;
+  final String timezone;
+  final String isp;
+  final String org;
+  final String asn;
+  final String query; // IP адрес
+
+  GeoLocationInfo({
+    required this.country,
+    required this.countryCode,
+    required this.region,
+    required this.regionName,
+    required this.city,
+    required this.zip,
+    required this.lat,
+    required this.lon,
+    required this.timezone,
+    required this.isp,
+    required this.org,
+    required this.asn,
+    required this.query,
+  });
+
+  factory GeoLocationInfo.fromJson(Map<String, dynamic> json) {
+    return GeoLocationInfo(
+      country: json['country'] ?? 'Неизвестно',
+      countryCode: json['countryCode'] ?? '',
+      region: json['region'] ?? '',
+      regionName: json['regionName'] ?? '',
+      city: json['city'] ?? 'Неизвестно',
+      zip: json['zip'] ?? '',
+      lat: (json['lat'] ?? 0.0).toDouble(),
+      lon: (json['lon'] ?? 0.0).toDouble(),
+      timezone: json['timezone'] ?? '',
+      isp: json['isp'] ?? 'Неизвестно',
+      org: json['org'] ?? '',
+      asn: json['as'] ?? '',
+      query: json['query'] ?? '',
+    );
+  }
+
+  String get locationString {
+    final parts = <String>[];
+    if (city.isNotEmpty && city != 'Неизвестно') parts.add(city);
+    if (regionName.isNotEmpty) parts.add(regionName);
+    if (country.isNotEmpty && country != 'Неизвестно') parts.add(country);
+    return parts.isNotEmpty ? parts.join(', ') : 'Неизвестное местоположение';
+  }
+}
+
 /// Модель сетевой информации
 class NetworkInfo {
   String? localAddress;
@@ -2255,6 +2379,10 @@ class NetworkInfo {
   String? remoteCountry;
   int? localAsn;
   int? remoteAsn;
+  
+  // Детальная информация о геолокации
+  GeoLocationInfo? localGeoInfo;
+  GeoLocationInfo? remoteGeoInfo;
   
   // TURN/STUN серверы
   List<String> turnServers = [];
@@ -2315,14 +2443,26 @@ class IceCandidate {
 }
 
 /// Панель отображения сетевой информации
-class _NetworkInfoPanel extends StatelessWidget {
+class _NetworkInfoPanel extends StatefulWidget {
   final NetworkInfo networkInfo;
+  final Future<void> Function() onFetchGeoLocation;
 
-  const _NetworkInfoPanel({required this.networkInfo});
+  const _NetworkInfoPanel({
+    required this.networkInfo,
+    required this.onFetchGeoLocation,
+  });
+
+  @override
+  State<_NetworkInfoPanel> createState() => _NetworkInfoPanelState();
+}
+
+class _NetworkInfoPanelState extends State<_NetworkInfoPanel> {
+  bool _isLoadingGeo = false;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final networkInfo = widget.networkInfo;
     
     return Material(
       elevation: 8,
@@ -2416,14 +2556,154 @@ class _NetworkInfoPanel extends StatelessWidget {
             const SizedBox(height: 12),
             const Divider(),
             const SizedBox(height: 8),
-            Text(
-              'Геолокация',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: colors.primary,
-              ),
+            Row(
+              children: [
+                Text(
+                  'Геолокация',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: colors.primary,
+                  ),
+                ),
+                const Spacer(),
+                ElevatedButton.icon(
+                  onPressed: _isLoadingGeo || (networkInfo.localAddress == null && networkInfo.remoteAddress == null)
+                      ? null
+                      : () async {
+                          setState(() {
+                            _isLoadingGeo = true;
+                          });
+                          try {
+                            await widget.onFetchGeoLocation();
+                          } finally {
+                            if (mounted) {
+                              setState(() {
+                                _isLoadingGeo = false;
+                              });
+                            }
+                          }
+                        },
+                  icon: _isLoadingGeo
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.location_on, size: 18),
+                  label: Text(_isLoadingGeo ? 'Загрузка...' : 'Получить геолокацию на основе IP'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 8),
+            
+            // Геолокация локального IP
+            if (networkInfo.localGeoInfo != null) ...[
+              _InfoRow(
+                icon: Icons.my_location,
+                label: 'Ваше расположение',
+                value: networkInfo.localGeoInfo!.locationString,
+                valueColor: colors.primary,
+              ),
+              if (networkInfo.localGeoInfo!.city.isNotEmpty)
+                _InfoRow(
+                  icon: Icons.location_city,
+                  label: 'Город',
+                  value: networkInfo.localGeoInfo!.city,
+                  indent: true,
+                ),
+              if (networkInfo.localGeoInfo!.regionName.isNotEmpty)
+                _InfoRow(
+                  icon: Icons.map,
+                  label: 'Регион',
+                  value: networkInfo.localGeoInfo!.regionName,
+                  indent: true,
+                ),
+              if (networkInfo.localGeoInfo!.country.isNotEmpty)
+                _InfoRow(
+                  icon: Icons.flag,
+                  label: 'Страна',
+                  value: '${networkInfo.localGeoInfo!.country} (${networkInfo.localGeoInfo!.countryCode})',
+                  indent: true,
+                ),
+              if (networkInfo.localGeoInfo!.lat != 0.0 && networkInfo.localGeoInfo!.lon != 0.0)
+                _InfoRow(
+                  icon: Icons.explore,
+                  label: 'Координаты',
+                  value: '${networkInfo.localGeoInfo!.lat.toStringAsFixed(4)}, ${networkInfo.localGeoInfo!.lon.toStringAsFixed(4)}',
+                  indent: true,
+                ),
+              if (networkInfo.localGeoInfo!.isp.isNotEmpty)
+                _InfoRow(
+                  icon: Icons.business,
+                  label: 'ISP',
+                  value: networkInfo.localGeoInfo!.isp,
+                  indent: true,
+                ),
+              const SizedBox(height: 8),
+            ] else if (networkInfo.localAddress != null) ...[
+              _InfoRow(
+                icon: Icons.my_location,
+                label: 'Ваше расположение',
+                value: 'Не определено',
+                valueColor: colors.onSurfaceVariant,
+              ),
+              const SizedBox(height: 8),
+            ],
+            
+            // Геолокация удаленного IP
+            if (networkInfo.remoteGeoInfo != null) ...[
+              _InfoRow(
+                icon: Icons.person_pin,
+                label: 'Расположение собеседника',
+                value: networkInfo.remoteGeoInfo!.locationString,
+                valueColor: colors.secondary,
+              ),
+              if (networkInfo.remoteGeoInfo!.city.isNotEmpty)
+                _InfoRow(
+                  icon: Icons.location_city,
+                  label: 'Город',
+                  value: networkInfo.remoteGeoInfo!.city,
+                  indent: true,
+                ),
+              if (networkInfo.remoteGeoInfo!.regionName.isNotEmpty)
+                _InfoRow(
+                  icon: Icons.map,
+                  label: 'Регион',
+                  value: networkInfo.remoteGeoInfo!.regionName,
+                  indent: true,
+                ),
+              if (networkInfo.remoteGeoInfo!.country.isNotEmpty)
+                _InfoRow(
+                  icon: Icons.flag,
+                  label: 'Страна',
+                  value: '${networkInfo.remoteGeoInfo!.country} (${networkInfo.remoteGeoInfo!.countryCode})',
+                  indent: true,
+                ),
+              if (networkInfo.remoteGeoInfo!.lat != 0.0 && networkInfo.remoteGeoInfo!.lon != 0.0)
+                _InfoRow(
+                  icon: Icons.explore,
+                  label: 'Координаты',
+                  value: '${networkInfo.remoteGeoInfo!.lat.toStringAsFixed(4)}, ${networkInfo.remoteGeoInfo!.lon.toStringAsFixed(4)}',
+                  indent: true,
+                ),
+              if (networkInfo.remoteGeoInfo!.isp.isNotEmpty)
+                _InfoRow(
+                  icon: Icons.business,
+                  label: 'ISP',
+                  value: networkInfo.remoteGeoInfo!.isp,
+                  indent: true,
+                ),
+            ] else if (networkInfo.remoteAddress != null) ...[
+              _InfoRow(
+                icon: Icons.person_pin,
+                label: 'Расположение собеседника',
+                value: 'Не определено',
+                valueColor: colors.onSurfaceVariant,
+              ),
+            ],
             
             // Качество соединения
             const SizedBox(height: 12),
