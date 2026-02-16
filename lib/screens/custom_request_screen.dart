@@ -280,7 +280,9 @@ class _CustomRequestScreenState extends State<CustomRequestScreen> {
             try {
               final decoded = jsonDecode(item.request);
               opcode = decoded['opcode']?.toString() ?? 'N/A';
-            } catch (_) {}
+            } catch (e) {
+              print('⚠️ Ошибка декодирования JSON запроса: $e');
+            }
 
             return Card(
               margin: const EdgeInsets.only(bottom: 8),

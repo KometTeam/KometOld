@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:gwid/screens/chats_screen.dart';
 import 'package:gwid/screens/phone_entry_screen.dart';
 import 'package:gwid/api/api_service.dart';
-import 'package:gwid/screens/settings/reconnection_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gwid/services/version_checker.dart';
 import 'package:app_links/app_links.dart';
@@ -24,24 +23,18 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   static bool _isDialogShowing = false;
-  late Future<Map<String, dynamic>> _chatsFuture;
-  Profile? _myProfile;
-  bool _isProfileLoading = true;
-  String? _connectionStatus;
   StreamSubscription? _connectionSubscription;
   StreamSubscription? _messageSubscription;
 
   late final AppLinks _appLinks;
   StreamSubscription<Uri>? _linkSubscription;
 
-  Uri? _initialUri;
-
   @override
   void initState() {
     super.initState();
 
     _loadMyProfile();
-    _chatsFuture = (() async {
+    (() async {
       try {
         await ApiService.instance.waitUntilOnline();
         return ApiService.instance.getChatsAndContacts();
@@ -60,14 +53,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _connectionSubscription = ApiService.instance.connectionStatus.listen((
       status,
     ) {
-      if (mounted) {
-        setState(() => _connectionStatus = status);
-        Future.delayed(const Duration(seconds: 3), () {
-          if (mounted) {
-            setState(() => _connectionStatus = null);
-          }
-        });
-      }
+      // Connection status listener - status: $status
     });
 
     _messageSubscription = ApiService.instance.messages.listen((message) {
@@ -85,18 +71,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadMyProfile() async {
     if (!mounted) return;
-    setState(() => _isProfileLoading = true);
     try {
       final cachedProfile = ApiService.instance.lastChatsPayload?['profile'];
       Profile? loadedProfile;
       if (cachedProfile != null) {
         loadedProfile = Profile.fromJson(cachedProfile);
-        if (mounted) {
-          setState(() {
-            _myProfile = loadedProfile;
-            _isProfileLoading = false;
-          });
-        }
       } else {
         final result = await ApiService.instance.getChatsAndContacts(
           force: false,
@@ -105,12 +84,6 @@ class _HomeScreenState extends State<HomeScreen> {
           final profileJson = result['profile'];
           if (profileJson != null) {
             loadedProfile = Profile.fromJson(profileJson);
-            setState(() {
-              _myProfile = loadedProfile;
-              _isProfileLoading = false;
-            });
-          } else {
-            setState(() => _isProfileLoading = false);
           }
         }
       }
@@ -146,7 +119,6 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
     } catch (e) {
-      if (mounted) setState(() => _isProfileLoading = false);
       print("Ошибка загрузки профиля в _HomeScreenState: $e");
     }
   }
@@ -1045,30 +1017,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _checkAndConnect() async {
-    final hasToken = await ApiService.instance.hasToken();
-    if (hasToken) {
-      print("В HomeScreen: токен найден, проверяем подключение...");
-      try {
-        await ApiService.instance.connect();
-        print("В HomeScreen: подключение к WebSocket успешно");
-      } catch (e) {
-        print("В HomeScreen: ошибка подключения к WebSocket: $e");
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Ошибка подключения к серверу: $e'),
-              backgroundColor: Colors.red,
-              duration: const Duration(seconds: 5),
-            ),
-          );
-        }
-      }
-    } else {
-      print("В HomeScreen: токен не найден, пользователь не авторизован");
-    }
-  }
-
   void _handleSessionTerminated(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -1093,15 +1041,6 @@ class _HomeScreenState extends State<HomeScreen> {
         );
       }
     });
-  }
-
-  void _showReconnectionScreen() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => const ReconnectionScreen(),
-        fullscreenDialog: true,
-      ),
-    );
   }
 
   void _handleInvalidToken(String message) {
@@ -1141,6 +1080,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 themeProvider.useDesktopLayout &&
                 constraints.maxWidth >= kDesktopLayoutBreakpoint;
 
+            print('🔘 HomeScreen: shouldUseDesktopLayout=$shouldUseDesktopLayout, width=${constraints.maxWidth}');
             if (shouldUseDesktopLayout) {
               return const _DesktopLayout();
             } else {
@@ -1181,6 +1121,7 @@ class _DesktopLayoutState extends State<_DesktopLayout> {
 
   Future<void> _loadMyProfile() async {
     if (!mounted) return;
+    print('🔘 DesktopLayout._loadMyProfile: начало загрузки');
     setState(() => _isProfileLoading = true);
     try {
       final result = await ApiService.instance.getChatsAndContacts(
@@ -1188,17 +1129,22 @@ class _DesktopLayoutState extends State<_DesktopLayout> {
       );
       if (mounted) {
         final profileJson = result['profile'];
+        print('🔘 DesktopLayout._loadMyProfile: profileJson=${profileJson != null}');
         if (profileJson != null) {
           setState(() {
             _myProfile = Profile.fromJson(profileJson);
             _isProfileLoading = false;
           });
+        } else {
+          // Важно: сбрасываем флаг загрузки даже если профиль null
+          setState(() => _isProfileLoading = false);
         }
       }
     } catch (e) {
       if (mounted) setState(() => _isProfileLoading = false);
       print("Ошибка загрузки профиля в _DesktopLayout: $e");
     }
+    print('🔘 DesktopLayout._loadMyProfile: завершено, _isProfileLoading=$_isProfileLoading');
   }
 
   void _onChatSelected(
@@ -1208,6 +1154,9 @@ class _DesktopLayoutState extends State<_DesktopLayout> {
     bool isChannel,
     int? participantCount,
   ) {
+    print('🔘 DesktopLayout._onChatSelected: chatId=${chat.id}, contact=${contact.name}, isGroup=$isGroup, isChannel=$isChannel');
+    // Mark selected chat as active immediately to avoid race during screen rebuild.
+    ApiService.instance.currentActiveChatId = chat.id;
     setState(() {
       _selectedChat = chat;
       _selectedContact = contact;
@@ -1220,6 +1169,7 @@ class _DesktopLayoutState extends State<_DesktopLayout> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    print('🔘 DesktopLayout.build: _selectedChat=$_selectedChat, _selectedContact=$_selectedContact, _isProfileLoading=$_isProfileLoading');
 
     return Scaffold(
       body: Row(
@@ -1278,7 +1228,7 @@ class _DesktopLayoutState extends State<_DesktopLayout> {
                           ),
                   )
                 : ChatScreen(
-                    key: ValueKey(_selectedChat!.id),
+                    key: ValueKey('chat_${_selectedChat!.id}'),
                     chatId: _selectedChat!.id,
                     contact: _selectedContact!,
                     myId: _myProfile?.id ?? 0,

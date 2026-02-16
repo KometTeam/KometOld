@@ -132,7 +132,9 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
           customKey: widget.audioId?.toString(),
         );
       }
-    } catch (e) {}
+    } catch (e) {
+      print('⚠️ Ошибка кэширования аудио файла: $e');
+    }
   }
 
   Future<void> _togglePlayPause() async {
@@ -290,8 +292,8 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
               GestureDetector(
                 onTap: _togglePlayPause,
                 child: Container(
-                  width: 40,
-                  height: 40,
+                  width: 32,
+                  height: 32,
                   decoration: BoxDecoration(
                     color: widget.textColor.withValues(alpha: 0.1),
                     shape: BoxShape.circle,
@@ -307,7 +309,7 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
                           color: widget.textColor.withValues(
                             alpha: 0.8 * widget.messageTextOpacity,
                           ),
-                          size: 24,
+                          size: 20,
                         ),
                 ),
               ),

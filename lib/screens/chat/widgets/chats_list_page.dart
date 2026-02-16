@@ -7,6 +7,7 @@ import 'package:gwid/models/chat_folder.dart';
 class ChatsListPage extends StatefulWidget {
   final ChatFolder? folder;
   final List<Chat> allChats;
+  final int myId;
   final Map<int, Contact> contacts;
   final String searchQuery;
   final Widget Function(Chat, int, ChatFolder?) buildChatListItem;
@@ -17,6 +18,7 @@ class ChatsListPage extends StatefulWidget {
     super.key,
     required this.folder,
     required this.allChats,
+    required this.myId,
     required this.contacts,
     required this.searchQuery,
     required this.buildChatListItem,
@@ -45,16 +47,9 @@ class _ChatsListPageState extends State<ChatsListPage>
           .toList();
     }
 
+    // Сортировка по времени последнего сообщения (новые сверху)
     chatsForFolder.sort((a, b) {
-      final aIsSaved = widget.isSavedMessages(a);
-      final bIsSaved = widget.isSavedMessages(b);
-      if (aIsSaved && !bIsSaved) return -1;
-      if (!aIsSaved && bIsSaved) return 1;
-      if (aIsSaved && bIsSaved) {
-        if (a.id == 0) return -1;
-        if (b.id == 0) return 1;
-      }
-      return 0;
+      return b.lastMessage.time.compareTo(a.lastMessage.time);
     });
 
     if (widget.searchQuery.isNotEmpty) {
@@ -64,12 +59,14 @@ class _ChatsListPageState extends State<ChatsListPage>
           return "избранное".contains(widget.searchQuery.toLowerCase());
         }
         final otherParticipantId = chat.participantIds.firstWhere(
-          (id) => id != chat.ownerId,
+          (id) => id != widget.myId,
           orElse: () => 0,
         );
-        final contactName =
-            widget.contacts[otherParticipantId]?.name.toLowerCase() ?? '';
-        return contactName.contains(widget.searchQuery.toLowerCase());
+        final contact = widget.contacts[otherParticipantId];
+        final contactName = contact?.name.toLowerCase() ?? '';
+        final contactIdStr = otherParticipantId.toString();
+        final query = widget.searchQuery.toLowerCase();
+        return contactName.contains(query) || contactIdStr.contains(query);
       }).toList();
     }
 
@@ -97,6 +94,9 @@ class _ChatsListPageState extends State<ChatsListPage>
         itemCount: chatsForFolder.length,
         itemExtent: 72.0,
         cacheExtent: 500.0,
+        addRepaintBoundaries: true,
+        addAutomaticKeepAlives: true,
+        addSemanticIndexes: false,
         itemBuilder: (context, index) {
           return widget.buildChatListItem(
             chatsForFolder[index],

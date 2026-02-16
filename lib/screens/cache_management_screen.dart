@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:gwid/services/cache_service.dart';
-import 'package:gwid/services/avatar_cache_service.dart';
-import 'package:gwid/services/chat_cache_service.dart';
+import '../services/cache_service.dart';
+import '../services/avatar_cache_service.dart';
+import '../services/chat_cache_service.dart';
+import '../services/cache_settings_service.dart';
+import '../services/cache_auto_cleanup_service.dart';
 
 class CacheManagementScreen extends StatefulWidget {
   const CacheManagementScreen({super.key});
@@ -15,6 +17,12 @@ class _CacheManagementScreenState extends State<CacheManagementScreen> {
   Map<String, dynamic> _avatarCacheStats = {};
   Map<String, dynamic> _chatCacheStats = {};
   bool _isLoading = true;
+
+  // Настройки кэша
+  final CacheSettingsService _settingsService = CacheSettingsService();
+  final CacheAutoCleanupService _autoCleanupService = CacheAutoCleanupService();
+  CacheTTLLevel _currentLevel = CacheTTLLevel.balanced;
+  CleanupStats? _lastCleanupStats;
 
   @override
   void initState() {
@@ -36,6 +44,8 @@ class _CacheManagementScreenState extends State<CacheManagementScreen> {
       await cacheService.initialize();
       await chatService.initialize();
       await avatarService.initialize();
+      await _settingsService.initialize();
+      await _autoCleanupService.initialize();
 
       final cacheStats = await cacheService.getCacheStats();
       final avatarStats = await avatarService.getAvatarCacheStats();
@@ -47,6 +57,8 @@ class _CacheManagementScreenState extends State<CacheManagementScreen> {
         _cacheStats = cacheStats;
         _avatarCacheStats = avatarStats;
         _chatCacheStats = chatStats;
+        _currentLevel = _settingsService.currentLevel;
+        _lastCleanupStats = _autoCleanupService.lastCleanupStats;
         _isLoading = false;
       });
     } catch (e) {
@@ -255,6 +267,27 @@ class _CacheManagementScreenState extends State<CacheManagementScreen> {
     );
   }
 
+  String _getTTLDescription() {
+    final settings = _settingsService.currentSettings;
+    return 
+        "• Чаты: ${_formatDuration(settings.chatsTTL)}\n"
+        "• Контакты: ${_formatDuration(settings.contactsTTL)}\n"
+        "• Сообщения: ${_formatDuration(settings.messagesTTL)}\n"
+        "• Аватарки: ${_formatDuration(settings.avatarsTTL)}\n"
+        "• Файлы: ${_formatDuration(settings.filesTTL)}";
+  }
+
+  String _formatDuration(Duration duration) {
+    if (duration.inDays > 0) {
+      return '${duration.inDays} дн.';
+    } else if (duration.inHours > 0) {
+      return '${duration.inHours} ч.';
+    } else if (duration.inMinutes > 0) {
+      return '${duration.inMinutes} мин.';
+    }
+    return '${duration.inSeconds} сек.';
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
@@ -408,10 +441,11 @@ class _CacheManagementScreenState extends State<CacheManagementScreen> {
                           ],
                         ),
                         const SizedBox(height: 12),
-                        const Text(
+                        Text(
                           "Кэширование ускоряет работу приложения, сохраняя часто используемые данные локально. "
                           "Все файлы сжимаются с помощью LZ4 для экономии места. "
-                          "Чаты кэшируются на 1 час, контакты на 6 часов, сообщения на 2 часа, аватарки на 7 дней.",
+                          "\n\nТекущий уровень: ${CacheSettingsService.getLevelName(_currentLevel)} ${_isLoading ? '' : CacheSettingsService.getLevelIcon(_currentLevel)}\n"
+                          "${_isLoading ? 'Загрузка настроек...' : _getTTLDescription()}",
                         ),
                         const SizedBox(height: 8),
                         const Text(
@@ -419,6 +453,36 @@ class _CacheManagementScreenState extends State<CacheManagementScreen> {
                           style: TextStyle(fontStyle: FontStyle.italic),
                         ),
                         const SizedBox(height: 8),
+                        if (_lastCleanupStats != null) ...[
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: colors.secondaryContainer.withValues(alpha: 0.5),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.auto_delete_outlined,
+                                  color: colors.secondary,
+                                  size: 16,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    "Последняя очистка: ${_lastCleanupStats!.formattedFreedSpace} освобождено",
+                                    style: TextStyle(
+                                      color: colors.secondary,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                        ],
                         Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(

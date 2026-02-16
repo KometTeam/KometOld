@@ -8,9 +8,9 @@ list(APPEND FLUTTER_PLUGIN_LIST
   dynamic_color
   file_selector_windows
   flutter_inappwebview_windows
-  flutter_secure_storage_windows
   flutter_timezone
-  permission_handler_windows
+  just_audio_windows
+  record_windows
   share_plus
   smart_auth
   url_launcher_windows

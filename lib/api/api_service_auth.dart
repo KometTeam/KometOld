@@ -107,6 +107,72 @@ extension ApiServiceAuth on ApiService {
     );
   }
 
+  /// Начало процесса установки 2FA (opcode 112)
+  /// Возвращает trackId для последующих шагов
+  Future<void> start2FASetup() async {
+    await waitUntilOnline();
+
+    final payload = {'type': 0};
+    _sendMessage(112, payload);
+    print('Запрос на начало установки 2FA отправлен');
+  }
+
+  /// Установка пароля 2FA (opcode 107)
+  Future<void> set2FAPassword(String trackId, String password) async {
+    await waitUntilOnline();
+
+    final payload = {'trackId': trackId, 'password': password};
+    _sendMessage(107, payload);
+    print(
+      'Запрос на установку пароля 2FA отправлен с payload: ${truncatePayloadObjectForLog(payload)}',
+    );
+  }
+
+  /// Установка подсказки для пароля 2FA (opcode 108)
+  Future<void> set2FAHint(String trackId, String hint) async {
+    await waitUntilOnline();
+
+    final payload = {'trackId': trackId, 'hint': hint};
+    _sendMessage(108, payload);
+    print('Запрос на установку подсказки 2FA отправлен');
+  }
+
+  /// Установка email для восстановления 2FA (opcode 109)
+  Future<void> set2FAEmail(String trackId, String email) async {
+    await waitUntilOnline();
+
+    final payload = {'trackId': trackId, 'email': email};
+    _sendMessage(109, payload);
+    print('Запрос на установку email для 2FA отправлен');
+  }
+
+  /// Подтверждение email кодом (opcode 110)
+  Future<void> verify2FAEmailCode(String trackId, String verifyCode) async {
+    await waitUntilOnline();
+
+    final payload = {'trackId': trackId, 'verifyCode': verifyCode};
+    _sendMessage(110, payload);
+    print('Запрос на подтверждение email 2FA отправлен');
+  }
+
+  /// Финальное подтверждение установки 2FA (opcode 111)
+  Future<void> confirm2FASetup(
+    String trackId,
+    String password,
+    String hint,
+  ) async {
+    await waitUntilOnline();
+
+    final payload = {
+      'expectedCapabilities': [0, 3, 4],
+      'trackId': trackId,
+      'password': password,
+      'hint': hint,
+    };
+    _sendMessage(111, payload);
+    print('Запрос на финальное подтверждение 2FA отправлен');
+  }
+
   Future<void> saveToken(
     String token, {
     String? userId,
@@ -194,16 +260,6 @@ extension ApiServiceAuth on ApiService {
     return authToken != null;
   }
 
-  Future<void> _loadTokenFromAccountManager() async {
-    final accountManager = AccountManager();
-    await accountManager.initialize();
-    final currentAccount = accountManager.currentAccount;
-    if (currentAccount != null) {
-      authToken = currentAccount.token;
-      userId = currentAccount.userId;
-    }
-  }
-
   Future<void> switchAccount(String accountId) async {
     print("Переключение на аккаунт: $accountId");
 
@@ -230,7 +286,7 @@ extension ApiServiceAuth on ApiService {
       StreamSubscription? tempSubscription;
 
       tempSubscription = messages.listen((message) {
-        if (message != null && message['type'] == 'invalid_token') {
+        if (message['type'] == 'invalid_token') {
           invalidTokenDetected = true;
           tempSubscription?.cancel();
         }
@@ -261,7 +317,7 @@ extension ApiServiceAuth on ApiService {
           await accountManager.updateAccountProfile(accountId, profileObj);
         }
       } catch (e) {
-        tempSubscription?.cancel();
+        tempSubscription.cancel();
 
         print("Ошибка переключения аккаунта: $e");
 
@@ -288,7 +344,7 @@ extension ApiServiceAuth on ApiService {
 
         rethrow;
       } finally {
-        tempSubscription?.cancel();
+        tempSubscription.cancel();
       }
     }
   }
@@ -341,7 +397,6 @@ extension ApiServiceAuth on ApiService {
       _isSessionReady = false;
       _handshakeSent = false;
       _reconnectAttempts = 0;
-      _currentUrlIndex = 0;
 
       _messageQueue.clear();
       _presenceData.clear();
@@ -369,7 +424,6 @@ extension ApiServiceAuth on ApiService {
       _isSessionReady = false;
       _chatsFetchedInThisSession = false;
       _reconnectAttempts = 0;
-      _currentUrlIndex = 0;
 
       _messageQueue.clear();
       _presenceData.clear();

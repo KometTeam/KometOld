@@ -39,9 +39,7 @@ class ImageCacheService {
     } catch (e) {
       _lz4Codec = null;
       _lz4Available = false;
-      print(
-        '⚠️ LZ4 compression недоступна, используется обычное кэширование: $e',
-      );
+      // LZ4 недоступна на некоторых платформах - это нормально
     }
 
     await _cleanupExpiredCache();
@@ -77,9 +75,10 @@ class ImageCacheService {
             final compressedData = _lz4Codec!.encode(response.bodyBytes);
             await file.writeAsBytes(compressedData);
           } catch (e) {
-            print(
-              '⚠️ Ошибка сжатия изображения $url, сохраняем без сжатия: $e',
-            );
+            // Ошибка сжатия - отключаем LZ4 и сохраняем без сжатия
+            print('⚠️ Ошибка сжатия файла $url, сохраняем без сжатия: $e');
+            _lz4Available = false;
+            _lz4Codec = null;
             await file.writeAsBytes(response.bodyBytes);
           }
         } else {
@@ -242,7 +241,9 @@ class ImageCacheService {
   Future<void> _updateFileAccessTime(File file) async {
     try {
       await file.setLastModified(DateTime.now());
-    } catch (e) {}
+    } catch (e) {
+      print('⚠️ Ошибка обновления времени доступа к файлу: $e');
+    }
   }
 
   String _generateFileName(String url) {

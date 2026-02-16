@@ -2,68 +2,66 @@ export 'app_durations.dart';
 export 'app_sizes.dart';
 export 'app_urls.dart';
 export 'app_colors.dart';
+
 import 'package:flutter/material.dart';
 
 const String appVersion = "0.4.1";
-
 const String appName = "Komet";
 
-// Windows Toast notifications require a stable AppUserModelID (AUMID).
-// This value must match whatever you register in a Start Menu shortcut/MSIX
-// for notifications to display reliably.
+/// Windows Toast notifications require a stable AppUserModelID (AUMID)
 const String windowsAppUserModelId = "KometTeam.Komet";
 
-// Must be a stable GUID used for the toast activation callback on Windows.
-// Changing it will break activation handling for installed shortcuts.
+/// Stable GUID for toast activation callback on Windows
 const String windowsNotificationGuid = "f30f0a4b-1a7f-4f74-8a86-6d241b5a78d0";
 
-/// Лимиты
+/// Лимиты и ограничения приложения
 class AppLimits {
   AppLimits._();
 
-  /// Спустя сколько времени нельзя редактировать сообщение
+  /// Через сколько часов нельзя редактировать сообщение
   static const int messageEditHours = 6969;
 
-  /// Количество сообщений ГОСТ
-  static const int pageSize = 100;
+  /// Количество сообщений на страницу (стандарт)
+  static const int pageSize = 30;
 
-  /// при оптимизированной загрузки
-  static const int optimizedPageSize = 50;
+  /// Количество сообщений при оптимизированной загрузке
+  static const int optimizedPageSize = 30;
 
-  /// Сделайте кто небудь плагин на ультра оптимизацию пжпжп
+  /// Количество сообщений при ультра-оптимизации
   static const int ultraOptimizedPageSize = 10;
 
-  /// Подгрузка истории
+  /// Размер пакета при подгрузке истории
   static const int historyLoadBatch = 30;
 
-  /// Максимальное количество недавних эмодзи в панели вот этой вот как ее
+  /// Максимальное количество недавних эмодзи
   static const int maxRecentEmoji = 20;
 
+  /// Максимальная длина payload для логирования
   static const int maxLogPayloadLength = 30000;
 }
 
 class AppSettings {
   AppSettings._();
-  // у меня блять кеш не чиститься на линухе // А БЛЯЯЯ Я ДЕБИЛ ЭТО СЕРЕГА НЕ ДОБАВИЛ В НОТИФИКАТЕ
   static const bool startFresh = false;
 }
 
+/// Значения анимаций
 class AppAnimationValues {
   AppAnimationValues._();
 
-  /// Новое сообщение в чате анимаиця скок по Y
+  /// Смещение по Y для анимации нового сообщения
   static const double newMessageSlideOffset = 30.0;
 
-  /// прозрачность подсветки когда ищешь соо начальная
+  /// Начальная прозрачность подсветки при поиске
   static const double highlightOpacityStart = 0.3;
 
-  /// прозрачность подсветки когда ищешь соо начальная кнечаня
+  /// Конечная прозрачность подсветки при поиске
   static const double highlightOpacityEnd = 0.6;
 }
 
-class AppColors {
-  AppColors._();
+/// Цвета SVG иконок
+class AppSvgColors {
+  AppSvgColors._();
 
-  /// комет свг колор
   static const Color kometSvgColor = Color(0xFFE1BEE7);
 }

@@ -323,7 +323,7 @@ class _SearchChannelsScreenState extends State<SearchChannelsScreen> {
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.warning, color: Colors.orange),
+                        const Icon(Icons.warning, color: Colors.orange),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
@@ -888,7 +888,7 @@ class _ChannelDetailsScreenState extends State<ChannelDetailsScreen> {
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.error, color: Colors.red),
+                        const Icon(Icons.error, color: Colors.red),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(

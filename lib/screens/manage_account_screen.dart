@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -29,6 +30,8 @@ class _ManageAccountScreenState extends State<ManageAccountScreen> {
   bool _isDeleteStatusLoading = false;
   bool _isDeleteActionInProgress = false;
 
+  StreamSubscription<Map<String, dynamic>>? _profileUpdateSubscription;
+
   @override
   void initState() {
     super.initState();
@@ -45,9 +48,7 @@ class _ManageAccountScreenState extends State<ManageAccountScreen> {
 
     try {
       final payload = await ApiService.instance.sendRequest(200, const {});
-      final timestamp = (payload is Map)
-          ? (payload['timestamp'] as int? ?? 0)
-          : 0;
+      final timestamp = payload['timestamp'] as int? ?? 0;
 
       if (mounted) {
         setState(() {
@@ -92,7 +93,6 @@ class _ManageAccountScreenState extends State<ManageAccountScreen> {
           'delete': delete,
           'type': 0,
         },
-        timeout: const Duration(seconds: 30),
       );
 
       if (mounted) {
@@ -263,6 +263,50 @@ class _ManageAccountScreenState extends State<ManageAccountScreen> {
     _descriptionController = TextEditingController(
       text: _actualProfile?.description ?? '',
     );
+
+    // Подписываемся на обновления профиля с сервера (opcode 159)
+    _profileUpdateSubscription = ApiService.instance.messages.listen((message) {
+      if (message['opcode'] == 159 && mounted) {
+        final payload = message['payload'] as Map<String, dynamic>?;
+        final profileData = payload?['profile'] as Map<String, dynamic>?;
+        if (profileData != null) {
+          _updateProfileFields(profileData);
+        }
+      }
+    });
+
+    // Загружаем актуальный профиль с сервера
+    _refreshProfileFromServer();
+  }
+
+  void _updateProfileFields(Map<String, dynamic> profileData) {
+    final serverProfile = Profile.fromJson(profileData);
+    setState(() {
+      _actualProfile = serverProfile;
+      _firstNameController.text = serverProfile.firstName;
+      _lastNameController.text = serverProfile.lastName;
+      _descriptionController.text = serverProfile.description ?? '';
+    });
+  }
+
+  Future<void> _refreshProfileFromServer() async {
+    try {
+      // Сначала проверяем кэш
+      final cachedProfile = ApiService.instance.lastChatsPayload?['profile'];
+      if (cachedProfile != null && mounted) {
+        _updateProfileFields(cachedProfile);
+      }
+
+      // Запрашиваем свежие данные с сервера
+      final result = await ApiService.instance.getChatsAndContacts(force: true);
+      final profileJson = result['profile'];
+
+      if (profileJson != null && mounted) {
+        _updateProfileFields(profileJson);
+      }
+    } catch (e) {
+      debugPrint('Ошибка загрузки профиля с сервера: $e');
+    }
   }
 
   Future<void> _saveProfile() async {
@@ -608,7 +652,7 @@ class _ManageAccountScreenState extends State<ManageAccountScreen> {
             if (_isLoading)
               Positioned.fill(
                 child: Container(
-                  decoration: BoxDecoration(
+                  decoration: const BoxDecoration(
                     color: Colors.black54,
                     shape: BoxShape.circle,
                   ),
@@ -996,6 +1040,7 @@ class _ManageAccountScreenState extends State<ManageAccountScreen> {
 
   @override
   void dispose() {
+    _profileUpdateSubscription?.cancel();
     _firstNameController.dispose();
     _lastNameController.dispose();
     _descriptionController.dispose();

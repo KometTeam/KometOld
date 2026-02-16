@@ -45,12 +45,8 @@ dependencies:
   crypto: ^3.0.3
   cached_network_image: ^3.3.1
   scrollable_positioned_list: ^0.3.8
-  socks5_proxy: ^2.1.1
-  flutter_launcher_icons: ^0.14.4
   flutter_timezone: ^5.0.0
-  timezone: ^0.10.1
-  file_picker: ^10.3.3
-  permission_handler: ^11.3.1
+  file_picker: ^8.1.2
   image: ^4.1.7
   encrypt: ^5.0.3
   google_fonts: ^6.2.1
@@ -59,7 +55,7 @@ dependencies:
   flutter_background_service: ^5.0.1
   flutter_local_notifications: ^19.5.0
   wakelock_plus: ^1.2.8
-  flutter_markdown: ^0.7.7
+  flutter_markdown_plus: ^1.0.7
   video_player: ^2.9.2
   qr_flutter: ^4.1.0
   mobile_scanner: ^7.1.2
@@ -67,16 +63,17 @@ dependencies:
   msgpack_dart: ^1.0.1
   ffi: ^2.1.0
   disable_battery_optimization: ^1.1.2
-  flutter_highlight: ^0.7.0
   flutter_linkify: ^6.0.0
   app_links: ^6.4.1
   open_file: ^3.5.2
-  flutter_secure_storage: ^9.2.4
   flutter_inappwebview: ^6.1.5
   lottie: ^3.1.2
-  flutter_svg: ^2.0.10+1
-  chewie: ^1.7.5
   just_audio: ^0.9.40
+  just_audio_windows: ^0.2.2
+  just_audio_media_kit: ^2.1.0
+  media_kit_libs_linux: any
+  record: ^6.1.2
+  record_windows: ^1.0.1
   platform_info: ^5.0.0
 
 dev_dependencies:
@@ -86,6 +83,7 @@ dev_dependencies:
 
   # Hosted зависимости
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
 
 # Конфигурация Flutter.
 flutter:

@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 
+/// Цветовая палитра приложения
 class AppColors {
   AppColors._();
 
+  // Primary colors
   static const Color primaryLight = Color(0xFF2196F3);
   static const Color primaryDark = Color(0xFF64B5F6);
 
+  // Status colors
   static const Color successLight = Color(0xFF4CAF50);
   static const Color successDark = Color(0xFF81C784);
 
@@ -15,16 +18,19 @@ class AppColors {
   static const Color errorLight = Color(0xFFF44336);
   static const Color errorDark = Color(0xFFE57373);
 
+  // Message bubble colors
   static const Color messageBubbleMeLight = Color(0xFFE3F2FD);
   static const Color messageBubbleMeDark = Color(0xFF1E3A5F);
 
   static const Color messageBubbleOtherLight = Color(0xFFFFFFFF);
   static const Color messageBubbleOtherDark = Color(0xFF2D2D2D);
 
+  // Presence indicators
   static const Color onlineIndicator = Color(0xFF4CAF50);
   static const Color offlineIndicator = Color(0xFF9E9E9E);
   static const Color typingIndicator = Color(0xFF2196F3);
 
+  // Avatar colors (light theme)
   static const List<Color> userAvatarColorsLight = [
     Color(0xFFF44336),
     Color(0xFFE91E63),
@@ -44,6 +50,7 @@ class AppColors {
     Color(0xFFFF5722),
   ];
 
+  // Avatar colors (dark theme)
   static const List<Color> userAvatarColorsDark = [
     Color(0xFFEF5350),
     Color(0xFFEC407A),
@@ -62,4 +69,10 @@ class AppColors {
     Color(0xFFFFA726),
     Color(0xFFFF7043),
   ];
+
+  /// Получить цвет для аватара по ID пользователя
+  static Color getAvatarColor(int userId, {bool isDark = false}) {
+    final colors = isDark ? userAvatarColorsDark : userAvatarColorsLight;
+    return colors[userId.abs() % colors.length];
+  }
 }

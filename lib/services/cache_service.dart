@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:es_compression/lz4.dart';
 import 'package:gwid/utils/fresh_mode_helper.dart';
+import 'package:gwid/services/cache_settings_service.dart';
 
 class CacheService {
   static final CacheService _instance = CacheService._internal();
@@ -28,6 +29,8 @@ class CacheService {
 
   static final _clearLock = Object();
 
+  final CacheSettingsService _settingsService = CacheSettingsService();
+
   Future<T> _synchronized<T>(
     Object lock,
     Future<T> Function() operation,
@@ -37,6 +40,10 @@ class CacheService {
 
   Future<void> initialize() async {
     _prefs = await FreshModeHelper.getSharedPreferences();
+    
+    // Инициализируем настройки кэша
+    await _settingsService.initialize();
+    
     if (FreshModeHelper.isEnabled) {
       _cacheDirectory = null;
       return;
@@ -57,7 +64,7 @@ class CacheService {
       );
     }
 
-    print('CacheService инициализирован');
+    print('✅ CacheService инициализирован (TTL level: ${_settingsService.currentLevel})');
   }
 
   Future<void> _createCacheDirectories() async {
@@ -264,6 +271,8 @@ class CacheService {
             await existingFile.writeAsBytes(compressedData);
           } catch (e) {
             print('⚠️ Ошибка сжатия файла $url, сохраняем без сжатия: $e');
+            _lz4Available = false;
+            _lz4Codec = null;
             await existingFile.writeAsBytes(response.bodyBytes);
           }
         } else {
@@ -312,20 +321,36 @@ class CacheService {
     try {
       final uri = Uri.parse(url);
       final path = uri.path;
-      final extension = path.substring(path.lastIndexOf('.'));
-      if (extension.isNotEmpty && extension.length < 10) {
-        return extension;
+      final dotIndex = path.lastIndexOf('.');
+      if (dotIndex != -1 && dotIndex > path.lastIndexOf('/')) {
+        final extension = path.substring(dotIndex);
+        if (extension.isNotEmpty && extension.length < 10) {
+          return extension;
+        }
       }
-      if (url.contains('audio') ||
-          url.contains('voice') ||
-          url.contains('.mp3') ||
-          url.contains('.ogg') ||
-          url.contains('.m4a')) {
+
+      final lowerUrl = url.toLowerCase();
+      if (lowerUrl.contains('audio') ||
+          lowerUrl.contains('voice') ||
+          lowerUrl.contains('.mp3') ||
+          lowerUrl.contains('.ogg') ||
+          lowerUrl.contains('.m4a') ||
+          (lowerUrl.contains('okcdn.ru') && lowerUrl.contains('type=2')) ||
+          lowerUrl.contains('srcag=unknown_android')) {
         return '.mp3';
       }
-      return '.jpg';
+
+      return '.bin';
     } catch (e) {
-      return '.jpg';
+      final lowerUrl = url.toLowerCase();
+      if (lowerUrl.contains('.mp3') ||
+          lowerUrl.contains('.ogg') ||
+          lowerUrl.contains('.m4a') ||
+          (lowerUrl.contains('okcdn.ru') && lowerUrl.contains('type=2')) ||
+          lowerUrl.contains('srcag=unknown_android')) {
+        return '.mp3';
+      }
+      return '.bin';
     }
   }
 
@@ -347,6 +372,8 @@ class CacheService {
           print(
             '⚠️ Ошибка декомпрессии файла $url, пробуем прочитать как обычный файл: $e',
           );
+          _lz4Available = false;
+          _lz4Codec = null;
           return fileData;
         }
       } else {
@@ -445,13 +472,7 @@ class CacheService {
       print('CacheService: Target file path: $filePath');
 
       final response = await http
-          .get(
-            Uri.parse(url),
-            headers: {
-              'User-Agent':
-                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            },
-          )
+          .get(Uri.parse(url))
           .timeout(
             const Duration(seconds: 30),
             onTimeout: () {
@@ -483,6 +504,8 @@ class CacheService {
             print(
               '⚠️ Ошибка сжатия аудио файла $url, сохраняем без сжатия: $e',
             );
+            _lz4Available = false;
+            _lz4Codec = null;
             await existingFile.writeAsBytes(response.bodyBytes);
           }
         } else {
@@ -555,6 +578,8 @@ class CacheService {
           print(
             '⚠️ Ошибка декомпрессии аудио файла $url, пробуем прочитать как обычный файл: $e',
           );
+          _lz4Available = false;
+          _lz4Codec = null;
           return fileData;
         }
       } else {
@@ -625,6 +650,8 @@ class CacheService {
             await existingFile.writeAsBytes(compressedData);
           } catch (e) {
             print('⚠️ Ошибка сжатия стикера $url, сохраняем без сжатия: $e');
+            _lz4Available = false;
+            _lz4Codec = null;
             await existingFile.writeAsBytes(response.bodyBytes);
           }
         } else {
@@ -698,6 +725,8 @@ class CacheService {
           print(
             '⚠️ Ошибка декомпрессии стикера, пробуем прочитать как обычный файл: $e',
           );
+          _lz4Available = false;
+          _lz4Codec = null;
           return fileData;
         }
       } else {
@@ -705,5 +734,65 @@ class CacheService {
       }
     }
     return null;
+  }
+
+  File? _getStickerCatalogFile() {
+    if (_cacheDirectory == null) return null;
+    return File('${_cacheDirectory!.path}/stickers/catalog.json.lz4');
+  }
+
+  Future<File?> getCachedStickerCatalogFile() async {
+    if (_cacheDirectory == null) {
+      await initialize();
+    }
+    final file = _getStickerCatalogFile();
+    if (file == null) return null;
+    if (!await file.exists()) return null;
+    return file;
+  }
+
+  Future<void> saveStickerCatalogToFile(Map<String, dynamic> catalog) async {
+    if (_cacheDirectory == null) {
+      await initialize();
+    }
+
+    final file = _getStickerCatalogFile();
+    if (file == null) return;
+
+    final stickerDir = Directory('${_cacheDirectory!.path}/stickers');
+    if (!await stickerDir.exists()) {
+      await stickerDir.create(recursive: true);
+    }
+
+    final bytes = utf8.encode(jsonEncode(catalog));
+    if (_lz4Available && _lz4Codec != null) {
+      try {
+        final compressed = _lz4Codec!.encode(bytes);
+        await file.writeAsBytes(compressed, flush: true);
+        return;
+      } catch (e) {
+        print('⚠️ Ошибка сжатия sticker catalog, сохраняем без сжатия: $e');
+      }
+    }
+
+    await file.writeAsBytes(Uint8List.fromList(bytes), flush: true);
+  }
+
+  dynamic decodeStickerCatalogBytes(Uint8List bytes) {
+    try {
+      Uint8List decodedBytes = bytes;
+      if (_lz4Available && _lz4Codec != null) {
+        try {
+          decodedBytes = Uint8List.fromList(_lz4Codec!.decode(bytes));
+        } catch (_) {
+          decodedBytes = bytes;
+        }
+      }
+
+      final jsonString = utf8.decode(decodedBytes);
+      return jsonDecode(jsonString);
+    } catch (_) {
+      return null;
+    }
   }
 }

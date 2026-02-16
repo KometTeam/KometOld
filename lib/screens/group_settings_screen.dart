@@ -728,15 +728,29 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
 
     bool amIAdmin = false;
     bool canSeeLink = false;
+    bool canEditInfo = false;
+    bool canInvitePeople = false;
     final currentChat = _getCurrentGroupChat();
     if (currentChat != null) {
+      // Also should check for admin permissions 
+
       final admins = currentChat['admins'] as List<dynamic>? ?? [];
       amIAdmin = admins.contains(widget.myId);
 
       final options = currentChat['options'] as Map<String, dynamic>?;
+
       final membersCanSeeLink =
           options?['MEMBERS_CAN_SEE_PRIVATE_LINK'] as bool? ?? false;
       canSeeLink = amIAdmin || membersCanSeeLink;
+
+      final onlyOwnerCanChangeIconTitle =
+          options?['ONLY_OWNER_CAN_CHANGE_ICON_TITLE'] as bool? ?? false;
+      canEditInfo = amIAdmin || !onlyOwnerCanChangeIconTitle;
+
+      final canInvite =
+      options?['ONLY_ADMIN_CAN_ADD_MEMBER'] as bool? ?? false;
+
+      canInvitePeople = amIAdmin || !canInvite;
     }
 
     return SliverPadding(
@@ -820,19 +834,24 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
             const SizedBox(height: 8),
           ],
 
-          if (amIAdmin) ...[
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: _showEditGroupNameDialog,
-                icon: const Icon(Icons.edit),
-                label: const Text('Изменить название группы'),
-                style: ElevatedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                ),
+          // TODO: Добавить проверку прав администратора
+          if (canEditInfo) ...[
+              SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: _showEditGroupNameDialog,
+                      icon: const Icon(Icons.edit),
+                      label: const Text('Изменить название группы'),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
               ),
-            ),
-            const SizedBox(height: 12),
+
+              const SizedBox(height: 12),
+          ],
+
+          if (canInvitePeople) ...[
             Row(
               children: [
                 Expanded(
@@ -861,6 +880,9 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
               ],
             ),
             const SizedBox(height: 12),
+          ],
+          
+          if (amIAdmin) ...[
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
@@ -1110,7 +1132,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
             ),
           ),
           trailing: isOwner
-              ? Icon(Icons.star, color: Colors.amber, size: 20)
+              ? const Icon(Icons.star, color: Colors.amber, size: 20)
               : isAdmin
               ? Icon(
                   Icons.admin_panel_settings,

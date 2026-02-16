@@ -1,1 +1,44 @@
 include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+  errors:
+    empty_catches: error
+    avoid_print: ignore
+    prefer_const_constructors: warning
+    prefer_final_fields: warning
+    unused_import: error
+    unused_local_variable: warning
+
+linter:
+  rules:
+    # Стиль кода
+    prefer_const_constructors: true
+    prefer_const_literals_to_create_immutables: true
+    prefer_final_fields: true
+    prefer_final_locals: true
+    avoid_unused_constructor_parameters: true
+    
+    # Безопасность
+    cancel_subscriptions: true
+    close_sinks: true
+    
+    # Производительность
+    avoid_unnecessary_containers: true
+    avoid_redundant_argument_values: true
+    
+    # Читаемость
+    prefer_single_quotes: true
+    prefer_relative_imports: true
+    sort_constructors_first: true
+    sort_unnamed_constructors_first: true
+    
+    # Архитектура
+    one_member_abstracts: false
+    avoid_classes_with_only_static_members: false  # Разрешаем service classes
+    
+    # Отключенные правила (для совместимости)
+    lines_longer_than_80_chars: false
+    avoid_print: false  # Разрешаем print для дебага

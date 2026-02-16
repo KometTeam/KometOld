@@ -300,6 +300,7 @@ extension ApiServiceContacts on ApiService {
         final missingIds = contactIds
             .where((id) => !receivedIds.contains(id))
             .toList();
+        debugPrint('Missing contact IDs: $missingIds');
       }
 
       for (final contact in contacts) {
