@@ -9,6 +9,9 @@ import 'package:gwid/widgets/animated_mesh_gradient.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:permission_handler/permission_handler.dart';
+import 'package:just_audio/just_audio.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io' show Platform;
 import 'dart:async';
 import 'dart:convert';
@@ -80,6 +83,9 @@ class _CallScreenState extends State<CallScreen> {
   bool _blurPanels = true; // По умолчанию включён блюр (TODO: реализовать)
   bool _isSpeakerOn = false;
   bool _isVideoEnabled = false;
+  OverlayEntry? _soundpadOverlay;
+  List<Map<String, String>> _soundpadSounds = []; // {name, path}
+  AudioPlayer? _soundpadPlayer;
   bool _isRemoteVideoEnabled = false;
   bool _isRemoteMuted = false;
   int _callDuration = 0;
@@ -119,6 +125,12 @@ class _CallScreenState extends State<CallScreen> {
     
     // Устанавливаем callback для завершения звонка из панели/кнопки
     FloatingCallManager.instance.onEndCall = _endCall;
+    
+    // Инициализируем audio player для саундпада
+    _soundpadPlayer = AudioPlayer();
+    
+    // Загружаем сохранённые звуки
+    _loadSoundpadSounds();
   }
   
   void _onFloatingCallStateChanged() {
@@ -1065,16 +1077,41 @@ class _CallScreenState extends State<CallScreen> {
     });
   }
   
-  void _startAudioLevelMonitoring() {
-    // Симуляция определения речи (в реальности нужен анализ аудио)
-    // Для простоты будем рандомно показывать "говорит"
-    _audioLevelTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
-      if (_remoteStream != null && _callState == CallState.connected && mounted) {
-        // TODO: Реализовать реальное определение уровня звука через Web Audio API
-        // Пока просто рандом для демонстрации
-        setState(() {
-          _isRemoteSpeaking = DateTime.now().millisecondsSinceEpoch % 3 == 0;
-        });
+  void _startAudioLevelMonitoring() async {
+    // Мониторинг уровня звука через WebRTC Stats API
+    _audioLevelTimer = Timer.periodic(const Duration(milliseconds: 200), (timer) async {
+      if (_peerConnection != null && _remoteStream != null && _callState == CallState.connected && mounted) {
+        try {
+          // Получаем статистику WebRTC
+          final stats = await _peerConnection!.getStats();
+          
+          double maxAudioLevel = 0.0;
+          
+          // Ищем inbound-rtp аудио трек (входящий звук от собеседника)
+          for (final report in stats) {
+            if (report.type == 'inbound-rtp' && report.values['kind'] == 'audio') {
+              // audioLevel в диапазоне 0.0 - 1.0
+              final audioLevel = report.values['audioLevel'];
+              if (audioLevel != null && audioLevel is num) {
+                maxAudioLevel = audioLevel.toDouble();
+              }
+              break;
+            }
+          }
+          
+          // Порог для определения речи (можно настроить)
+          // audioLevel > 0.01 означает что есть звук
+          final isSpeaking = maxAudioLevel > 0.01;
+          
+          if (mounted && _isRemoteSpeaking != isSpeaking) {
+            setState(() {
+              _isRemoteSpeaking = isSpeaking;
+            });
+          }
+        } catch (e) {
+          // Игнорируем ошибки получения статистики
+          print('Error getting audio level: $e');
+        }
       }
     });
   }
@@ -1087,18 +1124,18 @@ class _CallScreenState extends State<CallScreen> {
         return;
       }
       
-      // Проверяем состояние WebRTC соединения
-      if (_peerConnection != null) {
+      // Проверяем состояние WebRTC соединения ТОЛЬКО если звонок уже подключён
+      if (_peerConnection != null && _callState == CallState.connected) {
         final state = await _peerConnection!.getConnectionState();
         
         // Если соединение потеряно
         if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
             state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
           
-          // Даём 15 секунд на переподключение
+          // Даём 30 секунд на переподключение (было 15)
           final now = DateTime.now();
           if (_lastConnectionCheck != null && 
-              now.difference(_lastConnectionCheck!).inSeconds > 15) {
+              now.difference(_lastConnectionCheck!).inSeconds > 30) {
             timer.cancel();
             if (mounted) {
               _showConnectionLostDialog();
@@ -1113,23 +1150,29 @@ class _CallScreenState extends State<CallScreen> {
   }
   
   void _showConnectionLostDialog() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => AlertDialog(
-        title: const Text('Соединение потеряно'),
-        content: const Text('Не удалось поддерживать соединение. Звонок будет завершён.'),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              _endCall();
-            },
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
+    // Сначала завершаем звонок
+    _endCall();
+    
+    // Показываем диалог с информацией
+    if (mounted) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: const Text('Соединение потеряно'),
+          content: const Text('Не удалось поддерживать соединение. Звонок завершён.'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop(); // Закрываем диалог
+                Navigator.of(context).pop(); // Закрываем экран звонка
+              },
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   void _toggleMute() {
@@ -1280,6 +1323,205 @@ class _CallScreenState extends State<CallScreen> {
   void _toggleSpeaker() {
     setState(() => _isSpeakerOn = !_isSpeakerOn);
     // TODO: Реализовать переключение динамика через platform channel
+  }
+
+  void _showSoundpad() {
+    if (_soundpadOverlay != null) {
+      _soundpadOverlay!.remove();
+      _soundpadOverlay = null;
+      return;
+    }
+
+    _soundpadOverlay = OverlayEntry(
+      builder: (context) => Positioned(
+        bottom: 100,
+        right: 16,
+        child: Material(
+          elevation: 8,
+          borderRadius: BorderRadius.circular(12),
+          color: Theme.of(context).colorScheme.surface,
+          child: Container(
+            width: 200,
+            constraints: BoxConstraints(maxHeight: 300),
+            padding: EdgeInsets.all(8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Заголовок
+                Padding(
+                  padding: EdgeInsets.all(8),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Саундпад',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      IconButton(
+                        icon: Icon(Icons.close, size: 20),
+                        padding: EdgeInsets.zero,
+                        constraints: BoxConstraints(),
+                        onPressed: () {
+                          _soundpadOverlay?.remove();
+                          _soundpadOverlay = null;
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                Divider(height: 1),
+                
+                // Список звуков
+                Flexible(
+                  child: _soundpadSounds.isEmpty
+                      ? Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Text(
+                            'Нет сохранённых звуков',
+                            style: Theme.of(context).textTheme.bodySmall,
+                            textAlign: TextAlign.center,
+                          ),
+                        )
+                      : ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: _soundpadSounds.length,
+                          itemBuilder: (context, index) {
+                            final sound = _soundpadSounds[index];
+                            return ListTile(
+                              dense: true,
+                              leading: Icon(Icons.music_note, size: 20),
+                              title: Text(
+                                sound['name'] ?? 'Звук ${index + 1}',
+                                style: TextStyle(fontSize: 14),
+                              ),
+                              onTap: () => _playSoundpadSound(sound['path'] ?? ''),
+                              onLongPress: () => _deleteSoundFromSoundpad(index),
+                              trailing: Icon(Icons.delete_outline, size: 16, color: Colors.red.withOpacity(0.5)),
+                            );
+                          },
+                        ),
+                ),
+                
+                // Кнопка добавления звука
+                Divider(height: 1),
+                TextButton.icon(
+                  icon: Icon(Icons.add, size: 18),
+                  label: Text('Добавить звук'),
+                  onPressed: _addSoundToSoundpad,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    Overlay.of(context).insert(_soundpadOverlay!);
+  }
+
+  Future<void> _loadSoundpadSounds() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final soundsJson = prefs.getString('soundpad_sounds');
+      if (soundsJson != null) {
+        final List<dynamic> decoded = jsonDecode(soundsJson);
+        setState(() {
+          _soundpadSounds = decoded.map((e) => Map<String, String>.from(e)).toList();
+        });
+      } else {
+        // Если нет сохранённых звуков, добавляем пример
+        setState(() {
+          _soundpadSounds = [];
+        });
+      }
+    } catch (e) {
+      print('Error loading soundpad sounds: $e');
+    }
+  }
+
+  Future<void> _saveSoundpadSounds() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final soundsJson = jsonEncode(_soundpadSounds);
+      await prefs.setString('soundpad_sounds', soundsJson);
+    } catch (e) {
+      print('Error saving soundpad sounds: $e');
+    }
+  }
+
+  Future<void> _playSoundpadSound(String path) async {
+    try {
+      await _soundpadPlayer?.stop();
+      await _soundpadPlayer?.setFilePath(path);
+      await _soundpadPlayer?.play();
+    } catch (e) {
+      print('Error playing sound: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка воспроизведения: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _addSoundToSoundpad() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.audio,
+        allowMultiple: false,
+      );
+      
+      if (result != null && result.files.isNotEmpty) {
+        final file = result.files.first;
+        final path = file.path;
+        final name = file.name;
+        
+        if (path != null) {
+          setState(() {
+            _soundpadSounds.add({'name': name, 'path': path});
+          });
+          await _saveSoundpadSounds();
+          
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Звук "$name" добавлен')),
+            );
+          }
+        }
+      }
+    } catch (e) {
+      print('Error adding sound: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка добавления звука: $e')),
+        );
+      }
+    }
+  }
+  
+  Future<void> _deleteSoundFromSoundpad(int index) async {
+    final sound = _soundpadSounds[index];
+    setState(() {
+      _soundpadSounds.removeAt(index);
+    });
+    await _saveSoundpadSounds();
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Звук "${sound['name']}" удалён'),
+          action: SnackBarAction(
+            label: 'Отменить',
+            onPressed: () {
+              setState(() {
+                _soundpadSounds.insert(index, sound);
+              });
+              _saveSoundpadSounds();
+            },
+          ),
+        ),
+      );
+    }
   }
 
   void _showCallSettings() {
@@ -2158,6 +2400,13 @@ class _CallScreenState extends State<CallScreen> {
                           Stack(
                             alignment: Alignment.center,
                             children: [
+                              // Зелёная обводка когда собеседник говорит
+                              if (_isRemoteSpeaking && _callState == CallState.connected)
+                                _SpeakingIndicator(
+                                  size: 140,
+                                  color: Colors.green,
+                                ),
+                              
                               // Сам аватар
                               ContactAvatarWidget(
                                 contactId: widget.contactId,
@@ -2206,13 +2455,44 @@ class _CallScreenState extends State<CallScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  // Микрофон
-                  _CallButton(
-                    icon: _isMuted ? Icons.mic_off : Icons.mic,
-                    label: _isMuted ? 'Откл' : 'Микрофон',
-                    onPressed: _toggleMute,
-                    backgroundColor: _isMuted ? colors.error : colors.surfaceContainerHighest,
-                    foregroundColor: _isMuted ? colors.onError : colors.onSurface,
+                  // Микрофон с саундпадом
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      _CallButton(
+                        icon: _isMuted ? Icons.mic_off : Icons.mic,
+                        label: _isMuted ? 'Откл' : 'Микрофон',
+                        onPressed: _toggleMute,
+                        backgroundColor: _isMuted ? colors.error : colors.surfaceContainerHighest,
+                        foregroundColor: _isMuted ? colors.onError : colors.onSurface,
+                      ),
+                      
+                      // Маленькая кнопка саундпада
+                      Positioned(
+                        right: -4,
+                        bottom: -4,
+                        child: GestureDetector(
+                          onTap: _showSoundpad,
+                          child: Container(
+                            width: 24,
+                            height: 24,
+                            decoration: BoxDecoration(
+                              color: colors.primary,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: colors.surface,
+                                width: 2,
+                              ),
+                            ),
+                            child: Icon(
+                              Icons.arrow_drop_up,
+                              size: 16,
+                              color: colors.onPrimary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
 
                   // Видео (показываем всегда, можно включить в любом звонке)
@@ -2297,6 +2577,14 @@ class _CallScreenState extends State<CallScreen> {
     // Закрываем DataChannel overlay
     _dataChannelOverlayEntry?.remove();
     _dataChannelOverlayEntry = null;
+    
+    // Закрываем soundpad overlay
+    _soundpadOverlay?.remove();
+    _soundpadOverlay = null;
+    
+    // Освобождаем audio player
+    _soundpadPlayer?.dispose();
+    _soundpadPlayer = null;
     
     // Dispose ValueNotifier
     _isDataChannelOpenNotifier.dispose();
