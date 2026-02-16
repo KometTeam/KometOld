@@ -82,10 +82,12 @@ class _CallScreenState extends State<CallScreen> {
   bool _isMuted = false;
   bool _blurPanels = true; // По умолчанию включён блюр (TODO: реализовать)
   bool _isSpeakerOn = false;
+  double _localAudioLevel = 0.0; // Уровень громкости локального микрофона (0.0 - 1.0)
   bool _isVideoEnabled = false;
   OverlayEntry? _soundpadOverlay;
   List<Map<String, String>> _soundpadSounds = []; // {name, path}
   AudioPlayer? _soundpadPlayer;
+  final GlobalKey _micButtonKey = GlobalKey(); // Для получения позиции кнопки микрофона
   bool _isRemoteVideoEnabled = false;
   bool _isRemoteMuted = false;
   int _callDuration = 0;
@@ -797,6 +799,7 @@ class _CallScreenState extends State<CallScreen> {
         
         // Начинаем отслеживать уровень звука
         _startAudioLevelMonitoring();
+        _startLocalAudioLevelMonitoring();
       }
     };
 
@@ -1116,6 +1119,50 @@ class _CallScreenState extends State<CallScreen> {
     });
   }
   
+  void _startLocalAudioLevelMonitoring() async {
+    // Мониторинг уровня локального микрофона
+    Timer.periodic(const Duration(milliseconds: 100), (timer) async {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      
+      if (_peerConnection != null && _localStream != null && !_isMuted) {
+        try {
+          final stats = await _peerConnection!.getStats();
+          
+          double maxAudioLevel = 0.0;
+          
+          // Ищем outbound-rtp аудио трек (исходящий звук - наш микрофон)
+          for (final report in stats) {
+            if (report.type == 'media-source' && report.values['kind'] == 'audio') {
+              final audioLevel = report.values['audioLevel'];
+              if (audioLevel != null && audioLevel is num) {
+                maxAudioLevel = audioLevel.toDouble();
+              }
+              break;
+            }
+          }
+          
+          if (mounted) {
+            setState(() {
+              _localAudioLevel = maxAudioLevel;
+            });
+          }
+        } catch (e) {
+          // Игнорируем ошибки
+        }
+      } else {
+        // Если микрофон выключен - уровень 0
+        if (mounted && _localAudioLevel != 0.0) {
+          setState(() {
+            _localAudioLevel = 0.0;
+          });
+        }
+      }
+    });
+  }
+
   void _startConnectionCheck() {
     _lastConnectionCheck = DateTime.now();
     _connectionCheckTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
@@ -1327,16 +1374,36 @@ class _CallScreenState extends State<CallScreen> {
 
   void _showSoundpad() {
     if (_soundpadOverlay != null) {
-      _soundpadOverlay!.remove();
+      _soundpadOverlay?.remove();
       _soundpadOverlay = null;
       return;
     }
 
     _soundpadOverlay = OverlayEntry(
-      builder: (context) => Positioned(
-        bottom: 100,
-        right: 16,
-        child: Material(
+      builder: (context) {
+        // Получаем позицию кнопки микрофона
+        final RenderBox? renderBox = _micButtonKey.currentContext?.findRenderObject() as RenderBox?;
+        if (renderBox == null) {
+          // Если не удалось получить позицию, используем дефолтную
+          return Positioned(
+            bottom: 134,
+            left: 16,
+            child: SizedBox.shrink(),
+          );
+        }
+        
+        final position = renderBox.localToGlobal(Offset.zero);
+        final size = renderBox.size;
+        final screenHeight = MediaQuery.of(context).size.height;
+        
+        // Позиционируем панель прямо над кнопкой микрофона
+        final panelHeight = 300.0;
+        final panelWidth = 200.0;
+        
+        return Positioned(
+          bottom: screenHeight - position.dy + 10, // Над кнопкой с отступом 10px
+          left: position.dx, // На той же горизонтальной позиции
+          child: Material(
           elevation: 8,
           borderRadius: BorderRadius.circular(12),
           color: Theme.of(context).colorScheme.surface,
@@ -1413,7 +1480,8 @@ class _CallScreenState extends State<CallScreen> {
             ),
           ),
         ),
-      ),
+        );
+      },
     );
 
     Overlay.of(context).insert(_soundpadOverlay!);
@@ -2457,27 +2525,32 @@ class _CallScreenState extends State<CallScreen> {
                 children: [
                   // Микрофон с саундпадом
                   Stack(
+                    key: _micButtonKey,
                     clipBehavior: Clip.none,
                     children: [
                       _CallButton(
-                        icon: _isMuted ? Icons.mic_off : Icons.mic,
+                        iconWidget: _AnimatedMicIcon(
+                          isMuted: _isMuted,
+                          audioLevel: _localAudioLevel,
+                          size: 24,
+                        ),
                         label: _isMuted ? 'Откл' : 'Микрофон',
                         onPressed: _toggleMute,
                         backgroundColor: _isMuted ? colors.error : colors.surfaceContainerHighest,
                         foregroundColor: _isMuted ? colors.onError : colors.onSurface,
                       ),
                       
-                      // Маленькая кнопка саундпада
+                      // Маленькая кнопка саундпада (серая, справа сверху)
                       Positioned(
-                        right: -4,
-                        bottom: -4,
+                        right: 4,
+                        top: 4,
                         child: GestureDetector(
                           onTap: _showSoundpad,
                           child: Container(
                             width: 24,
                             height: 24,
                             decoration: BoxDecoration(
-                              color: colors.primary,
+                              color: Colors.grey.shade600,
                               shape: BoxShape.circle,
                               border: Border.all(
                                 color: colors.surface,
@@ -2487,7 +2560,7 @@ class _CallScreenState extends State<CallScreen> {
                             child: Icon(
                               Icons.arrow_drop_up,
                               size: 16,
-                              color: colors.onPrimary,
+                              color: Colors.white,
                             ),
                           ),
                         ),
@@ -2627,8 +2700,54 @@ enum CallState {
 }
 
 /// Кнопка управления звонком
+// Виджет анимированной иконки микрофона с заливкой по уровню громкости
+class _AnimatedMicIcon extends StatelessWidget {
+  final bool isMuted;
+  final double audioLevel; // 0.0 - 1.0
+  final double size;
+  
+  const _AnimatedMicIcon({
+    required this.isMuted,
+    required this.audioLevel,
+    this.size = 24,
+  });
+  
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Stack(
+        children: [
+          // Фоновая иконка (светло-серая)
+          Icon(
+            isMuted ? Icons.mic_off : Icons.mic,
+            size: size,
+            color: Colors.grey.shade400,
+          ),
+          
+          // Заполненная часть (снизу вверх)
+          if (!isMuted && audioLevel > 0.01)
+            ClipRect(
+              child: Align(
+                alignment: Alignment.bottomCenter,
+                heightFactor: audioLevel.clamp(0.0, 1.0),
+                child: Icon(
+                  Icons.mic,
+                  size: size,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class _CallButton extends StatelessWidget {
-  final IconData icon;
+  final IconData? icon;
+  final Widget? iconWidget; // Кастомный виджет иконки
   final String label;
   final VoidCallback onPressed;
   final Color backgroundColor;
@@ -2636,13 +2755,14 @@ class _CallButton extends StatelessWidget {
   final bool isLarge;
 
   const _CallButton({
-    required this.icon,
+    this.icon,
+    this.iconWidget,
     required this.label,
     required this.onPressed,
     required this.backgroundColor,
     required this.foregroundColor,
     this.isLarge = false,
-  });
+  }) : assert(icon != null || iconWidget != null, 'Either icon or iconWidget must be provided');
 
   @override
   Widget build(BuildContext context) {
@@ -2662,8 +2782,8 @@ class _CallButton extends StatelessWidget {
               width: size,
               height: size,
               alignment: Alignment.center,
-              child: Icon(
-                icon,
+              child: iconWidget ?? Icon(
+                icon!,
                 size: iconSize,
                 color: foregroundColor,
               ),
