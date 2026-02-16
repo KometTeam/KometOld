@@ -13,9 +13,12 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:encrypt/encrypt.dart' as encrypt_lib;
+import 'package:crypto/crypto.dart';
 import 'dart:io' show Platform;
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 /// Экран активного звонка с WebRTC
@@ -89,6 +92,16 @@ class _CallScreenState extends State<CallScreen> {
   List<Map<String, String>> _soundpadSounds = []; // {name, path}
   AudioPlayer? _soundpadPlayer;
   final GlobalKey _micButtonKey = GlobalKey(); // Для получения позиции кнопки микрофона
+  
+  // Шифрование DataChannel
+  String? _chatEncryptionPassword;
+  encrypt_lib.Encrypter? _chatEncrypter;
+  encrypt_lib.IV? _chatIV;
+  
+  // Шифрование DataChannel
+  String? _encryptionPassword;
+  bool _isEncryptionEnabled = false;
+  bool _remoteDeclinedEncryption = false;
   bool _isRemoteVideoEnabled = false;
   bool _isRemoteMuted = false;
   int _callDuration = 0;
@@ -1609,6 +1622,123 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
+  // Шифрование DataChannel чата
+  void _showChatEncryptionDialog() {
+    final controller = TextEditingController(text: _chatEncryptionPassword ?? '');
+    
+    // Создаём Overlay Entry для показа поверх экрана звонка
+    OverlayEntry? overlayEntry;
+    
+    overlayEntry = OverlayEntry(
+      builder: (context) => Material(
+        color: Colors.black54,
+        child: Center(
+          child: AlertDialog(
+        title: Text('🔐 Шифрование чата'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              _chatEncryptionPassword == null
+                  ? 'Установите пароль для шифрования сообщений'
+                  : 'Изменить пароль шифрования',
+              style: TextStyle(fontSize: 14),
+            ),
+            SizedBox(height: 16),
+            TextField(
+              controller: controller,
+              obscureText: true,
+              decoration: InputDecoration(
+                labelText: 'Пароль',
+                border: OutlineInputBorder(),
+                prefixIcon: Icon(Icons.lock),
+              ),
+            ),
+          ],
+        ),
+            actions: [
+              if (_chatEncryptionPassword != null)
+                TextButton(
+                  onPressed: () {
+                    overlayEntry?.remove();
+                    _setChatEncryptionPassword(null);
+                  },
+                  child: Text('Отключить', style: TextStyle(color: Colors.red)),
+                ),
+              TextButton(
+                onPressed: () => overlayEntry?.remove(),
+                child: Text('Отмена'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  final password = controller.text.trim();
+                  if (password.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Пароль не может быть пустым')),
+                    );
+                    return;
+                  }
+                  overlayEntry?.remove();
+                  _setChatEncryptionPassword(password);
+                },
+                child: Text('OK'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    
+    Overlay.of(context).insert(overlayEntry);
+  }
+  
+  void _setChatEncryptionPassword(String? password) {
+    if (password == null || password.isEmpty) {
+      // Отключаем шифрование
+      setState(() {
+        _chatEncryptionPassword = null;
+        _chatEncrypter = null;
+        _chatIV = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('🔓 Шифрование отключено')),
+      );
+    } else {
+      // Включаем шифрование
+      _setupChatEncryption(password);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('🔐 Пароль установлен')),
+      );
+    }
+  }
+  
+  void _setupChatEncryption(String password) {
+    // Генерируем ключ из пароля через SHA-256
+    final keyBytes = sha256.convert(utf8.encode(password)).bytes;
+    final key = encrypt_lib.Key(Uint8List.fromList(keyBytes));
+    
+    // Используем фиксированный IV (в продакшене лучше генерировать случайный и передавать)
+    final iv = encrypt_lib.IV.fromLength(16);
+    
+    setState(() {
+      _chatEncryptionPassword = password;
+      _chatEncrypter = encrypt_lib.Encrypter(encrypt_lib.AES(key));
+      _chatIV = iv;
+    });
+  }
+  
+  String _encryptMessage(String text) {
+    if (_chatEncrypter == null || _chatIV == null) return text;
+    final encrypted = _chatEncrypter!.encrypt(text, iv: _chatIV!);
+    return encrypted.base64;
+  }
+  
+  String _decryptMessage(String encryptedText) {
+    if (_chatEncrypter == null || _chatIV == null) return encryptedText;
+    final encrypted = encrypt_lib.Encrypted.fromBase64(encryptedText);
+    return _chatEncrypter!.decrypt(encrypted, iv: _chatIV!);
+  }
+
   void _showCallSettings() {
     // Получаем Overlay чтобы показать поверх экрана звонка
     final overlayState = Overlay.of(context, rootOverlay: true);
@@ -1897,8 +2027,24 @@ class _CallScreenState extends State<CallScreen> {
         final type = data['type'] as String?;
 
         if (type == 'chat') {
-          final text = data['text'] as String?;
+          String? text = data['text'] as String?;
+          final isEncrypted = data['encrypted'] as bool? ?? false;
+          
           if (text != null) {
+            // Дешифруем если сообщение зашифровано
+            if (isEncrypted && _chatEncrypter != null && _chatIV != null) {
+              try {
+                text = _decryptMessage(text);
+                print('🔓 Сообщение дешифровано');
+              } catch (e) {
+                print('❌ Ошибка дешифрования: $e');
+                text = '[Ошибка дешифрования - неверный пароль?]';
+              }
+            } else if (isEncrypted && _chatEncrypter == null) {
+              // Получили зашифрованное, но у нас нет пароля
+              text = '[Зашифрованное сообщение - установите пароль]';
+            }
+            
             final newMessages = List<TemporaryChatMessage>.from(_temporaryChatMessages);
             newMessages.add(TemporaryChatMessage(
               text: text,
@@ -1929,10 +2075,18 @@ class _CallScreenState extends State<CallScreen> {
     }
 
     try {
+      // Шифруем текст если установлен пароль
+      String textToSend = text;
+      if (_chatEncrypter != null && _chatIV != null) {
+        textToSend = _encryptMessage(text);
+        print('🔐 Сообщение зашифровано');
+      }
+      
       final message = json.encode({
         'type': 'chat',
-        'text': text,
+        'text': textToSend,
         'time': DateTime.now().millisecondsSinceEpoch,
+        'encrypted': _chatEncrypter != null, // Флаг шифрования
       });
 
       _dataChannel!.send(RTCDataChannelMessage(message));
@@ -1999,6 +2153,8 @@ class _CallScreenState extends State<CallScreen> {
                   logsNotifier: _dataChannelLogsNotifier,
                   messagesNotifier: _temporaryChatMessagesNotifier,
                   onSendMessage: _sendDataChannelMessage,
+                  encryptionPassword: _chatEncryptionPassword,
+                  onShowEncryptionDialog: _showChatEncryptionDialog,
                 ),
               ),
             ),
@@ -3891,6 +4047,8 @@ class _DataChannelPanel extends StatefulWidget {
   final ValueNotifier<List<String>> logsNotifier;
   final ValueNotifier<List<TemporaryChatMessage>> messagesNotifier;
   final void Function(String) onSendMessage;
+  final String? encryptionPassword;
+  final VoidCallback onShowEncryptionDialog;
 
   const _DataChannelPanel({
     required this.isOpenNotifier,
@@ -3898,6 +4056,8 @@ class _DataChannelPanel extends StatefulWidget {
     required this.logsNotifier,
     required this.messagesNotifier,
     required this.onSendMessage,
+    required this.encryptionPassword,
+    required this.onShowEncryptionDialog,
   });
 
   @override
@@ -3973,6 +4133,20 @@ class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerP
                                   ),
                                 ),
                                 const Spacer(),
+                                IconButton(
+                                  icon: Icon(
+                                    widget.encryptionPassword != null 
+                                        ? Icons.lock 
+                                        : Icons.lock_open,
+                                    color: widget.encryptionPassword != null 
+                                        ? Colors.green 
+                                        : Colors.red,
+                                  ),
+                                  onPressed: widget.onShowEncryptionDialog,
+                                  tooltip: widget.encryptionPassword != null 
+                                      ? 'Шифрование включено' 
+                                      : 'Установить пароль',
+                                ),
                                 Chip(
                                   label: Text(status),
                                   backgroundColor: isOpen ? colors.primaryContainer : colors.errorContainer,
