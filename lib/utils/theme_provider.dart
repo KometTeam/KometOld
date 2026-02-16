@@ -334,8 +334,11 @@ class ThemeProvider with ChangeNotifier {
     final index = _savedThemes.indexWhere((t) => t.id == _activeTheme.id);
     if (index != -1) {
       _savedThemes[index] = _activeTheme;
-      await _saveThemeListToPrefs();
+    } else {
+      // Если темы нет в списке - добавляем её
+      _savedThemes.add(_activeTheme);
     }
+    await _saveThemeListToPrefs();
   }
 
   void _debouncedSave(String key, void Function() saveAction) {

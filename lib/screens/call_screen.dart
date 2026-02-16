@@ -5,6 +5,7 @@ import 'package:gwid/api/api_service.dart';
 import 'package:gwid/services/floating_call_manager.dart';
 import 'package:gwid/services/call_overlay_service.dart';
 import 'package:gwid/widgets/contact_avatar_widget.dart';
+import 'package:gwid/widgets/animated_mesh_gradient.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:permission_handler/permission_handler.dart';
@@ -76,12 +77,15 @@ class _CallScreenState extends State<CallScreen> {
   // UI State
   CallState _callState = CallState.connecting;
   bool _isMuted = false;
+  bool _blurPanels = true; // По умолчанию включён блюр (TODO: реализовать)
   bool _isSpeakerOn = false;
   bool _isVideoEnabled = false;
   bool _isRemoteVideoEnabled = false;
   bool _isRemoteMuted = false;
   int _callDuration = 0;
   Timer? _durationTimer;
+  Timer? _connectionCheckTimer;
+  DateTime? _lastConnectionCheck;
   late DateTime _callStartTime;
   
   // Network Info
@@ -160,6 +164,7 @@ class _CallScreenState extends State<CallScreen> {
 
       setState(() => _callState = CallState.ringing);
       _startDurationTimer();
+      _startConnectionCheck();
     } catch (e) {
       print('❌ Ошибка инициализации звонка: $e');
       _showErrorAndClose('Не удалось установить соединение');
@@ -1073,6 +1078,59 @@ class _CallScreenState extends State<CallScreen> {
       }
     });
   }
+  
+  void _startConnectionCheck() {
+    _lastConnectionCheck = DateTime.now();
+    _connectionCheckTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      
+      // Проверяем состояние WebRTC соединения
+      if (_peerConnection != null) {
+        final state = await _peerConnection!.getConnectionState();
+        
+        // Если соединение потеряно
+        if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
+            state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+          
+          // Даём 15 секунд на переподключение
+          final now = DateTime.now();
+          if (_lastConnectionCheck != null && 
+              now.difference(_lastConnectionCheck!).inSeconds > 15) {
+            timer.cancel();
+            if (mounted) {
+              _showConnectionLostDialog();
+            }
+          }
+        } else {
+          // Соединение в порядке - обновляем timestamp
+          _lastConnectionCheck = DateTime.now();
+        }
+      }
+    });
+  }
+  
+  void _showConnectionLostDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Соединение потеряно'),
+        content: const Text('Не удалось поддерживать соединение. Звонок будет завершён.'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              _endCall();
+            },
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
 
   void _toggleMute() {
     if (_localStream != null) {
@@ -1222,6 +1280,43 @@ class _CallScreenState extends State<CallScreen> {
   void _toggleSpeaker() {
     setState(() => _isSpeakerOn = !_isSpeakerOn);
     // TODO: Реализовать переключение динамика через platform channel
+  }
+
+  void _showCallSettings() {
+    // Получаем Overlay чтобы показать поверх экрана звонка
+    final overlayState = Overlay.of(context, rootOverlay: true);
+    
+    late OverlayEntry overlayEntry;
+    overlayEntry = OverlayEntry(
+      builder: (context) => Material(
+        color: Colors.black54,
+        child: GestureDetector(
+          onTap: () {
+            overlayEntry.remove();
+          },
+          child: Container(
+            color: Colors.transparent,
+            child: GestureDetector(
+              onTap: () {}, // Не закрывать при клике на панель
+              child: Align(
+                alignment: Alignment.bottomCenter,
+                child: _CallSettingsPanel(
+                  blurPanels: _blurPanels,
+                  onBlurPanelsChanged: (value) {
+                    setState(() => _blurPanels = value);
+                  },
+                  onClose: () {
+                    overlayEntry.remove();
+                  },
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    
+    overlayState.insert(overlayEntry);
   }
 
   void _minimizeCall() {
@@ -1706,6 +1801,8 @@ class _CallScreenState extends State<CallScreen> {
       _audioLevelTimer = null;
       _statsTimer?.cancel();
       _statsTimer = null;
+      _connectionCheckTimer?.cancel();
+      _connectionCheckTimer = null;
       
       // 2. СНАЧАЛА отменяем subscription (чтобы не читать из закрытого сокета)
       try {
@@ -1871,6 +1968,13 @@ class _CallScreenState extends State<CallScreen> {
           body: SafeArea(
           child: Stack(
             children: [
+              // Mesh gradient фон
+              Positioned.fill(
+                child: AnimatedMeshGradient(
+                  accentColor: colors.primary,
+                ),
+              ),
+              
               // Drag indicator
               if (_dragOffset > 0)
                 Positioned(
@@ -1888,6 +1992,20 @@ class _CallScreenState extends State<CallScreen> {
                     ),
                   ),
                 ),
+              
+              // Кнопка настроек в левом верхнем углу (на одной высоте с кнопкой инфо)
+              Positioned(
+                top: 24,
+                left: 8,
+                child: IconButton(
+                  icon: Icon(
+                    Icons.settings_outlined,
+                    color: colors.primary,
+                  ),
+                  onPressed: _showCallSettings,
+                ),
+              ),
+              
               Column(
               children: [
                 // Заголовок
@@ -1943,12 +2061,6 @@ class _CallScreenState extends State<CallScreen> {
               Expanded(
                 child: Stack(
                   children: [
-                    // Фон для видео (только если есть удаленное видео)
-                    if (_remoteStream != null && _isRemoteVideoEnabled)
-                      Container(
-                        color: Colors.black,
-                      ),
-                    
                     // Удаленное видео (на весь экран) или аватар если видео выключено
                     if (_remoteStream != null && _isRemoteVideoEnabled)
                       Positioned.fill(
@@ -1960,27 +2072,25 @@ class _CallScreenState extends State<CallScreen> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                // Зелёная пульсирующая обводка когда говорит
-                                if (_isRemoteSpeaking && _callState == CallState.connected)
-                                  _SpeakingIndicator(
-                                    size: 140,
-                                    color: Colors.green,
-                                  ),
-                                
-                                // Аватар
-                                ContactAvatarWidget(
-                                  contactId: widget.contactId,
-                                  originalAvatarUrl: widget.contactAvatarUrl,
+                            // Аватар
+                            CircleAvatar(
                                   radius: 60,
-                                  fallbackText: widget.contactName.isNotEmpty
-                                      ? widget.contactName[0].toUpperCase()
-                                      : '?',
+                                  backgroundImage: widget.contactAvatarUrl != null
+                                      ? NetworkImage(widget.contactAvatarUrl!)
+                                      : null,
+                                  child: widget.contactAvatarUrl == null
+                                      ? Text(
+                                          widget.contactName.isNotEmpty 
+                                              ? widget.contactName[0].toUpperCase() 
+                                              : '?',
+                                          style: TextStyle(
+                                            fontSize: 48,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.white,
+                                          ),
+                                        )
+                                      : null,
                                 ),
-                              ],
-                            ),
                             const SizedBox(height: 16),
                             if (_callState == CallState.connecting || _remoteStream == null)
                               CircularProgressIndicator(color: colors.primary),
@@ -2048,13 +2158,6 @@ class _CallScreenState extends State<CallScreen> {
                           Stack(
                             alignment: Alignment.center,
                             children: [
-                              // Зелёная пульсирующая обводка когда говорит
-                              if (_isRemoteSpeaking && _callState == CallState.connected)
-                                _SpeakingIndicator(
-                                  size: 140,
-                                  color: Colors.green,
-                                ),
-                              
                               // Сам аватар
                               ContactAvatarWidget(
                                 contactId: widget.contactId,
@@ -2590,7 +2693,7 @@ class _NetworkInfoPanelState extends State<_NetworkInfoPanel> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.location_on, size: 18),
-                  label: Text(_isLoadingGeo ? 'Загрузка...' : 'Получить геолокацию на основе IP'),
+                  label: Text(_isLoadingGeo ? 'Загрузка...' : 'geo_f_ip'),
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   ),
@@ -3509,5 +3612,102 @@ class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerP
     
     widget.onSendMessage(text);
     _messageController.clear();
+  }
+}
+
+// Диалог настроек звонка
+class _CallSettingsPanel extends StatelessWidget {
+  final bool blurPanels;
+  final ValueChanged<bool> onBlurPanelsChanged;
+  final VoidCallback onClose;
+
+  const _CallSettingsPanel({
+    required this.blurPanels,
+    required this.onBlurPanelsChanged,
+    required this.onClose,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    
+    return Container(
+      margin: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Заголовок
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Icon(Icons.settings, color: colors.primary),
+                const SizedBox(width: 8),
+                Text(
+                  'Настройки звонка',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: onClose,
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          
+          // Контент
+          SwitchListTile(
+            title: const Text('Блюр панелей'),
+            subtitle: const Text('Размытие верхней и нижней панели'),
+            value: blurPanels,
+            onChanged: onBlurPanelsChanged,
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.mic),
+            title: const Text('Аудио вход'),
+            subtitle: const Text('По умолчанию'),
+            trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+            onTap: () {
+              // TODO: Показать список доступных аудио устройств
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Выбор аудио устройств - в разработке')),
+              );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.volume_up),
+            title: const Text('Аудио выход'),
+            subtitle: const Text('По умолчанию'),
+            trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+            onTap: () {
+              // TODO: Показать список доступных аудио устройств
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Выбор аудио устройств - в разработке')),
+              );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.videocam),
+            title: const Text('Видео вход'),
+            subtitle: const Text('По умолчанию'),
+            trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+            onTap: () {
+              // TODO: Показать список доступных камер
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Выбор камеры - в разработке')),
+              );
+            },
+          ),
+          const SizedBox(height: 16),
+        ],
+      ),
+    );
   }
 }
