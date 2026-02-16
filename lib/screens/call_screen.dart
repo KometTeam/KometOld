@@ -4,6 +4,7 @@ import 'package:gwid/models/call_response.dart';
 import 'package:gwid/api/api_service.dart';
 import 'package:gwid/services/floating_call_manager.dart';
 import 'package:gwid/services/call_overlay_service.dart';
+import 'package:gwid/services/call_recording_service.dart';
 import 'package:gwid/widgets/contact_avatar_widget.dart';
 import 'package:gwid/widgets/animated_mesh_gradient.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -53,7 +54,7 @@ class _CallScreenState extends State<CallScreen> {
   MediaStream? _remoteStream;
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
-  
+
   // DataChannel
   RTCDataChannel? _dataChannel;
   OverlayEntry? _dataChannelOverlayEntry;
@@ -61,14 +62,14 @@ class _CallScreenState extends State<CallScreen> {
   final ValueNotifier<String> _dataChannelStatusNotifier = ValueNotifier('⏳ Не инициализирован');
   final ValueNotifier<List<String>> _dataChannelLogsNotifier = ValueNotifier([]);
   final ValueNotifier<List<TemporaryChatMessage>> _temporaryChatMessagesNotifier = ValueNotifier([]);
-  
+
   // Геттеры для обратной совместимости
   bool get _isDataChannelOpen => _isDataChannelOpenNotifier.value;
   set _isDataChannelOpen(bool value) => _isDataChannelOpenNotifier.value = value;
-  
+
   String get _dataChannelStatus => _dataChannelStatusNotifier.value;
   set _dataChannelStatus(String value) => _dataChannelStatusNotifier.value = value;
-  
+
   List<String> get _dataChannelLogs => _dataChannelLogsNotifier.value;
   List<TemporaryChatMessage> get _temporaryChatMessages => _temporaryChatMessagesNotifier.value;
 
@@ -95,24 +96,30 @@ class _CallScreenState extends State<CallScreen> {
   Timer? _connectionCheckTimer;
   DateTime? _lastConnectionCheck;
   late DateTime _callStartTime;
-  
+
   // Network Info
   NetworkInfo? _networkInfo;
   bool _showNetworkInfo = false;
   Timer? _statsTimer;
-  
+
   // Participant info
   int? _remoteParticipantInternalId; // INTERNAL ID второго участника
-  
+
   // Audio level tracking
   bool _isRemoteSpeaking = false;
   Timer? _audioLevelTimer;
-  
+
   // Cleanup protection
   bool _isCleaningUp = false;
-  
+
   // Drag to minimize
   double _dragOffset = 0;
+
+  // Call recording
+  final CallRecordingService _recordingService = CallRecordingService.instance;
+  StreamSubscription<RecordingState>? _recordingSubscription;
+  bool _isRecording = false;
+  Duration _recordingDuration = Duration.zero;
 
   @override
   void initState() {
@@ -121,20 +128,30 @@ class _CallScreenState extends State<CallScreen> {
     _isVideoEnabled = widget.isVideo;
     _isRemoteVideoEnabled = widget.isVideo;
     _initializeCall();
-    
+
     // Слушаем изменения FloatingCallManager для разворачивания
     FloatingCallManager.instance.addListener(_onFloatingCallStateChanged);
-    
+
     // Устанавливаем callback для завершения звонка из панели/кнопки
     FloatingCallManager.instance.onEndCall = _endCall;
-    
+
     // Инициализируем audio player для саундпада
     _soundpadPlayer = AudioPlayer();
-    
+
     // Загружаем сохранённые звуки
     _loadSoundpadSounds();
+
+    // Слушаем состояние записи
+    _recordingSubscription = _recordingService.recordingState.listen((state) {
+      if (mounted) {
+        setState(() {
+          _isRecording = state.isRecording;
+          _recordingDuration = state.duration;
+        });
+      }
+    });
   }
-  
+
   void _onFloatingCallStateChanged() {
     if (mounted) {
       setState(() {
@@ -189,7 +206,7 @@ class _CallScreenState extends State<CallScreen> {
     try {
       var wsUrl = widget.callData.internalCallerParams.endpoint;
       print('🔌 Оригинальный endpoint: $wsUrl');
-      
+
       // Добавляем ОБЯЗАТЕЛЬНЫЕ параметры как у официального клиента!
       final uri = Uri.parse(wsUrl);
       final newUri = uri.replace(queryParameters: {
@@ -202,12 +219,12 @@ class _CallScreenState extends State<CallScreen> {
         'clientType': 'ONE_ME', // КРИТИЧЕСКИ ВАЖНО!
         'tgt': 'start', // ВАЖНО!
       });
-      
+
       print('🔌 Итоговый URL: $newUri');
       print('🔑 Query params: ${newUri.queryParameters.keys}');
-      
+
       _signalingChannel = WebSocketChannel.connect(newUri);
-      
+
       // Слушаем сообщения от сервера СРАЗУ (до ready)
       _signalingSubscription = _signalingChannel!.stream.listen(
         (data) {
@@ -218,7 +235,7 @@ class _CallScreenState extends State<CallScreen> {
               _signalingChannel!.sink.add('pong');
               return;
             }
-            
+
             print('📩 RAW WebSocket data: $data');
             final message = json.decode(data as String) as Map<String, dynamic>;
             _handleSignalingMessage(message);
@@ -238,19 +255,19 @@ class _CallScreenState extends State<CallScreen> {
           final closeReason = _signalingChannel?.closeReason;
           print('🔌 Close code: $closeCode');
           print('🔌 Close reason: $closeReason');
-          
+
           if (_callState != CallState.ended) {
             print('⚠️ WebSocket закрылся неожиданно во время звонка!');
           }
         },
       );
-      
+
       // Ждем подключения
       await _signalingChannel!.ready;
       print('✅ WebSocket подключен');
       print('🔍 WebSocket readyState: ${_signalingChannel!.closeCode}');
       print('🔍 WebSocket протокол: ${_signalingChannel!.protocol}');
-      
+
       // Отправляем mediaSettings (как в официальном клиенте!)
       if (widget.isOutgoing) {
         // Для исходящих звонков тоже нужно отправить media settings
@@ -268,7 +285,7 @@ class _CallScreenState extends State<CallScreen> {
         });
         print('📤 Отправлены media settings');
       }
-      
+
       print('⏳ Ожидание входящих сообщений от сервера...');
     } catch (e) {
       print('❌ Ошибка подключения к WebSocket: $e');
@@ -284,24 +301,24 @@ class _CallScreenState extends State<CallScreen> {
         print('⚠️ conversation отсутствует в notification:connection');
         return;
       }
-      
+
       final participants = conversation['participants'] as List<dynamic>?;
       if (participants == null || participants.isEmpty) {
         print('⚠️ participants пуст');
         return;
       }
-      
+
       final myInternalId = widget.callData.internalCallerParams.id.internal;
       print('🔍 Ищем второго участника. Мой INTERNAL ID: $myInternalId');
-      
+
       // Ищем второго участника (не меня)
       for (final p in participants) {
         if (p is! Map<String, dynamic>) continue;
-        
+
         final participantId = p['id'] as int?;
         if (participantId != null && participantId != myInternalId) {
           _remoteParticipantInternalId = participantId;
-          
+
           final externalId = p['externalId']?['id'] as String?;
           print('✅ Найден второй участник:');
           print('   INTERNAL ID: $participantId');
@@ -310,40 +327,40 @@ class _CallScreenState extends State<CallScreen> {
           break;
         }
       }
-      
+
       if (_remoteParticipantInternalId == null) {
         print('❌ Не удалось найти INTERNAL ID второго участника!');
       }
-      
+
       // Парсим геолокацию из endpoint
       final endpoint = message['endpoint'] as String?;
       if (endpoint != null) {
         _parseGeoFromEndpoint(endpoint);
       }
-      
+
       // Парсим TURN/STUN серверы
       final conversationParams = message['conversationParams'] as Map<String, dynamic>?;
       if (conversationParams != null) {
         final turn = conversationParams['turn'] as Map<String, dynamic>?;
         final stun = conversationParams['stun'] as Map<String, dynamic>?;
-        
+
         setState(() {
           _networkInfo ??= NetworkInfo();
-          
+
           if (turn != null) {
             final urls = turn['urls'] as List<dynamic>?;
             if (urls != null) {
               _networkInfo!.turnServers = urls.cast<String>();
             }
           }
-          
+
           if (stun != null) {
             final urls = stun['urls'] as List<dynamic>?;
             if (urls != null) {
               _networkInfo!.stunServers = urls.cast<String>();
             }
           }
-          
+
           print('✅ NetworkInfo обновлен: TURN=${_networkInfo!.turnServers.length}, STUN=${_networkInfo!.stunServers.length}, Geo=${_networkInfo!.remoteGeo}');
         });
       }
@@ -351,17 +368,17 @@ class _CallScreenState extends State<CallScreen> {
       print('❌ Ошибка парсинга connection notification: $e');
     }
   }
-  
+
   void _parseGeoFromEndpoint(String endpoint) {
     try {
       final uri = Uri.parse(endpoint);
       final params = uri.queryParameters;
-      
+
       final country = params['locCc'];
       final region = params['locReg'];
       final isp = params['ispAsOrg'];
       final asn = int.tryParse(params['ispAsNo'] ?? '');
-      
+
       if (country != null || isp != null) {
         setState(() {
           _networkInfo ??= NetworkInfo();
@@ -369,13 +386,13 @@ class _CallScreenState extends State<CallScreen> {
           _networkInfo!.localCountry = country;
           _networkInfo!.localIsp = isp;
           _networkInfo!.localAsn = asn;
-          
+
           // Формируем полную строку геолокации
           final parts = <String>[];
           if (country != null) parts.add(country);
           if (region != null) parts.add('Region $region');
           if (isp != null) parts.add(isp);
-          
+
           _networkInfo!.localGeo = parts.isNotEmpty ? parts.join(', ') : null;
         });
       }
@@ -387,50 +404,50 @@ class _CallScreenState extends State<CallScreen> {
   void _handleSignalingMessage(Map<String, dynamic> message) {
     print('📥 Signaling message type: ${message['type'] ?? message['command'] ?? message['notification']}');
     print('📥 Full message: ${message.toString().substring(0, message.toString().length > 500 ? 500 : message.toString().length)}...');
-    
+
     // Парсим сетевую информацию из аналитики
     _parseNetworkInfo(message);
-    
+
     final type = message['type'] as String?;
     final command = message['command'] as String?;
-    
+
     // Обработка ответов от сервера
     if (type == 'response') {
       final response = message['response'] as String?;
       print('📨 Получен response: $response');
-      
+
       // Ответ на transmit-data или другие команды
       if (response == 'transmit-data') {
         print('✅ SDP успешно отправлен на сервер');
       }
       return;
     }
-    
+
     // Обработка notification (от сервера)
     final notification = message['notification'] as String?;
     if (notification != null) {
       print('🔔 Notification: $notification');
-      
+
       switch (notification) {
         case 'connection':
           // ПЕРВОЕ сообщение от сервера с информацией об участниках!
           print('🎉 Получено notification:connection');
           _handleConnectionNotification(message);
           break;
-          
+
         case 'transmitted-data':
           // Данные от ДРУГОГО участника (не от нас!)
           final participantId = message['participantId'] as int?;
           final myId = widget.callData.internalCallerParams.id.internal;
-          
+
           print('🔍 transmitted-data: participantId=$participantId, myId=$myId');
-          
+
           if (participantId != null && participantId != myId) {
             print('📨 Получены данные от участника $participantId');
             final data = message['data'] as Map<String, dynamic>?;
             if (data != null) {
               print('📦 Data keys: ${data.keys.toList()}');
-              
+
               // Проверяем есть ли SDP
               if (data.containsKey('sdp')) {
                 print('🎯 Получен SDP от участника!');
@@ -448,14 +465,14 @@ class _CallScreenState extends State<CallScreen> {
             print('⏭️ Пропускаем transmitted-data от себя или без participantId');
           }
           break;
-          
+
         case 'accepted-call':
           print('✅ Звонок принят другим участником!');
           print('⏳ Ожидаем SDP answer от второго участника...');
           // НЕ меняем статус на connected, ждём SDP answer!
           setState(() => _callState = CallState.ringing);
           break;
-          
+
         case 'hungup':
         case 'closed-conversation':
           print('📴 Звонок завершен собеседником');
@@ -465,11 +482,11 @@ class _CallScreenState extends State<CallScreen> {
             if (_showNetworkInfo && mounted) {
               setState(() => _showNetworkInfo = false);
             }
-            
+
             if (mounted) {
               setState(() => _callState = CallState.ended);
             }
-            
+
             // Закрываем UI с небольшой задержкой чтобы UI успел обновиться
             Future.delayed(const Duration(milliseconds: 100), () {
               if (mounted) {
@@ -484,7 +501,7 @@ class _CallScreenState extends State<CallScreen> {
                 }
               }
             });
-            
+
             // Cleanup запускаем параллельно, без ожидания и блокировки UI
             Future.delayed(Duration.zero, () {
               _cleanup().catchError((e) {
@@ -493,13 +510,13 @@ class _CallScreenState extends State<CallScreen> {
             });
           }
           break;
-          
+
         case 'media-settings-changed':
           // Обработка изменения настроек медиа (микрофон/видео собеседника)
           print('🎙️ Получено media-settings-changed');
           final participantId = message['participantId'] as int?;
           final myId = widget.callData.internalCallerParams.id.internal;
-          
+
           // Обрабатываем только изменения от собеседника, не от себя
           if (participantId != null && participantId != myId) {
             final mediaSettings = message['mediaSettings'] as Map<String, dynamic>?;
@@ -507,9 +524,9 @@ class _CallScreenState extends State<CallScreen> {
               // Если mediaSettings пустой {}, значит всё выключено
               final isAudioEnabled = mediaSettings['isAudioEnabled'] as bool? ?? false;
               final isVideoEnabled = mediaSettings['isVideoEnabled'] as bool? ?? false;
-              
+
               print('🔊 Собеседник изменил настройки: audio=$isAudioEnabled, video=$isVideoEnabled');
-              
+
               if (mounted) {
                 setState(() {
                   _isRemoteMuted = !isAudioEnabled;
@@ -519,28 +536,28 @@ class _CallScreenState extends State<CallScreen> {
             }
           }
           break;
-        
+
         case 'settings-update':
           // Получаем лимиты качества от сервера
           print('📊 Получено settings-update');
           final camera = message['camera'] as Map<String, dynamic>?;
           final settings = message['settings'] as Map<String, dynamic>?;
-          
+
           if (camera != null || settings != null) {
             setState(() {
               _networkInfo ??= NetworkInfo();
-              
+
               // Лимиты камеры
               if (camera != null) {
                 _networkInfo!.maxVideoBitrate = camera['maxBitrateK'] as int?;
                 _networkInfo!.maxVideoResolution = camera['maxDimension'] as int?;
               }
-              
+
               // Пороги качества сети
               if (settings != null) {
                 final badNet = settings['badNet'] as Map<String, dynamic>?;
                 final goodNet = settings['goodNet'] as Map<String, dynamic>?;
-                
+
                 if (badNet != null) {
                   _networkInfo!.badNetRtt = badNet['rtt'] as int?;
                   _networkInfo!.badNetLoss = (badNet['loss'] as num?)?.toDouble();
@@ -550,25 +567,25 @@ class _CallScreenState extends State<CallScreen> {
                   _networkInfo!.goodNetLoss = (goodNet['loss'] as num?)?.toDouble();
                 }
               }
-              
+
               print('✅ Settings-update сохранены: maxBitrate=${_networkInfo!.maxVideoBitrate}, badNetRtt=${_networkInfo!.badNetRtt}');
             });
           }
           break;
-          
+
         default:
           print('ℹ️ Notification: $notification');
       }
       return;
     }
-    
+
     // Обработка команд
     switch (command) {
       case 'ping':
         // Отвечаем на ping (JSON формат)
         _sendSignalingMessage({'command': 'pong', 'sequence': _sequenceNumber++});
         break;
-        
+
       default:
         print('⚠️ Неизвестная команда: $command');
     }
@@ -578,20 +595,20 @@ class _CallScreenState extends State<CallScreen> {
     try {
       final sdp = data['sdp'] as String;
       final type = data['type'] as String;
-      
+
       print('📨 Получен remote SDP ($type), длина: ${sdp.length}');
-      
+
       final description = RTCSessionDescription(sdp, type);
       await _peerConnection!.setRemoteDescription(description);
-      
+
       print('✅ Remote description установлен');
-      
+
       // Если получили offer, нужно создать answer
       if (type == 'offer') {
         print('📤 Создаем answer на полученный offer');
         final answer = await _peerConnection!.createAnswer();
         await _peerConnection!.setLocalDescription(answer);
-        
+
         // Отправляем answer
         _sendCredentials(answer);
         print('✅ Answer отправлен');
@@ -604,26 +621,26 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> _handleRemoteCandidate(Map<String, dynamic> data) async {
     try {
       final candidateStr = data['candidate'] as String;
-      
+
       print('🧊 Получен remote ICE candidate');
-      
+
       // Парсим IP собеседника из candidate
       _parseRemoteCandidate(candidateStr);
-      
+
       final candidate = RTCIceCandidate(
         candidateStr,
         data['sdpMid'] as String?,
         data['sdpMLineIndex'] as int?,
       );
-      
+
       await _peerConnection!.addCandidate(candidate);
-      
+
       print('✅ Remote candidate добавлен');
     } catch (e) {
       print('❌ Ошибка добавления remote candidate: $e');
     }
   }
-  
+
   void _parseRemoteCandidate(String candidateStr) {
     try {
       // Парсим: candidate:ID COMPONENT PROTOCOL PRIORITY IP PORT typ TYPE [raddr RADDR rport RPORT] [generation GEN] [network-id NID] [network-cost COST]
@@ -632,13 +649,13 @@ class _CallScreenState extends State<CallScreen> {
         final ip = parts[4];
         final port = int.tryParse(parts[5]) ?? 0;
         final priority = int.tryParse(parts[3]) ?? 0;
-        
+
         String type = 'unknown';
         String? relayServer;
         String? stunServer;
         String? networkId;
         int? networkCost;
-        
+
         // Ищем тип кандидата
         for (int i = 0; i < parts.length - 1; i++) {
           if (parts[i] == 'typ') {
@@ -656,10 +673,10 @@ class _CallScreenState extends State<CallScreen> {
             networkCost = int.tryParse(parts[i + 1]);
           }
         }
-        
+
         setState(() {
           _networkInfo ??= NetworkInfo();
-          
+
           // Добавляем кандидат в список
           final candidate = IceCandidate(
             ip: ip,
@@ -671,17 +688,17 @@ class _CallScreenState extends State<CallScreen> {
             relayServer: relayServer,
             stunServer: stunServer,
           );
-          
+
           // Избегаем дубликатов
           if (!_networkInfo!.remoteCandidates.any((c) => c.ip == ip && c.port == port)) {
             _networkInfo!.remoteCandidates.add(candidate);
           }
-          
+
           // Обновляем основной IP (приоритет: srflx > host > relay)
           final shouldUpdate = _networkInfo!.remoteAddress == null ||
               (type == 'srflx' && _networkInfo!.remoteConnectionType != 'srflx') ||
               (type == 'host' && _networkInfo!.remoteConnectionType == 'relay');
-          
+
           if (shouldUpdate) {
             _networkInfo!.remoteAddress = ip;
             _networkInfo!.remoteConnectionType = type;
@@ -699,7 +716,7 @@ class _CallScreenState extends State<CallScreen> {
       print('⚠️ WebSocket не подключен');
       return;
     }
-    
+
     final jsonString = json.encode(message);
     _signalingChannel!.sink.add(jsonString);
     print('📤 Отправлено signaling сообщение: ${message['command']}');
@@ -740,11 +757,11 @@ class _CallScreenState extends State<CallScreen> {
     };
 
     _peerConnection = await createPeerConnection(configuration);
-    
+
     print('🔍 DataChannel настройка:');
     print('   enableDataChannel: ${widget.enableDataChannel}');
     print('   isOutgoing: ${widget.isOutgoing}');
-    
+
     // Создаём DataChannel если включен И это исходящий звонок
     if (widget.enableDataChannel && widget.isOutgoing) {
       print('🔌 Создание DataChannel (исходящий звонок)');
@@ -756,13 +773,13 @@ class _CallScreenState extends State<CallScreen> {
       print('❌ DataChannel отключен пользователем');
       _addDataChannelLog('❌ DATA_CHANNEL отключен');
     }
-    
+
     // Обработчик входящего DataChannel
     _peerConnection!.onDataChannel = (RTCDataChannel channel) {
       print('📥📥📥 ПОЛУЧЕН ВХОДЯЩИЙ DataChannel: ${channel.label}');
       print('   widget.enableDataChannel: ${widget.enableDataChannel}');
       print('   widget.isOutgoing: ${widget.isOutgoing}');
-      
+
       if (widget.enableDataChannel) {
         print('✅ Принимаем DataChannel');
         _addDataChannelLog('📥 Получен DataChannel от собеседника');
@@ -792,11 +809,11 @@ class _CallScreenState extends State<CallScreen> {
           _remoteRenderer.srcObject = _remoteStream;
           _callState = CallState.connected;
         });
-        
+
         // Активируем FloatingCallManager чтобы показать панель звонка
         FloatingCallManager.instance.startCall();
         print('✅ FloatingCallManager активирован (onTrack)');
-        
+
         // Начинаем отслеживать уровень звука
         _startAudioLevelMonitoring();
         _startLocalAudioLevelMonitoring();
@@ -808,14 +825,14 @@ class _CallScreenState extends State<CallScreen> {
       print('🔌 Connection State: $state');
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
         setState(() => _callState = CallState.connected);
-        
+
         // Активируем FloatingCallManager чтобы показать панель звонка
         FloatingCallManager.instance.startCall();
         print('✅ FloatingCallManager активирован (onConnectionState)');
-        
+
         // Получаем первую статистику сразу
         _updateNetworkStats();
-        
+
         // Запускаем периодическое обновление статистики каждую секунду
         _statsTimer?.cancel();
         _statsTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -836,7 +853,7 @@ class _CallScreenState extends State<CallScreen> {
         if (!micPermission.isGranted) {
           throw Exception('Нет разрешения на микрофон');
         }
-        
+
         // Запрашиваем камеру если нужно видео
         if (widget.isVideo) {
           final cameraPermission = await Permission.camera.request();
@@ -846,7 +863,7 @@ class _CallScreenState extends State<CallScreen> {
           }
         }
       }
-      
+
       final constraints = {
         'audio': true,
         'video': _isVideoEnabled ? {
@@ -875,7 +892,7 @@ class _CallScreenState extends State<CallScreen> {
       }
     } catch (e) {
       print('❌ Ошибка получения медиа: $e');
-      
+
       // Пробуем получить хотя бы аудио
       if (widget.isVideo && _isVideoEnabled) {
         print('⚠️ Пробуем без видео...');
@@ -908,10 +925,10 @@ class _CallScreenState extends State<CallScreen> {
       await _peerConnection!.setLocalDescription(offer);
 
       print('📤 SDP Offer создан, длина: ${offer.sdp?.length} символов');
-      
+
       // Отправляем SDP offer через WebSocket signaling
       _sendCredentials(offer);
-      
+
       print('✅ SDP offer отправлен через WebSocket');
     } catch (e) {
       print('❌ Ошибка создания/отправки offer: $e');
@@ -922,9 +939,9 @@ class _CallScreenState extends State<CallScreen> {
   void _sendCredentials(RTCSessionDescription description) {
     // Используем INTERNAL ID второго участника, если получили
     final recipientId = _remoteParticipantInternalId ?? widget.contactId;
-    
+
     print('📤 Отправляем SDP на participantId=$recipientId (internal=${_remoteParticipantInternalId != null})');
-    
+
     final message = {
       'command': 'transmit-data',
       'sequence': _sequenceNumber++,
@@ -938,7 +955,7 @@ class _CallScreenState extends State<CallScreen> {
       },
       'participantType': 'USER',
     };
-    
+
     _sendSignalingMessage(message);
   }
 
@@ -946,10 +963,10 @@ class _CallScreenState extends State<CallScreen> {
     if (candidate.candidate != null) {
       _parseLocalCandidate(candidate.candidate!);
     }
-    
+
     // Используем INTERNAL ID второго участника, если получили
     final recipientId = _remoteParticipantInternalId ?? widget.contactId;
-    
+
     final message = {
       'command': 'transmit-data',
       'sequence': _sequenceNumber++,
@@ -963,10 +980,10 @@ class _CallScreenState extends State<CallScreen> {
       },
       'participantType': 'USER',
     };
-    
+
     _sendSignalingMessage(message);
   }
-  
+
   void _parseLocalCandidate(String candidateStr) {
     try {
       final parts = candidateStr.split(' ');
@@ -974,13 +991,13 @@ class _CallScreenState extends State<CallScreen> {
         final ip = parts[4];
         final port = int.tryParse(parts[5]) ?? 0;
         final priority = int.tryParse(parts[3]) ?? 0;
-        
+
         String type = 'unknown';
         String? relayServer;
         String? stunServer;
         String? networkId;
         int? networkCost;
-        
+
         for (int i = 0; i < parts.length - 1; i++) {
           if (parts[i] == 'typ') {
             type = parts[i + 1];
@@ -996,10 +1013,10 @@ class _CallScreenState extends State<CallScreen> {
             networkCost = int.tryParse(parts[i + 1]);
           }
         }
-        
+
         setState(() {
           _networkInfo ??= NetworkInfo();
-          
+
           final candidate = IceCandidate(
             ip: ip,
             port: port,
@@ -1010,11 +1027,11 @@ class _CallScreenState extends State<CallScreen> {
             relayServer: relayServer,
             stunServer: stunServer,
           );
-          
+
           if (!_networkInfo!.localCandidates.any((c) => c.ip == ip && c.port == port)) {
             _networkInfo!.localCandidates.add(candidate);
           }
-          
+
           if (type == 'srflx' && (_networkInfo!.localAddress == null || _networkInfo!.localAddress == '0.0.0.0')) {
             _networkInfo!.localAddress = ip;
             _networkInfo!.localConnectionType = type;
@@ -1026,17 +1043,17 @@ class _CallScreenState extends State<CallScreen> {
       print('Error parsing local candidate: $e');
     }
   }
-  
+
   void _parseNetworkInfo(Map<String, dynamic> message) {
     try {
       final items = message['items'] as List<dynamic>?;
       if (items == null) return;
-      
+
       for (var item in items) {
         if (item is! Map<String, dynamic>) continue;
-        
+
         final name = item['name'] as String?;
-        
+
         if (name == 'websocket_connected' || name == 'signaling_connected' || name == 'call_start' || name == 'first_media_received') {
           final localAddress = item['local_address'] as String?;
           final localConnectionType = item['local_connection_type'] as String?;
@@ -1045,7 +1062,7 @@ class _CallScreenState extends State<CallScreen> {
           final transport = item['transport'] as String?;
           final networkType = item['network_type'] as String?;
           final rtt = item['rtt'] as int?;
-          
+
           if (localAddress != null || remoteAddress != null) {
             setState(() {
               _networkInfo ??= NetworkInfo();
@@ -1057,7 +1074,7 @@ class _CallScreenState extends State<CallScreen> {
               if (networkType != null) _networkInfo!.networkType = networkType;
               if (rtt != null) _networkInfo!.rtt = rtt;
             });
-            
+
             print('Network Info updated:');
             print('   Local: ${_networkInfo!.localAddress} (${_networkInfo!.localConnectionType})');
             print('   Remote: ${_networkInfo!.remoteAddress} (${_networkInfo!.remoteConnectionType})');
@@ -1079,7 +1096,7 @@ class _CallScreenState extends State<CallScreen> {
       }
     });
   }
-  
+
   void _startAudioLevelMonitoring() async {
     // Мониторинг уровня звука через WebRTC Stats API
     _audioLevelTimer = Timer.periodic(const Duration(milliseconds: 200), (timer) async {
@@ -1087,9 +1104,9 @@ class _CallScreenState extends State<CallScreen> {
         try {
           // Получаем статистику WebRTC
           final stats = await _peerConnection!.getStats();
-          
+
           double maxAudioLevel = 0.0;
-          
+
           // Ищем inbound-rtp аудио трек (входящий звук от собеседника)
           for (final report in stats) {
             if (report.type == 'inbound-rtp' && report.values['kind'] == 'audio') {
@@ -1101,11 +1118,11 @@ class _CallScreenState extends State<CallScreen> {
               break;
             }
           }
-          
+
           // Порог для определения речи (можно настроить)
           // audioLevel > 0.01 означает что есть звук
           final isSpeaking = maxAudioLevel > 0.01;
-          
+
           if (mounted && _isRemoteSpeaking != isSpeaking) {
             setState(() {
               _isRemoteSpeaking = isSpeaking;
@@ -1118,7 +1135,7 @@ class _CallScreenState extends State<CallScreen> {
       }
     });
   }
-  
+
   void _startLocalAudioLevelMonitoring() async {
     // Мониторинг уровня локального микрофона
     Timer.periodic(const Duration(milliseconds: 100), (timer) async {
@@ -1126,13 +1143,13 @@ class _CallScreenState extends State<CallScreen> {
         timer.cancel();
         return;
       }
-      
+
       if (_peerConnection != null && _localStream != null && !_isMuted) {
         try {
           final stats = await _peerConnection!.getStats();
-          
+
           double maxAudioLevel = 0.0;
-          
+
           // Ищем outbound-rtp аудио трек (исходящий звук - наш микрофон)
           for (final report in stats) {
             if (report.type == 'media-source' && report.values['kind'] == 'audio') {
@@ -1143,7 +1160,7 @@ class _CallScreenState extends State<CallScreen> {
               break;
             }
           }
-          
+
           if (mounted) {
             setState(() {
               _localAudioLevel = maxAudioLevel;
@@ -1170,18 +1187,18 @@ class _CallScreenState extends State<CallScreen> {
         timer.cancel();
         return;
       }
-      
+
       // Проверяем состояние WebRTC соединения ТОЛЬКО если звонок уже подключён
       if (_peerConnection != null && _callState == CallState.connected) {
         final state = await _peerConnection!.getConnectionState();
-        
+
         // Если соединение потеряно
         if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
             state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
-          
+
           // Даём 30 секунд на переподключение (было 15)
           final now = DateTime.now();
-          if (_lastConnectionCheck != null && 
+          if (_lastConnectionCheck != null &&
               now.difference(_lastConnectionCheck!).inSeconds > 30) {
             timer.cancel();
             if (mounted) {
@@ -1195,11 +1212,11 @@ class _CallScreenState extends State<CallScreen> {
       }
     });
   }
-  
+
   void _showConnectionLostDialog() {
     // Сначала завершаем звонок
     _endCall();
-    
+
     // Показываем диалог с информацией
     if (mounted) {
       showDialog(
@@ -1229,7 +1246,7 @@ class _CallScreenState extends State<CallScreen> {
       for (var track in audioTracks) {
         track.enabled = !_isMuted;
       }
-      
+
       // Отправляем обновление медиа настроек
       _sendSignalingMessage({
         'command': 'change-media-settings',
@@ -1248,11 +1265,11 @@ class _CallScreenState extends State<CallScreen> {
 
   Future<void> _toggleVideo() async {
     if (_localStream == null || _isCleaningUp) return;
-    
+
     // Сохраняем новое состояние сразу чтобы избежать мерцания кнопки
     final newVideoState = !_isVideoEnabled;
     if (mounted) setState(() => _isVideoEnabled = newVideoState);
-    
+
     try {
       if (!newVideoState) {
         // Выключаем видео
@@ -1264,7 +1281,7 @@ class _CallScreenState extends State<CallScreen> {
           await track.stop();
           _localStream!.removeTrack(track);
         }
-        
+
         // Отправляем обновление медиа настроек
         _sendSignalingMessage({
           'command': 'change-media-settings',
@@ -1281,7 +1298,7 @@ class _CallScreenState extends State<CallScreen> {
       } else {
         // Включаем видео
         print('📹 Включаем видео...');
-        
+
         // Запрашиваем разрешение на камеру
         if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
           final cameraPermission = await Permission.camera.request();
@@ -1290,32 +1307,32 @@ class _CallScreenState extends State<CallScreen> {
             return;
           }
         }
-        
+
         // Получаем видео поток
         final videoStream = await navigator.mediaDevices.getUserMedia({
           'video': {'facingMode': 'user'}
         });
-        
+
         if (_localStream == null || _isCleaningUp || !mounted) {
           // Если звонок уже завершился - останавливаем треки
           videoStream.getTracks().forEach((t) => t.stop());
           return;
         }
-        
+
         // Добавляем видео треки в локальный стрим
         final newVideoTracks = videoStream.getVideoTracks();
         for (var track in newVideoTracks) {
           await _localStream!.addTrack(track);
-          
+
           // Добавляем трек в peer connection
           if (_peerConnection != null) {
             await _peerConnection!.addTrack(track, _localStream!);
           }
         }
-        
+
         // Обновляем рендерер
         _localRenderer.srcObject = _localStream;
-        
+
         // Создаём новый offer с видео и отправляем
         if (_peerConnection != null) {
           final offer = await _peerConnection!.createOffer({
@@ -1323,7 +1340,7 @@ class _CallScreenState extends State<CallScreen> {
             'offerToReceiveVideo': true,
           });
           await _peerConnection!.setLocalDescription(offer);
-          
+
           final recipientId = _remoteParticipantInternalId ?? widget.contactId;
           _sendSignalingMessage({
             'command': 'transmit-data',
@@ -1339,7 +1356,7 @@ class _CallScreenState extends State<CallScreen> {
           });
           print('✅ Новый offer с видео отправлен');
         }
-        
+
         // Отправляем обновление медиа настроек
         _sendSignalingMessage({
           'command': 'change-media-settings',
@@ -1391,15 +1408,15 @@ class _CallScreenState extends State<CallScreen> {
             child: SizedBox.shrink(),
           );
         }
-        
+
         final position = renderBox.localToGlobal(Offset.zero);
         final size = renderBox.size;
         final screenHeight = MediaQuery.of(context).size.height;
-        
+
         // Позиционируем панель прямо над кнопкой микрофона
         final panelHeight = 300.0;
         final panelWidth = 200.0;
-        
+
         return Positioned(
           bottom: screenHeight - position.dy + 10, // Над кнопкой с отступом 10px
           left: position.dx, // На той же горизонтальной позиции
@@ -1437,7 +1454,7 @@ class _CallScreenState extends State<CallScreen> {
                   ),
                 ),
                 Divider(height: 1),
-                
+
                 // Список звуков
                 Flexible(
                   child: _soundpadSounds.isEmpty
@@ -1468,7 +1485,7 @@ class _CallScreenState extends State<CallScreen> {
                           },
                         ),
                 ),
-                
+
                 // Кнопка добавления звука
                 Divider(height: 1),
                 TextButton.icon(
@@ -1538,18 +1555,18 @@ class _CallScreenState extends State<CallScreen> {
         type: FileType.audio,
         allowMultiple: false,
       );
-      
+
       if (result != null && result.files.isNotEmpty) {
         final file = result.files.first;
         final path = file.path;
         final name = file.name;
-        
+
         if (path != null) {
           setState(() {
             _soundpadSounds.add({'name': name, 'path': path});
           });
           await _saveSoundpadSounds();
-          
+
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('Звук "$name" добавлен')),
@@ -1566,14 +1583,14 @@ class _CallScreenState extends State<CallScreen> {
       }
     }
   }
-  
+
   Future<void> _deleteSoundFromSoundpad(int index) async {
     final sound = _soundpadSounds[index];
     setState(() {
       _soundpadSounds.removeAt(index);
     });
     await _saveSoundpadSounds();
-    
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1595,7 +1612,7 @@ class _CallScreenState extends State<CallScreen> {
   void _showCallSettings() {
     // Получаем Overlay чтобы показать поверх экрана звонка
     final overlayState = Overlay.of(context, rootOverlay: true);
-    
+
     late OverlayEntry overlayEntry;
     overlayEntry = OverlayEntry(
       builder: (context) => Material(
@@ -1625,19 +1642,19 @@ class _CallScreenState extends State<CallScreen> {
         ),
       ),
     );
-    
+
     overlayState.insert(overlayEntry);
   }
 
   void _minimizeCall() {
     print('🔽 Минимизация звонка');
-    
+
     // Если есть callback - используем его (для Overlay режима)
     if (widget.onMinimize != null) {
       widget.onMinimize!();
       return;
     }
-    
+
     // Иначе используем старый способ через Navigator
     FloatingCallManager.instance.minimizeCall(
       callerName: widget.contactName,
@@ -1647,9 +1664,71 @@ class _CallScreenState extends State<CallScreen> {
       callStartTime: _callStartTime,
       isVideo: widget.isVideo,
     );
-    
+
     if (mounted) {
       Navigator.of(context).pop();
+    }
+  }
+
+  /// Начать запись звонка
+  Future<void> _startRecording() async {
+    try {
+      await _recordingService.startRecording(
+        contactName: widget.contactName,
+        contactId: widget.contactId,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('🎙️ Запись звонка начата'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ Ошибка начала записи: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Ошибка начала записи: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Остановить запись звонка
+  Future<void> _stopRecording() async {
+    try {
+      final path = await _recordingService.stopRecording();
+      if (mounted && path != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ Запись сохранена: ${path.split('/').last}'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ Ошибка остановки записи: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Ошибка остановки записи: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  /// Переключить запись
+  Future<void> _toggleRecording() async {
+    if (_isRecording) {
+      await _stopRecording();
+    } else {
+      await _startRecording();
     }
   }
 
@@ -1659,14 +1738,19 @@ class _CallScreenState extends State<CallScreen> {
       print('⚠️ Cleanup уже в процессе, пропускаем');
       return;
     }
-    
+
     try {
       print('📴 Завершение звонка...');
-      
+
+      // Останавливаем запись если идет
+      if (_isRecording) {
+        await _stopRecording();
+      }
+
       setState(() => _callState = CallState.ended);
-      
+
       final hangupType = _callState == CallState.connected ? 'HUNGUP' : 'CANCELED';
-      
+
       if (_signalingChannel != null) {
         try {
           final hangupMessage = {
@@ -1680,7 +1764,7 @@ class _CallScreenState extends State<CallScreen> {
           print('⚠️ Ошибка отправки hangup через WebSocket: $e');
         }
       }
-      
+
       // REST API hangup с таймаутом
       try {
         await ApiService.instance.hangupCall(
@@ -1691,9 +1775,9 @@ class _CallScreenState extends State<CallScreen> {
       } catch (e) {
         print('⚠️ Ошибка REST API hangup (продолжаем cleanup): $e');
       }
-      
+
       await _cleanup();
-      
+
       // Если используется Overlay - закрываем через сервис
       if (widget.onMinimize != null) {
         CallOverlayService.instance.closeCall();
@@ -1706,9 +1790,9 @@ class _CallScreenState extends State<CallScreen> {
       }
     } catch (e) {
       print('❌ Ошибка при завершении звонка: $e');
-      
+
       await _cleanup();
-      
+
       // Если используется Overlay - закрываем через сервис
       if (widget.onMinimize != null) {
         CallOverlayService.instance.closeCall();
@@ -1723,32 +1807,32 @@ class _CallScreenState extends State<CallScreen> {
 
   void _showErrorAndClose(String message) {
     if (!mounted) return;
-    
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
         backgroundColor: Colors.red,
       ),
     );
-    
+
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) Navigator.of(context).pop();
     });
   }
-  
+
   // ========== DataChannel методы ==========
-  
+
   Future<void> _createDataChannel() async {
     try {
       final RTCDataChannelInit config = RTCDataChannelInit();
       config.ordered = true;
-      
+
       _dataChannel = await _peerConnection!.createDataChannel('komet-data', config);
       _setupDataChannel(_dataChannel!);
-      
+
       print('✅ DataChannel создан: ${_dataChannel!.label}');
       _addDataChannelLog('⏳ DataChannel создан, ожидание подключения...');
-      
+
       // НЕ устанавливаем _isDataChannelOpen = true здесь!
       // Это будет сделано в onDataChannelState когда статус станет Open
     } catch (e) {
@@ -1756,10 +1840,10 @@ class _CallScreenState extends State<CallScreen> {
       _addDataChannelLog('❌ Ошибка создания: $e');
     }
   }
-  
+
   void _setupDataChannel(RTCDataChannel channel) {
     _dataChannel = channel;
-    
+
     // Добавляем таймаут - если через 5 секунд канал не открылся, считаем что не поддерживается
     Timer(const Duration(seconds: 5), () {
       if (mounted && _dataChannel != null && !_isDataChannelOpen) {
@@ -1768,10 +1852,10 @@ class _CallScreenState extends State<CallScreen> {
         if (mounted) setState(() {});
       }
     });
-    
+
     _dataChannel!.onDataChannelState = (RTCDataChannelState state) {
       print('📡 DataChannel state: $state');
-      
+
       if (mounted) {
         setState(() {
           switch (state) {
@@ -1799,19 +1883,19 @@ class _CallScreenState extends State<CallScreen> {
         });
       }
     };
-    
+
     _dataChannel!.onMessage = (RTCDataChannelMessage message) {
       print('📩 Получено сообщение через DataChannel');
-      
+
       if (message.isBinary) {
         print('⚠️ Получены бинарные данные (пока не поддерживается)');
         return;
       }
-      
+
       try {
         final data = json.decode(message.text) as Map<String, dynamic>;
         final type = data['type'] as String?;
-        
+
         if (type == 'chat') {
           final text = data['text'] as String?;
           if (text != null) {
@@ -1832,28 +1916,28 @@ class _CallScreenState extends State<CallScreen> {
       }
     };
   }
-  
+
   void _sendDataChannelMessage(String text) {
     print('📤 _sendDataChannelMessage вызван: "$text"');
     print('   _dataChannel: ${_dataChannel != null ? "exists" : "null"}');
     print('   _isDataChannelOpen: $_isDataChannelOpen');
-    
+
     if (_dataChannel == null || !_isDataChannelOpen) {
       _addDataChannelLog('❌ DataChannel не подключен');
       print('❌ Отправка невозможна - канал не подключен');
       return;
     }
-    
+
     try {
       final message = json.encode({
         'type': 'chat',
         'text': text,
         'time': DateTime.now().millisecondsSinceEpoch,
       });
-      
+
       _dataChannel!.send(RTCDataChannelMessage(message));
       print('✅ Сообщение отправлено через DataChannel');
-      
+
       // Добавляем в список через ValueNotifier
       final newMessages = List<TemporaryChatMessage>.from(_temporaryChatMessages);
       newMessages.add(TemporaryChatMessage(
@@ -1863,16 +1947,16 @@ class _CallScreenState extends State<CallScreen> {
       ));
       _temporaryChatMessagesNotifier.value = newMessages;
       _addDataChannelLog('📤 Отправлено: $text');
-      
+
       if (mounted) setState(() {});
-      
+
       print('📤 Сообщение добавлено в список, всего: ${_temporaryChatMessages.length}');
     } catch (e) {
       print('❌ Ошибка отправки через DataChannel: $e');
       _addDataChannelLog('❌ Ошибка отправки: $e');
     }
   }
-  
+
   void _addDataChannelLog(String log) {
     final newLogs = List<String>.from(_dataChannelLogs);
     newLogs.add('[${DateTime.now().toString().substring(11, 19)}] $log');
@@ -1880,20 +1964,20 @@ class _CallScreenState extends State<CallScreen> {
       newLogs.removeAt(0);
     }
     _dataChannelLogsNotifier.value = newLogs;
-    
+
     if (mounted) setState(() {});
   }
-  
+
   void _showDataChannelPanel() {
     print('🔍 Открываем панель DataChannel');
     print('   isOpen: $_isDataChannelOpen');
-    print('   status: $_dataChannelStatus');  
+    print('   status: $_dataChannelStatus');
     print('   logs: ${_dataChannelLogs.length}');
     print('   messages: ${_temporaryChatMessages.length}');
-    
+
     // Получаем Overlay из CallOverlayService чтобы показать поверх
     final overlayState = Overlay.of(context, rootOverlay: true);
-    
+
     late OverlayEntry overlayEntry; // Объявляем сначала
     overlayEntry = OverlayEntry(
       builder: (context) => Material(
@@ -1922,19 +2006,19 @@ class _CallScreenState extends State<CallScreen> {
         ),
       ),
     );
-    
+
     overlayState.insert(overlayEntry);
-    
+
     // Сохраняем ссылку чтобы можно было закрыть
     _dataChannelOverlayEntry = overlayEntry;
   }
 
   Future<void> _updateNetworkStats() async {
     if (_peerConnection == null || _networkInfo == null) return;
-    
+
     try {
       final stats = await _peerConnection!.getStats();
-      
+
       int? bytesReceived;
       int? bytesSent;
       int? packetsReceived;
@@ -1942,18 +2026,18 @@ class _CallScreenState extends State<CallScreen> {
       double? jitter;
       int? rtt;
       String? codec;
-      
+
       for (var report in stats) {
         final type = report.type;
         final values = report.values;
-        
+
         // Inbound RTP (получаемые данные)
         if (type == 'inbound-rtp') {
           if (values['mediaType'] == 'audio' || values['mediaType'] == 'video') {
             bytesReceived = (bytesReceived ?? 0) + ((values['bytesReceived'] as num?)?.toInt() ?? 0);
             packetsReceived = (packetsReceived ?? 0) + ((values['packetsReceived'] as num?)?.toInt() ?? 0);
             jitter = (values['jitter'] as num?)?.toDouble();
-            
+
             // Codec
             if (codec == null && values['codecId'] != null) {
               // Ищем информацию о кодеке
@@ -1965,7 +2049,7 @@ class _CallScreenState extends State<CallScreen> {
             }
           }
         }
-        
+
         // Outbound RTP (отправляемые данные)
         if (type == 'outbound-rtp') {
           if (values['mediaType'] == 'audio' || values['mediaType'] == 'video') {
@@ -1973,20 +2057,20 @@ class _CallScreenState extends State<CallScreen> {
             packetsSent = (packetsSent ?? 0) + ((values['packetsSent'] as num?)?.toInt() ?? 0);
           }
         }
-        
+
         // Candidate pair (RTT и packet loss)
         if (type == 'candidate-pair' && values['state'] == 'succeeded') {
           rtt = ((values['currentRoundTripTime'] as num?)?.toDouble() ?? 0 * 1000).toInt();
         }
       }
-      
+
       // Вычисляем битрейт
       if (bytesReceived != null && _networkInfo!.bytesReceived != null) {
         final bytesDiff = bytesReceived - _networkInfo!.bytesReceived!;
         final bitrate = (bytesDiff * 8 / 1000).toDouble(); // Кбит/с за секунду
         _networkInfo!.bitrate = bitrate.toInt();
       }
-      
+
       // Вычисляем packet loss
       if (packetsReceived != null && _networkInfo!.packetsReceived != null) {
         final packetsExpected = packetsSent ?? packetsReceived;
@@ -1994,7 +2078,7 @@ class _CallScreenState extends State<CallScreen> {
         final loss = packetsExpected > 0 ? (packetsLost / packetsExpected * 100) : 0.0;
         _networkInfo!.packetLoss = loss;
       }
-      
+
       // Сохраняем данные
       if (mounted) {
         setState(() {
@@ -2006,7 +2090,7 @@ class _CallScreenState extends State<CallScreen> {
           _networkInfo!.rtt = rtt;
           _networkInfo!.codec = codec;
         });
-        
+
         print('📊 Stats updated: bitrate=${_networkInfo!.bitrate}, jitter=${_networkInfo!.jitter}, loss=${_networkInfo!.packetLoss?.toStringAsFixed(2)}%, rtt=${_networkInfo!.rtt}, codec=$codec');
       }
     } catch (e) {
@@ -2081,15 +2165,15 @@ class _CallScreenState extends State<CallScreen> {
       print('⚠️ Cleanup уже выполняется, пропускаем');
       return;
     }
-    
+
     _isCleaningUp = true;
     print('🧹 Начинаем cleanup...');
-    
+
     // Закрываем DataChannel overlay если открыт
     _dataChannelOverlayEntry?.remove();
     _dataChannelOverlayEntry = null;
     print('✅ DataChannel overlay закрыт');
-    
+
     // Глобальный таймаут на весь cleanup - 5 секунд максимум
     final cleanupFuture = _performCleanup();
     await cleanupFuture.timeout(
@@ -2100,9 +2184,9 @@ class _CallScreenState extends State<CallScreen> {
       },
     );
   }
-  
+
   Future<void> _performCleanup() async {
-    
+
     try {
       // 1. Останавливаем таймеры
       _durationTimer?.cancel();
@@ -2113,7 +2197,7 @@ class _CallScreenState extends State<CallScreen> {
       _statsTimer = null;
       _connectionCheckTimer?.cancel();
       _connectionCheckTimer = null;
-      
+
       // 2. СНАЧАЛА отменяем subscription (чтобы не читать из закрытого сокета)
       try {
         await _signalingSubscription?.cancel();
@@ -2121,7 +2205,7 @@ class _CallScreenState extends State<CallScreen> {
         print('⚠️ Ошибка отмены subscription: $e');
       }
       _signalingSubscription = null;
-      
+
       // 3. ПОТОМ закрываем WebSocket с таймаутом
       try {
         await _signalingChannel?.sink.close().timeout(
@@ -2134,7 +2218,7 @@ class _CallScreenState extends State<CallScreen> {
         print('⚠️ Ошибка при закрытии WebSocket (игнорируем): $e');
       }
       _signalingChannel = null;
-      
+
       // 4. Останавливаем треки ПЕРЕД dispose стримов
       try {
         _localStream?.getTracks().forEach((track) {
@@ -2147,7 +2231,7 @@ class _CallScreenState extends State<CallScreen> {
       } catch (e) {
         print('⚠️ Ошибка при остановке локальных треков: $e');
       }
-      
+
       try {
         _remoteStream?.getTracks().forEach((track) {
           try {
@@ -2159,7 +2243,7 @@ class _CallScreenState extends State<CallScreen> {
       } catch (e) {
         print('⚠️ Ошибка при остановке удалённых треков: $e');
       }
-      
+
       // 5. Закрываем peer connection ПЕРЕД dispose стримов с таймаутом
       try {
         await _peerConnection?.close().timeout(
@@ -2173,7 +2257,7 @@ class _CallScreenState extends State<CallScreen> {
         print('⚠️ Ошибка при закрытии peer connection: $e');
         _peerConnection = null;
       }
-      
+
       // 6. Dispose стримов с таймаутами
       try {
         await _localStream?.dispose().timeout(
@@ -2187,7 +2271,7 @@ class _CallScreenState extends State<CallScreen> {
         print('⚠️ Ошибка при dispose локального стрима (игнорируем): $e');
         _localStream = null;
       }
-      
+
       try {
         await _remoteStream?.dispose().timeout(
           const Duration(seconds: 1),
@@ -2200,7 +2284,7 @@ class _CallScreenState extends State<CallScreen> {
         print('⚠️ Ошибка при dispose удалённого стрима (игнорируем): $e');
         _remoteStream = null;
       }
-      
+
       // 7. Dispose рендереров с таймаутами
       try {
         await _localRenderer.dispose().timeout(
@@ -2212,7 +2296,7 @@ class _CallScreenState extends State<CallScreen> {
       } catch (e) {
         print('⚠️ Ошибка при dispose локального рендерера: $e');
       }
-      
+
       try {
         await _remoteRenderer.dispose().timeout(
           const Duration(seconds: 1),
@@ -2223,7 +2307,7 @@ class _CallScreenState extends State<CallScreen> {
       } catch (e) {
         print('⚠️ Ошибка при dispose удалённого рендерера: $e');
       }
-      
+
       print('✅ Cleanup завершён');
     } catch (e) {
       print('❌ Критическая ошибка в cleanup: $e');
@@ -2235,6 +2319,12 @@ class _CallScreenState extends State<CallScreen> {
   String _formatDuration(int seconds) {
     final minutes = seconds ~/ 60;
     final secs = seconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
+  }
+
+  String _formatRecordingDuration(Duration duration) {
+    final minutes = duration.inMinutes;
+    final secs = duration.inSeconds % 60;
     return '${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
   }
 
@@ -2284,7 +2374,7 @@ class _CallScreenState extends State<CallScreen> {
                   accentColor: colors.primary,
                 ),
               ),
-              
+
               // Drag indicator
               if (_dragOffset > 0)
                 Positioned(
@@ -2302,7 +2392,7 @@ class _CallScreenState extends State<CallScreen> {
                     ),
                   ),
                 ),
-              
+
               // Кнопка настроек в левом верхнем углу (на одной высоте с кнопкой инфо)
               Positioned(
                 top: 24,
@@ -2315,7 +2405,7 @@ class _CallScreenState extends State<CallScreen> {
                   onPressed: _showCallSettings,
                 ),
               ),
-              
+
               Column(
               children: [
                 // Заголовок
@@ -2336,14 +2426,29 @@ class _CallScreenState extends State<CallScreen> {
                               textAlign: TextAlign.center,
                             ),
                           ),
-                          IconButton(
-                            icon: Icon(
-                              _showNetworkInfo ? Icons.info : Icons.info_outline,
-                              color: colors.primary,
-                            ),
-                            onPressed: () {
-                              setState(() => _showNetworkInfo = !_showNetworkInfo);
-                            },
+                          Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: Icon(
+                                  _showNetworkInfo ? Icons.info : Icons.info_outline,
+                                  color: colors.primary,
+                                ),
+                                onPressed: () {
+                                  setState(() => _showNetworkInfo = !_showNetworkInfo);
+                                },
+                              ),
+                              // Кнопка записи
+                              IconButton(
+                                icon: Icon(
+                                  _isRecording ? Icons.fiber_manual_record : Icons.radio_button_off,
+                                  color: _isRecording ? colors.error : colors.primary,
+                                  size: 20,
+                                ),
+                                onPressed: _toggleRecording,
+                                tooltip: _isRecording ? 'Остановить запись' : 'Начать запись',
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -2355,12 +2460,38 @@ class _CallScreenState extends State<CallScreen> {
                         ),
                       ),
                       if (_callState == CallState.connected)
-                        Text(
-                          _formatDuration(_callDuration),
-                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            color: colors.primary,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              _formatDuration(_callDuration),
+                              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                color: colors.primary,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            if (_isRecording) ...[
+                              const SizedBox(width: 12),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.fiber_manual_record,
+                                    size: 16,
+                                    color: colors.error,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    _formatRecordingDuration(_recordingDuration),
+                                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                      color: colors.error,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ],
                         ),
                     ],
                   ),
@@ -2390,8 +2521,8 @@ class _CallScreenState extends State<CallScreen> {
                                       : null,
                                   child: widget.contactAvatarUrl == null
                                       ? Text(
-                                          widget.contactName.isNotEmpty 
-                                              ? widget.contactName[0].toUpperCase() 
+                                          widget.contactName.isNotEmpty
+                                              ? widget.contactName[0].toUpperCase()
                                               : '?',
                                           style: TextStyle(
                                             fontSize: 48,
@@ -2407,7 +2538,7 @@ class _CallScreenState extends State<CallScreen> {
                           ],
                         ),
                       ),
-                    
+
                     // Локальное видео (в углу) - показываем только если у нас включено видео
                     if (_localStream != null && _isVideoEnabled)
                       Positioned(
@@ -2426,7 +2557,7 @@ class _CallScreenState extends State<CallScreen> {
                           ),
                         ),
                       ),
-                    
+
                     // Иконка отключенного микрофона собеседника (справа внизу)
                     if (_isRemoteMuted && _callState == CallState.connected)
                       Positioned(
@@ -2458,7 +2589,7 @@ class _CallScreenState extends State<CallScreen> {
                       isConnected: _callState == CallState.connected,
                       accentColor: colors.primary,
                     ),
-                    
+
                     // Аватар контакта поверх
                     Center(
                       child: Column(
@@ -2474,7 +2605,7 @@ class _CallScreenState extends State<CallScreen> {
                                   size: 140,
                                   color: Colors.green,
                                 ),
-                              
+
                               // Сам аватар
                               ContactAvatarWidget(
                                 contactId: widget.contactId,
@@ -2484,7 +2615,7 @@ class _CallScreenState extends State<CallScreen> {
                                     ? widget.contactName[0].toUpperCase()
                                     : '?',
                               ),
-                              
+
                               // Иконка отключенного микрофона собеседника (справа снизу на аватаре)
                               if (_isRemoteMuted && _callState == CallState.connected)
                                 Positioned(
@@ -2539,7 +2670,7 @@ class _CallScreenState extends State<CallScreen> {
                         backgroundColor: _isMuted ? colors.error : colors.surfaceContainerHighest,
                         foregroundColor: _isMuted ? colors.onError : colors.onSurface,
                       ),
-                      
+
                       // Маленькая кнопка саундпада (серая, справа сверху)
                       Positioned(
                         right: 4,
@@ -2595,7 +2726,7 @@ class _CallScreenState extends State<CallScreen> {
                     backgroundColor: _isSpeakerOn ? colors.primary : colors.surfaceContainerHighest,
                     foregroundColor: _isSpeakerOn ? colors.onPrimary : colors.onSurface,
                   ),
-                  
+
                   // DataChannel (только если включен)
                   if (widget.enableDataChannel)
                     _CallButton(
@@ -2610,7 +2741,7 @@ class _CallScreenState extends State<CallScreen> {
             ),
           ],
         ),
-        
+
         if (_showNetworkInfo && _networkInfo != null)
           Positioned(
             top: 100,
@@ -2621,7 +2752,7 @@ class _CallScreenState extends State<CallScreen> {
               onFetchGeoLocation: _fetchGeoLocation,
             ),
           ),
-        
+
         // Кнопка чата (DataChannel) - размещаем в ряд с другими кнопками
         // (убрано отсюда, перенесено в основной ряд кнопок)
       ],
@@ -2650,26 +2781,33 @@ class _CallScreenState extends State<CallScreen> {
     // Закрываем DataChannel overlay
     _dataChannelOverlayEntry?.remove();
     _dataChannelOverlayEntry = null;
-    
+
     // Закрываем soundpad overlay
     _soundpadOverlay?.remove();
     _soundpadOverlay = null;
-    
+
     // Освобождаем audio player
     _soundpadPlayer?.dispose();
     _soundpadPlayer = null;
-    
+
+    // Останавливаем запись если идет
+    if (_isRecording) {
+      _recordingService.stopRecording();
+    }
+    _recordingSubscription?.cancel();
+    _recordingSubscription = null;
+
     // Dispose ValueNotifier
     _isDataChannelOpenNotifier.dispose();
     _dataChannelStatusNotifier.dispose();
     _dataChannelLogsNotifier.dispose();
     _temporaryChatMessagesNotifier.dispose();
-    
+
     FloatingCallManager.instance.removeListener(_onFloatingCallStateChanged);
-    
+
     // Очищаем callback
     FloatingCallManager.instance.onEndCall = null;
-    
+
     // Если используется Overlay - НЕ вызываем cleanup при dispose
     // (cleanup будет вызван только при closeCall)
     if (widget.onMinimize == null) {
@@ -2686,7 +2824,7 @@ class _CallScreenState extends State<CallScreen> {
     } else {
       print('🎯 CallScreen dispose в Overlay режиме - cleanup управляется CallOverlayService');
     }
-    
+
     super.dispose();
   }
 }
@@ -2705,13 +2843,13 @@ class _AnimatedMicIcon extends StatelessWidget {
   final bool isMuted;
   final double audioLevel; // 0.0 - 1.0
   final double size;
-  
+
   const _AnimatedMicIcon({
     required this.isMuted,
     required this.audioLevel,
     this.size = 24,
   });
-  
+
   @override
   Widget build(BuildContext context) {
     return SizedBox(
@@ -2725,7 +2863,7 @@ class _AnimatedMicIcon extends StatelessWidget {
             size: size,
             color: Colors.grey.shade400,
           ),
-          
+
           // Заполненная часть (снизу вверх)
           if (!isMuted && audioLevel > 0.01)
             ClipRect(
@@ -2870,17 +3008,17 @@ class NetworkInfo {
   String? transport;
   String? networkType;
   int? rtt;
-  
+
   // Детальная информация о кандидатах
   List<IceCandidate> localCandidates = [];
   List<IceCandidate> remoteCandidates = [];
-  
+
   // Статистика WebRTC (будет обновляться)
   double? packetLoss;
   int? jitter;
   int? bitrate;
   String? codec;
-  
+
   // Геолокация
   String? localGeo;
   String? remoteGeo;
@@ -2890,15 +3028,15 @@ class NetworkInfo {
   String? remoteCountry;
   int? localAsn;
   int? remoteAsn;
-  
+
   // Детальная информация о геолокации
   GeoLocationInfo? localGeoInfo;
   GeoLocationInfo? remoteGeoInfo;
-  
+
   // TURN/STUN серверы
   List<String> turnServers = [];
   List<String> stunServers = [];
-  
+
   // Лимиты качества от сервера
   int? maxVideoBitrate; // Кбит/с
   int? maxVideoResolution; // pixels
@@ -2906,7 +3044,7 @@ class NetworkInfo {
   double? badNetLoss; // %
   int? goodNetRtt; // мс
   double? goodNetLoss; // %
-  
+
   // Дополнительная статистика
   int? packetsReceived;
   int? packetsSent;
@@ -2923,7 +3061,7 @@ class IceCandidate {
   final int? networkCost;
   final String? relayServer; // IP релей сервера если typ=relay
   final String? stunServer; // IP STUN сервера если typ=srflx
-  
+
   IceCandidate({
     required this.ip,
     required this.port,
@@ -2934,7 +3072,7 @@ class IceCandidate {
     this.relayServer,
     this.stunServer,
   });
-  
+
   String get typeLabel {
     switch (type) {
       case 'host': return 'Прямое (host)';
@@ -2943,7 +3081,7 @@ class IceCandidate {
       default: return type;
     }
   }
-  
+
   String get networkLabel {
     if (networkCost == null) return '';
     if (networkCost! <= 10) return 'Wi-Fi';
@@ -2974,7 +3112,7 @@ class _NetworkInfoPanelState extends State<_NetworkInfoPanel> {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final networkInfo = widget.networkInfo;
-    
+
     return Material(
       elevation: 8,
       borderRadius: BorderRadius.circular(16),
@@ -3001,7 +3139,7 @@ class _NetworkInfoPanelState extends State<_NetworkInfoPanel> {
               ],
             ),
             const SizedBox(height: 12),
-            
+
             // Ваш IP
             if (networkInfo.localAddress != null) ...[
               _InfoRow(
@@ -3018,9 +3156,9 @@ class _NetworkInfoPanelState extends State<_NetworkInfoPanel> {
                   indent: true,
                 ),
             ],
-            
+
             const SizedBox(height: 8),
-            
+
             // IP собеседника
             if (networkInfo.remoteAddress != null) ...[
               _InfoRow(
@@ -3037,9 +3175,9 @@ class _NetworkInfoPanelState extends State<_NetworkInfoPanel> {
                   indent: true,
                 ),
             ],
-            
+
             const SizedBox(height: 8),
-            
+
             // Дополнительная информация
             if (networkInfo.transport != null)
               _InfoRow(
@@ -3047,14 +3185,14 @@ class _NetworkInfoPanelState extends State<_NetworkInfoPanel> {
                 label: 'Транспорт',
                 value: networkInfo.transport!.toUpperCase(),
               ),
-            
+
             if (networkInfo.networkType != null)
               _InfoRow(
                 icon: Icons.wifi,
                 label: 'Сеть',
                 value: _formatNetworkType(networkInfo.networkType!),
               ),
-            
+
             if (networkInfo.rtt != null)
               _InfoRow(
                 icon: Icons.speed,
@@ -3062,7 +3200,7 @@ class _NetworkInfoPanelState extends State<_NetworkInfoPanel> {
                 value: '${networkInfo.rtt} мс',
                 valueColor: _getRttColor(networkInfo.rtt!, colors),
               ),
-            
+
             // Геолокация
             const SizedBox(height: 12),
             const Divider(),
@@ -3101,7 +3239,7 @@ class _NetworkInfoPanelState extends State<_NetworkInfoPanel> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.location_on, size: 18),
-                  label: Text(_isLoadingGeo ? 'Загрузка...' : 'geo_f_ip'),
+                  label: Text(_isLoadingGeo ? 'Загрузка...' : 'Get geo'),
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   ),
@@ -3109,7 +3247,7 @@ class _NetworkInfoPanelState extends State<_NetworkInfoPanel> {
               ],
             ),
             const SizedBox(height: 8),
-            
+
             // Геолокация локального IP
             if (networkInfo.localGeoInfo != null) ...[
               _InfoRow(
@@ -3163,7 +3301,7 @@ class _NetworkInfoPanelState extends State<_NetworkInfoPanel> {
               ),
               const SizedBox(height: 8),
             ],
-            
+
             // Геолокация удаленного IP
             if (networkInfo.remoteGeoInfo != null) ...[
               _InfoRow(
@@ -3215,7 +3353,7 @@ class _NetworkInfoPanelState extends State<_NetworkInfoPanel> {
                 valueColor: colors.onSurfaceVariant,
               ),
             ],
-            
+
             // Качество соединения
             const SizedBox(height: 12),
             const Divider(),
@@ -3244,7 +3382,7 @@ class _NetworkInfoPanelState extends State<_NetworkInfoPanel> {
               icon: Icons.cloud_off,
               label: 'Потеря пакетов',
               value: networkInfo.packetLoss != null ? '${networkInfo.packetLoss!.toStringAsFixed(2)}%' : 'Сервер пожалел данных',
-              valueColor: networkInfo.packetLoss != null 
+              valueColor: networkInfo.packetLoss != null
                 ? (networkInfo.packetLoss! < 1 ? Colors.green : networkInfo.packetLoss! < 5 ? Colors.orange : Colors.red)
                 : Colors.red,
             ),
@@ -3289,13 +3427,13 @@ class _NetworkInfoPanelState extends State<_NetworkInfoPanel> {
                   valueColor: colors.onSurface,
                 ),
             ],
-            
+
             // Детальная информация о кандидатах
             if (networkInfo.localCandidates.isNotEmpty || networkInfo.remoteCandidates.isNotEmpty) ...[
               const SizedBox(height: 16),
               Divider(color: colors.outline.withOpacity(0.3)),
               const SizedBox(height: 8),
-              
+
               // Локальные кандидаты
               if (networkInfo.localCandidates.isNotEmpty) ...[
                 Text(
@@ -3308,9 +3446,9 @@ class _NetworkInfoPanelState extends State<_NetworkInfoPanel> {
                 const SizedBox(height: 8),
                 ...networkInfo.localCandidates.map((c) => _CandidateRow(candidate: c, isLocal: true)),
               ],
-              
+
               const SizedBox(height: 12),
-              
+
               // Удаленные кандидаты
               if (networkInfo.remoteCandidates.isNotEmpty) ...[
                 Text(
@@ -3330,7 +3468,7 @@ class _NetworkInfoPanelState extends State<_NetworkInfoPanel> {
       ),
     );
   }
-  
+
   String _formatConnectionType(String type) {
     switch (type) {
       case 'srflx':
@@ -3343,7 +3481,7 @@ class _NetworkInfoPanelState extends State<_NetworkInfoPanel> {
         return type;
     }
   }
-  
+
   String _formatNetworkType(String type) {
     switch (type) {
       case 'wifi':
@@ -3354,13 +3492,13 @@ class _NetworkInfoPanelState extends State<_NetworkInfoPanel> {
         return type;
     }
   }
-  
+
   Color _getRttColor(int rtt, ColorScheme colors) {
     if (rtt < 100) return Colors.green;
     if (rtt < 200) return Colors.orange;
     return Colors.red;
   }
-  
+
   String _formatBytes(int bytes) {
     if (bytes < 1024) return '$bytes Б';
     if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(2)} КБ';
@@ -3392,18 +3530,18 @@ class _AnimatedCallBackgroundState extends State<_AnimatedCallBackground>
   @override
   void initState() {
     super.initState();
-    
+
     // Создаём 3 контроллера для разных волн с разной скоростью
     _controller1 = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 3),
     )..repeat();
-    
+
     _controller2 = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2500),
     )..repeat();
-    
+
     _controller3 = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 3500),
@@ -3424,7 +3562,7 @@ class _AnimatedCallBackgroundState extends State<_AnimatedCallBackground>
       builder: (context, constraints) {
         // Вычисляем центр аватара (чуть выше центра экрана)
         final avatarCenterY = constraints.maxHeight / 2;
-        
+
         return CustomPaint(
           painter: _WavesPainter(
             animation1: _controller1,
@@ -3474,10 +3612,10 @@ class _WavesPainter extends CustomPainter {
   void _drawWave(Canvas canvas, Offset center, double maxRadius,
       double progress, double opacity, double scale) {
     final radius = maxRadius * progress * scale;
-    
+
     // Прозрачность уменьшается по мере расширения волны
     final alpha = ((1 - progress) * opacity * 255).toInt().clamp(0, 255);
-    
+
     final paint = Paint()
       ..color = accentColor.withAlpha(alpha)
       ..style = PaintingStyle.stroke
@@ -3520,7 +3658,7 @@ class _SpeakingIndicatorState extends State<_SpeakingIndicator>
       vsync: this,
       duration: const Duration(milliseconds: 800),
     )..repeat(reverse: true);
-    
+
     _animation = Tween<double>(begin: 0.8, end: 1.0).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
     );
@@ -3572,7 +3710,7 @@ class _InfoRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    
+
     return Padding(
       padding: EdgeInsets.only(left: indent ? 28.0 : 0, bottom: 4),
       child: Row(
@@ -3617,7 +3755,7 @@ class _CandidateRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
@@ -3635,7 +3773,7 @@ class _CandidateRow extends StatelessWidget {
           Row(
             children: [
               Icon(
-                candidate.type == 'relay' ? Icons.router : 
+                candidate.type == 'relay' ? Icons.router :
                 candidate.type == 'srflx' ? Icons.public : Icons.computer,
                 size: 16,
                 color: isLocal ? colors.primary : colors.secondary,
@@ -3685,7 +3823,7 @@ class _CandidateRow extends StatelessWidget {
       ),
     );
   }
-  
+
   Widget _chip(BuildContext context, IconData icon, String label) {
     final colors = Theme.of(context).colorScheme;
     return Container(
@@ -3704,7 +3842,7 @@ class _CandidateRow extends StatelessWidget {
       ),
     );
   }
-  
+
   Widget _serverRow(BuildContext context, IconData icon, String label, String value, ColorScheme colors) {
     return Row(
       children: [
@@ -3721,7 +3859,7 @@ class _CandidateRow extends StatelessWidget {
       ],
     );
   }
-  
+
   Color _getTypeColor(String type) {
     switch (type) {
       case 'host': return Colors.blue;
@@ -3738,7 +3876,7 @@ class TemporaryChatMessage {
   final String text;
   final DateTime time;
   final bool isMine;
-  
+
   TemporaryChatMessage({
     required this.text,
     required this.time,
@@ -3786,7 +3924,7 @@ class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerP
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    
+
     return ValueListenableBuilder<String>(
       valueListenable: widget.statusNotifier,
       builder: (context, status, _) {
@@ -3844,7 +3982,7 @@ class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerP
                           ],
                         ),
                       ),
-              
+
               // Tabs
               TabBar(
                 controller: _tabController,
@@ -3853,7 +3991,7 @@ class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerP
                   Tab(text: 'Logs', icon: Icon(Icons.list)),
                 ],
               ),
-              
+
                       // Content
                       Expanded(
                         child: TabBarView(
@@ -3904,7 +4042,7 @@ class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerP
                       },
                     ),
             ),
-        
+
             // Input field
             Container(
               padding: const EdgeInsets.all(16),
@@ -3982,7 +4120,7 @@ class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerP
       builder: (context, logs, _) {
         print('🔍 _buildLogsTab: logs.length = ${logs.length}');
         logs.forEach((log) => print('  - $log'));
-        
+
         return logs.isEmpty
             ? Center(
                 child: Text(
@@ -4017,7 +4155,7 @@ class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerP
   void _sendMessage([String? _]) {
     final text = _messageController.text.trim();
     if (text.isEmpty) return;
-    
+
     widget.onSendMessage(text);
     _messageController.clear();
   }
@@ -4038,7 +4176,7 @@ class _CallSettingsPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    
+
     return Container(
       margin: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -4068,7 +4206,7 @@ class _CallSettingsPanel extends StatelessWidget {
             ),
           ),
           const Divider(height: 1),
-          
+
           // Контент
           SwitchListTile(
             title: const Text('Блюр панелей'),

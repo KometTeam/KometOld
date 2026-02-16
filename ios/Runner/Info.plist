@@ -48,7 +48,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Приложению необходим доступ к камере для видео звонков и съемки фото</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Приложению необходим доступ к микрофону для голосовых и видео звонков</string>
+	<string>Приложению необходим доступ к микрофону для голосовых и видео звонков, а также для записи звонков</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Приложению необходим доступ к галерее для выбора и просмотра фотографий</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
