@@ -1700,12 +1700,24 @@ class _CallScreenState extends State<CallScreen> {
         _chatEncrypter = null;
         _chatIV = null;
       });
+      
+      // Уведомляем собеседника
+      if (_dataChannel != null && _dataChannel!.state == RTCDataChannelState.RTCDataChannelOpen) {
+        _sendDataChannelMessage('Encrypt: false❌️❌️❌️');
+      }
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('🔓 Шифрование отключено')),
       );
     } else {
       // Включаем шифрование
       _setupChatEncryption(password);
+      
+      // Уведомляем собеседника
+      if (_dataChannel != null && _dataChannel!.state == RTCDataChannelState.RTCDataChannelOpen) {
+        _sendDataChannelMessage('Encrypt: true✅️');
+      }
+      
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('🔐 Пароль установлен')),
       );
