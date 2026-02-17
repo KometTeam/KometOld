@@ -191,6 +191,37 @@ class OptimizedChatListItem extends StatelessWidget {
             ),
           ),
         ),
+        // УБРАНО: Индикатор активного звонка временно отключен из-за багов с videoConversation
+        // TODO: вернуть когда будет стабильно
+        // if (chat.hasActiveCall) ...[
+        //   Container(
+        //     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        //     margin: const EdgeInsets.only(right: 4),
+        //     decoration: BoxDecoration(
+        //       color: Colors.green,
+        //       borderRadius: BorderRadius.circular(8),
+        //     ),
+        //     child: Row(
+        //       mainAxisSize: MainAxisSize.min,
+        //       children: [
+        //         const Icon(
+        //           Icons.phone,
+        //           size: 12,
+        //           color: Colors.white,
+        //         ),
+        //         const SizedBox(width: 4),
+        //         Text(
+        //           '${chat.videoConversation?.participantsCount ?? 0}',
+        //           style: const TextStyle(
+        //             fontSize: 11,
+        //             fontWeight: FontWeight.bold,
+        //             color: Colors.white,
+        //           ),
+        //         ),
+        //       ],
+        //     ),
+        //   ),
+        // ],
         if (isMuted)
           Icon(
             Icons.volume_off,

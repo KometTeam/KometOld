@@ -305,6 +305,14 @@ extension ApiServiceConnection on ApiService {
     return await _sendMessage(opcode, payload);
   }
 
+  Future<Map<String, dynamic>> joinGroupCall(String joinLink) async {
+    final response = await sendRequest(89, {
+      'link': joinLink,
+    });
+
+    return response as Map<String, dynamic>;
+  }
+
 
   void _listen() async {
     if (!_socketConnected || _socket == null) {
@@ -726,6 +734,16 @@ extension ApiServiceConnection on ApiService {
           (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
         final payload = decodedMessage['payload'];
         _messageController.add({'type': 'channel_error', 'payload': payload});
+      }
+
+      if (decodedMessage['opcode'] == 89 && decodedMessage['cmd'] == 1) {
+        final payload = decodedMessage['payload'];
+        if (payload != null && payload['videoConference'] != null) {
+          _messageController.add({
+            'type': 'video_conference_joined',
+            'payload': payload,
+          });
+        }
       }
 
       if (decodedMessage['opcode'] == 57 &&

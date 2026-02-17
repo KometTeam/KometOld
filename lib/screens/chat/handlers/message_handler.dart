@@ -34,6 +34,10 @@ class MessageHandler {
   // Дедупликация сообщений - храним ID последних обработанных сообщений
   static final Set<String> _processedMessageIds = {};
   static const int _maxProcessedMessages = 100;
+  
+  // Дедупликация обновлений чатов
+  static final Map<int, int> _lastChatUpdateTime = {};
+  static const int _chatUpdateThrottleMs = 500;
 
   MessageHandler({
     required this.setState,
@@ -243,7 +247,9 @@ class MessageHandler {
       } else if (opcode == 55) {
         _handleChatUpdate(payload, cmd);
       } else if (opcode == 135) {
-        _handleChatChanged(payload);
+        // ОТКЛЮЧЕНО: opcode 135 вызывает критические баги с videoConversation
+        print('⏭️ [opcode 135] ПОЛНОСТЬЮ ИГНОРИРУЕМ');
+        // _handleChatChanged(payload);
       } else if (opcode == 272) {
         _handleFoldersUpdate(payload);
       } else if (opcode == 274) {
@@ -319,6 +325,19 @@ class MessageHandler {
     if (allChats.isEmpty) {
       print('🔔 [MessageHandler] allChats пустой, выход');
       return;
+    }
+
+    // КРИТИЧНО: Игнорируем сообщения о звонках (CONTROL attach) - они вызывают баги
+    final messageJson = payload['message'] as Map<String, dynamic>?;
+    if (messageJson != null) {
+      final attaches = messageJson['attaches'] as List<dynamic>?;
+      if (attaches != null && attaches.isNotEmpty) {
+        final hasControl = attaches.any((a) => a is Map && a['_type'] == 'CONTROL');
+        if (hasControl) {
+          print('⏭️ [MessageHandler] Пропускаем CONTROL-сообщение (звонок)');
+          return;
+        }
+      }
     }
 
     final newMessage = Message.fromJson(payload['message']);
@@ -749,40 +768,93 @@ class MessageHandler {
   }
 
   void _handleChatChanged(Map<String, dynamic> payload) {
-    if (payload['chat'] is! Map<String, dynamic>) return;
-    final chatJson = payload['chat'] as Map<String, dynamic>;
-    final int? chatId = chatJson['id'] as int?;
-    final String? status = chatJson['status'] as String?;
+    try {
+      if (payload['chat'] is! Map<String, dynamic>) return;
+      
+      final chatJson = payload['chat'] as Map<String, dynamic>;
+      final int? chatId = chatJson['id'] as int?;
+      final String? status = chatJson['status'] as String?;
+      if (chatId == null) return;
 
-    if (chatId == null) return;
+      // Дедупликация: игнорируем повторные обновления в течение 500мс
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final lastUpdate = _lastChatUpdateTime[chatId] ?? 0;
+      if (now - lastUpdate < _chatUpdateThrottleMs) {
+        print('⏭️ [opcode 135] Пропускаем дубликат обновления чата $chatId');
+        return;
+      }
+      _lastChatUpdateTime[chatId] = now;
 
-    final context = getContext();
-    if (!context.mounted) return;
+      print('🔄 [opcode 135] chatId=$chatId, status=$status');
 
-    if (status == 'REMOVED') {
-      // Удаляем чат из списка
-      setState(() {
-        allChats.removeWhere((chat) => chat.id == chatId);
-        filterChats();
-      });
-    } else if (status == 'ACTIVE') {
-      // Добавляем или обновляем чат (подписка на канал)
-      final newChat = Chat.fromJson(chatJson);
-      ApiService.instance.updateChatInCacheFromJson(chatJson);
+      final context = getContext();
+      if (!context.mounted) {
+        print('⚠️ [opcode 135] Context not mounted');
+        return;
+      }
 
-      setState(() {
+      if (status == 'REMOVED') {
+        print('🗑️ [opcode 135] Удаляем чат $chatId');
+        // Удаляем чат из списка
+        setState(() {
+          allChats.removeWhere((chat) => chat.id == chatId);
+          filterChats();
+        });
+      } else if (status == 'ACTIVE') {
+        print('✅ [opcode 135] Обновляем/добавляем чат $chatId');
+        
+        // КРИТИЧНО: Если есть videoConversation - зануляем его перед парсингом
+        final hasVideoConv = chatJson['videoConversation'] != null;
+        if (hasVideoConv) {
+          print('   ⚠️ [opcode 135] Обнаружен videoConversation, удаляем из JSON');
+          chatJson['videoConversation'] = null;
+        }
+        
+        // КРИТИЧНО: парсинг Chat.fromJson может зависнуть на videoConversation
+        Chat? newChat;
+        try {
+          print('   📝 [opcode 135] Парсинг Chat.fromJson...');
+          newChat = Chat.fromJson(chatJson);
+          print('   ✅ [opcode 135] Chat.fromJson успешно');
+        } catch (e, stackTrace) {
+          print('   ❌ [opcode 135] Ошибка Chat.fromJson: $e');
+          print('   Stack: $stackTrace');
+          return;
+        }
+
+        try {
+          print('   📝 [opcode 135] updateChatInCacheFromJson...');
+          ApiService.instance.updateChatInCacheFromJson(chatJson);
+          print('   ✅ [opcode 135] Кэш обновлен');
+        } catch (e) {
+          print('   ⚠️ [opcode 135] Ошибка обновления кэша: $e');
+          // Продолжаем даже если кэш не обновился
+        }
+
         final existingIndex = allChats.indexWhere((chat) => chat.id == chatId);
         if (existingIndex != -1) {
-          // Обновляем существующий чат
-          allChats[existingIndex] = newChat;
+          print('   🔄 [opcode 135] Обновляем существующий чат на позиции $existingIndex');
+          allChats[existingIndex] = newChat!;
         } else {
-          // Добавляем новый чат (новая подписка на канал)
+          print('   ➕ [opcode 135] Добавляем новый чат');
           final savedIndex = allChats.indexWhere(isSavedMessages);
           final insertIndex = savedIndex >= 0 ? savedIndex + 1 : 0;
-          allChats.insert(insertIndex, newChat);
+          allChats.insert(insertIndex, newChat!);
         }
-        filterChats();
-      });
+        
+        // Вызываем setState только если контекст всё ещё mounted
+        if (context.mounted) {
+          setState(() {});
+          print('   ✅ [opcode 135] setState выполнен');
+        }
+        
+        print('✅ [opcode 135] _handleChatChanged завершен успешно');
+      }
+    } catch (e, stackTrace) {
+      print('❌ [opcode 135] КРИТИЧЕСКАЯ ОШИБКА в _handleChatChanged: $e');
+      print('Stack trace: $stackTrace');
+      print('Payload: $payload');
+      // НЕ пробрасываем ошибку дальше - это предотвратит зависание
     }
   }
 

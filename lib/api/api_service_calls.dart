@@ -168,4 +168,136 @@ extension ApiServiceCalls on ApiService {
       rethrow;
     }
   }
+
+  /// Начинает групповой звонок в чате
+  /// 
+  /// [chatId] - ID чата
+  /// [isVideo] - видеозвонок или аудио (по умолчанию аудио)
+  /// 
+  /// Возвращает ConversationConnection с данными для подключения
+  Future<ConversationConnection> startGroupCall(int chatId, {bool isVideo = false}) async {
+    try {
+      await waitUntilOnline();
+      
+      _log(
+        '📞 Начало группового звонка',
+        level: LogLevel.info,
+        data: {
+          'chatId': chatId,
+          'isVideo': isVideo,
+        },
+      );
+      
+      final payload = {
+        'chatId': chatId,
+        'operation': 'START', // Обязательное поле
+        'callType': isVideo ? 'VIDEO' : 'AUDIO',
+      };
+      
+      // Отправляем запрос (opcode 77 - start group call)
+      final response = await sendRequest(77, payload);
+      
+      // Проверяем cmd ответа
+      final cmd = response['cmd'] as int?;
+      if (cmd != 0x100 && cmd != 256) {
+        final error = response['payload']?['error'] ?? 'Неизвестная ошибка';
+        throw Exception('Ошибка начала группового звонка: $error');
+      }
+      
+      final responsePayload = response['payload'] as Map<String, dynamic>?;
+      if (responsePayload == null) {
+        throw Exception('Пустой payload в ответе на групповой звонок');
+      }
+      
+      _log(
+        '✅ Групповой звонок начат успешно',
+        level: LogLevel.info,
+        data: {
+          'conversationId': responsePayload['conversation']?['id'],
+        },
+      );
+      
+      // Парсим ответ
+      return ConversationConnection.fromJson(responsePayload);
+      
+    } catch (e, stackTrace) {
+      _log(
+        '❌ Ошибка начала группового звонка',
+        level: LogLevel.error,
+        data: {
+          'chatId': chatId,
+          'error': e.toString(),
+        },
+      );
+      print('❌ Stack trace: $stackTrace');
+      rethrow;
+    }
+  }
+
+  /// Присоединяется к существующему групповому звонку
+  /// 
+  /// [conferenceId] - ID конференции (из videoConversation.conferenceId)
+  /// [chatId] - ID чата
+  /// 
+  /// Возвращает ConversationConnection с данными для подключения
+  Future<ConversationConnection> joinGroupCallByConferenceId({
+    required String conferenceId,
+    required int chatId,
+  }) async {
+    try {
+      await waitUntilOnline();
+      
+      _log(
+        '📞 Присоединение к групповому звонку',
+        level: LogLevel.info,
+        data: {
+          'conferenceId': conferenceId,
+          'chatId': chatId,
+        },
+      );
+      
+      final payload = {
+        'conferenceId': conferenceId,
+        'chatId': chatId,
+      };
+      
+      // Отправляем запрос (opcode 80 - join group call)
+      final response = await sendRequest(80, payload);
+      
+      // Проверяем cmd ответа
+      final cmd = response['cmd'] as int?;
+      if (cmd != 0x100 && cmd != 256) {
+        final error = response['payload']?['error'] ?? 'Неизвестная ошибка';
+        throw Exception('Ошибка присоединения к звонку: $error');
+      }
+      
+      final responsePayload = response['payload'] as Map<String, dynamic>?;
+      if (responsePayload == null) {
+        throw Exception('Пустой payload в ответе на присоединение');
+      }
+      
+      _log(
+        '✅ Присоединение к групповому звонку успешно',
+        level: LogLevel.info,
+        data: {
+          'conversationId': responsePayload['conversation']?['id'],
+        },
+      );
+      
+      // Парсим ответ
+      return ConversationConnection.fromJson(responsePayload);
+      
+    } catch (e, stackTrace) {
+      _log(
+        '❌ Ошибка присоединения к групповому звонку',
+        level: LogLevel.error,
+        data: {
+          'conferenceId': conferenceId,
+          'error': e.toString(),
+        },
+      );
+      print('❌ Stack trace: $stackTrace');
+      rethrow;
+    }
+  }
 }

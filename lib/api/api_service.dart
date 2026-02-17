@@ -17,6 +17,7 @@ import 'package:gwid/models/complaint.dart';
 import 'package:gwid/models/contact.dart';
 import 'package:gwid/models/message.dart';
 import 'package:gwid/models/profile.dart';
+import 'package:gwid/models/video_conference.dart';
 
 import 'package:gwid/services/account_manager.dart';
 import 'package:gwid/services/avatar_cache_service.dart';

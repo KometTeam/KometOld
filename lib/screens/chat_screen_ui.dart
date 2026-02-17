@@ -1,6 +1,49 @@
 part of 'chat_screen.dart';
 
 extension on _ChatScreenState {
+  // Helper для субтитра группы
+  Widget _buildGroupSubtitle() {
+    // Пытаемся получить информацию о чате из кэша
+    final chatData = ApiService.instance.lastChatsPayload;
+    final chats = chatData?['chats'] as List?;
+    
+    Chat? currentChat;
+    if (chats != null) {
+      for (final chatJson in chats) {
+        try {
+          final chat = Chat.fromJson(chatJson as Map<String, dynamic>);
+          if (chat.id == widget.chatId) {
+            currentChat = chat;
+            break;
+          }
+        } catch (e) {
+          // Игнорируем ошибки парсинга
+        }
+      }
+    }
+
+    // Проверяем есть ли активный звонок
+    if (currentChat?.hasActiveCall ?? false) {
+      return Text(
+        'Активный звонок',
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: Colors.green,
+          fontWeight: FontWeight.w500,
+        ),
+      );
+    }
+
+    // Обычный субтитр
+    return Text(
+      widget.isChannel
+          ? "${widget.participantCount ?? 0} подписчиков"
+          : "${widget.participantCount ?? 0} участников",
+      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+      ),
+    );
+  }
+
   // AppBar
   AppBar _buildAppBar() {
     final theme = context.read<ThemeProvider>();
@@ -74,13 +117,24 @@ extension on _ChatScreenState {
               onPressed: () => Navigator.of(context).pop(),
             ),
       actions: [
-        // Кнопка звонка только для обычных пользователей (не группы, не каналы)
-        if (!widget.isGroupChat && !widget.isChannel && widget.chatId != 0)
+        // Кнопка звонка только для обычных пользователей (не группы, не каналы, не боты, не MAX)
+        if (!widget.isGroupChat && 
+            !widget.isChannel && 
+            widget.chatId != 0 &&
+            widget.chatId != 1 && // MAX chat
+            !widget.contact.isBot)
           IconButton(
             onPressed: _initiateCall,
             icon: const Icon(Icons.call),
             tooltip: 'Позвонить',
           ),
+        // ОТКЛЮЧЕНО: Групповые звонки (критические баги)
+        // if (widget.isGroupChat && widget.chatId != 0)
+        //   IconButton(
+        //     onPressed: _handleGroupCall,
+        //     icon: const Icon(Icons.call),
+        //     tooltip: 'Групповой звонок',
+        //   ),
         if (widget.isGroupChat)
           IconButton(
             onPressed: () {
@@ -431,14 +485,8 @@ extension on _ChatScreenState {
 
                   const SizedBox(height: 2),
                   if (widget.isGroupChat || widget.isChannel)
-                    Text(
-                      widget.isChannel
-                          ? "${widget.participantCount ?? 0} подписчиков"
-                          : "${widget.participantCount ?? 0} участников",
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    )
+                    _buildGroupSubtitle()
+                  
                   else if (widget.chatId != 0)
                     _ContactPresenceSubtitle(
                       chatId: widget.chatId,
@@ -1730,6 +1778,17 @@ extension on _ChatScreenState {
 
       final bool canDeleteForAll = (isMe && item.message.canEdit(_actualMyId ?? 0)) || canDeleteAnyMessage;
 
+      // Расшифровка сообщения если нужно
+      String? decryptedText;
+      if (ChatEncryptionService.isEncryptedMessage(item.message.text) &&
+          _encryptionConfigForCurrentChat != null &&
+          _encryptionConfigForCurrentChat!.password.isNotEmpty) {
+        decryptedText = ChatEncryptionService.decryptWithPassword(
+          _encryptionConfigForCurrentChat!.password,
+          item.message.text,
+        );
+      }
+
       return ChatMessageBubble(
         key: ValueKey(item.message.id),
         message: item.message,
@@ -1747,6 +1806,8 @@ extension on _ChatScreenState {
         isHighlighted: isHighlighted,
         canDeleteForAll: canDeleteForAll,
         canEditMessage: isMe && item.message.canEdit(_actualMyId ?? 0),
+        isEncryptionPasswordSet: _isEncryptionPasswordSetForCurrentChat,
+        decryptedText: decryptedText,
         onReply: () => _replyToMessage(item.message),
         onReplyTap: (messageId) => _scrollToMessage(messageId),
         onEdit: () => _editMessage(item.message),
@@ -1780,26 +1841,41 @@ extension on _ChatScreenState {
 
   void _openChannelSettings() async {
     if (_isOpeningChannelSettings) {
+      print('⚠️ [ChannelSettings] Уже открывается, игнорируем');
       return;
     }
 
     _isOpeningChannelSettings = true;
     if (_actualMyId == null) {
+      print('⚠️ [ChannelSettings] _actualMyId null');
       _isOpeningChannelSettings = false;
       return;
     }
     
     try {
+      print('📋 [ChannelSettings] Начинаем загрузку данных канала ${widget.chatId}...');
+      
       // Сохраняем контекст ДО await
       final navigatorContext = context;
       
-      final channelDetails = await ApiService.instance.getChannelDetails(widget.chatId);
+      print('📋 [ChannelSettings] Вызываем getChannelDetails с timeout...');
+      final channelDetails = await ApiService.instance.getChannelDetails(widget.chatId)
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () {
+              print('⏱️ [ChannelSettings] Timeout при загрузке данных канала');
+              throw TimeoutException('Таймаут загрузки данных канала', const Duration(seconds: 10));
+            },
+          );
+      print('✅ [ChannelSettings] Данные канала получены');
       
       if (!mounted) {
+        print('⚠️ [ChannelSettings] Widget не mounted после загрузки');
         return;
       }
       
       if (channelDetails == null) {
+        print('⚠️ [ChannelSettings] channelDetails null, показываем ошибку');
         ScaffoldMessenger.of(navigatorContext).showSnackBar(
           const SnackBar(
             content: Text('Не удалось загрузить данные канала'),
@@ -1811,6 +1887,7 @@ extension on _ChatScreenState {
       final safeChannelDetails =
           channelDetails ?? <String, dynamic>{'id': widget.chatId};
 
+      print('📋 [ChannelSettings] Открываем ChannelSettingsScreen...');
       Navigator.of(navigatorContext).push(
         MaterialPageRoute(
           builder: (ctx) => ChannelSettingsScreen(
@@ -1820,12 +1897,24 @@ extension on _ChatScreenState {
           ),
         ),
       );
+      print('✅ [ChannelSettings] Экран открыт');
       
     } catch (e, stackTrace) {
-      print('❌ [ChatScreen] Ошибка открытия настроек канала: $e');
-      print('❌ [ChatScreen] Stack: $stackTrace');
+      print('❌ [ChannelSettings] Ошибка открытия настроек канала: $e');
+      print('❌ [ChannelSettings] Stack: $stackTrace');
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Ошибка: $e'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     } finally {
       _isOpeningChannelSettings = false;
+      print('✅ [ChannelSettings] Флаг _isOpeningChannelSettings сброшен');
     }
   }
 

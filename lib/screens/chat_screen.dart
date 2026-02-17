@@ -32,9 +32,11 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:gwid/widgets/message_bubble/models/message_read_status.dart';
 
 import 'package:gwid/screens/group_settings_screen.dart';
+import 'package:gwid/screens/group_call_screen.dart';
 import 'package:gwid/screens/settings/channel_settings_screen.dart';
 
 import 'package:gwid/screens/contact_selection_screen.dart';
+import 'package:gwid/models/video_conference.dart';
 import 'package:gwid/widgets/contact_name_widget.dart';
 import 'package:gwid/widgets/contact_avatar_widget.dart';
 import 'package:flutter_linkify/flutter_linkify.dart';

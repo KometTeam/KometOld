@@ -318,6 +318,161 @@ extension on _ChatScreenState {
     }
   }
 
+  // Обработка группового звонка
+  void _handleGroupCall() async {
+    try {
+      print('📞 [1/6] _handleGroupCall начат...');
+      
+      // Получаем актуальную информацию о чате с timeout
+      print('📞 [2/6] Загрузка данных чата...');
+      final chatData = await ApiService.instance.getChatsAndContacts(force: false)
+          .timeout(
+            const Duration(seconds: 5),
+            onTimeout: () {
+              print('⚠️ Timeout при загрузке чатов, используем кэш');
+              return ApiService.instance.lastChatsPayload ?? {};
+            },
+          );
+      print('✅ [2/6] Данные чата загружены');
+      
+      final chats = chatData['chats'] as List?;
+      
+      Chat? currentChat;
+      if (chats != null) {
+        for (final chatJson in chats) {
+          final chat = Chat.fromJson(chatJson as Map<String, dynamic>);
+          if (chat.id == widget.chatId) {
+            currentChat = chat;
+            break;
+          }
+        }
+      }
+
+      print('📞 [3/6] Найдено чатов: ${chats?.length ?? 0}');
+      
+      if (!mounted) return;
+
+      // Проверяем есть ли активный звонок
+      if (currentChat?.hasActiveCall ?? false) {
+        print('📞 [4/6] Найден активный звонок с ${currentChat!.videoConversation!.participantsCount} участниками');
+        
+        // Присоединяемся к существующему звонку
+        final conference = currentChat.videoConversation!;
+        
+        print('📞 [5/6] Присоединение через API...');
+        final connection = await ApiService.instance.joinGroupCallByConferenceId(
+          conferenceId: conference.conferenceId,
+          chatId: widget.chatId,
+        ).timeout(
+          const Duration(seconds: 10),
+          onTimeout: () {
+            throw Exception('Timeout при присоединении к звонку');
+          },
+        );
+        print('✅ [5/6] API ответил, открываем экран звонка');
+
+        if (!mounted) return;
+
+        print('📞 [6/6] Открытие GroupCallScreen...');
+        // Открываем экран группового звонка
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => GroupCallScreen(
+              conference: conference,
+              connection: connection,
+            ),
+          ),
+        );
+        print('✅ [6/6] Экран звонка закрыт');
+      } else {
+        print('📞 [4/6] Активного звонка нет, показываем диалог');
+        
+        // Начинаем новый звонок
+        final shouldStartCall = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Начать звонок?'),
+            content: Text('Начать ${widget.isGroupChat ? 'групповой' : ''} звонок в чате?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Отмена'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Начать'),
+              ),
+            ],
+          ),
+        );
+
+        if (shouldStartCall != true || !mounted) return;
+
+        print('📞 [5/6] Начинаем звонок через API...');
+        final connection = await ApiService.instance.startGroupCall(
+          widget.chatId,
+          isVideo: false,
+        ).timeout(
+          const Duration(seconds: 10),
+          onTimeout: () {
+            throw Exception('Timeout при создании звонка');
+          },
+        );
+        print('✅ [5/6] API ответил, создаем объект конференции');
+
+        if (!mounted) return;
+
+        // Создаем временный объект VideoConference из connection
+        final conference = VideoConference(
+          owner: ConferenceOwner(
+            id: _actualMyId ?? 0,
+            baseUrl: '',
+            baseRawUrl: '',
+            photoId: 0,
+            names: [],
+            updateTime: 0,
+          ),
+          chatId: widget.chatId,
+          conferenceId: connection.conversation.id,
+          callName: _currentContact.name,
+          joinLink: connection.conversation.joinLink,
+          previewParticipantIds: [],
+          type: 1,
+          startAt: DateTime.now().millisecondsSinceEpoch,
+          callType: 'AUDIO',
+        );
+
+        print('📞 [6/6] Открытие GroupCallScreen...');
+        // Открываем экран группового звонка
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => GroupCallScreen(
+              conference: conference,
+              connection: connection,
+            ),
+          ),
+        );
+        print('✅ [6/6] Экран звонка закрыт');
+      }
+    } catch (e, stackTrace) {
+      print('❌ Ошибка в _handleGroupCall: $e');
+      print('Stack trace: $stackTrace');
+      
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Ошибка: $e'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+      
+      // Важно: ничего не делаем дальше, просто выходим
+      return;
+    }
+  }
+
   void _showForwardDialog(Message message) async {
     print(' _showForwardDialog вызван для сообщения: ${message.id}');
 
@@ -503,9 +658,11 @@ extension on _ChatScreenState {
             (p) => p.index == 0,
             orElse: () => positions.first,
           );
+          // Считаем что мы внизу если видим первое сообщение (index 0)
+          // и оно почти полностью на экране (itemLeadingEdge близко к 0)
           final isAtBottom =
               bottomItemPosition.index == 0 &&
-              bottomItemPosition.itemLeadingEdge <= 0.25;
+              bottomItemPosition.itemLeadingEdge <= 0.1; // Строже: было 0.25
           _isUserAtBottom = isAtBottom;
           if (isAtBottom) _isScrollingToBottom = false;
           _showScrollToBottomNotifier.value =
@@ -861,7 +1018,7 @@ extension on _ChatScreenState {
     if (hasCache) {
       if (!mounted) return;
       _messages.clear();
-      _messages.addAll(_hydrateLinksSequentially(cachedMessages));
+      _messages.addAll(_hydrateLinksSequentially(_filterControlMessages(cachedMessages)));
       if (_messages.isNotEmpty) _oldestLoadedTime = _messages.first.time;
       _hasMore = true;
 
@@ -897,7 +1054,7 @@ extension on _ChatScreenState {
               // Обновляем UI только если ещё не показали кэш или кэш пустой
               if (!hasCache || _messages.isEmpty) {
                 _messages.clear();
-                _messages.addAll(_hydrateLinksSequentially(initial));
+                _messages.addAll(_hydrateLinksSequentially(_filterControlMessages(initial)));
                 if (_messages.isNotEmpty)
                   _oldestLoadedTime = _messages.first.time;
                 _hasMore = initial.length >= initialLimit;
@@ -922,7 +1079,7 @@ extension on _ChatScreenState {
 
               // Обновляем полный список
               _messages.clear();
-              _messages.addAll(_hydrateLinksSequentially(all));
+              _messages.addAll(_hydrateLinksSequentially(_filterControlMessages(all)));
               if (_messages.isNotEmpty)
                 _oldestLoadedTime = _messages.first.time;
               _hasMore = all.length >= initialMaxMessages;
@@ -1646,6 +1803,17 @@ extension on _ChatScreenState {
     final updatedLink = Map<String, dynamic>.from(link);
     updatedLink['message'] = _mapMessageForLink(referenced);
     return message.copyWith(link: updatedLink);
+  }
+
+  // Фильтруем CONTROL-сообщения (о звонках) - они вызывают баги
+  List<Message> _filterControlMessages(List<Message> messages) {
+    return messages.where((msg) {
+      final hasControl = msg.attaches.any((a) => a['_type'] == 'CONTROL');
+      if (hasControl) {
+        print('⏭️ Пропускаем CONTROL-сообщение id=${msg.id}');
+      }
+      return !hasControl;
+    }).toList();
   }
 
   List<Message> _hydrateLinksSequentially(

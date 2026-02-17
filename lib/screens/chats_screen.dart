@@ -173,7 +173,7 @@ class _ChatsScreenState extends State<ChatsScreen>
     _searchController.addListener(_onSearchChanged);
     _searchFocusNode.addListener(_onSearchFocusChanged);
 
-    _listenForUpdates();
+    unawaited(_listenForUpdates());
 
     _connectionStateSubscription = ApiService.instance.connectionStatus.listen((
       status,
@@ -526,8 +526,11 @@ class _ChatsScreenState extends State<ChatsScreen>
     );
   }
 
-  void _listenForUpdates() {
-    _messageHandler?.listen()?.cancel();
+  Future<void> _listenForUpdates() async {
+    // КРИТИЧНО: отменяем старую подписку перед созданием новой
+    await _apiSubscription?.cancel();
+    _apiSubscription = null;
+    
     final handler = MessageHandler(
       setState: setState,
       getContext: () => context,
@@ -573,6 +576,11 @@ class _ChatsScreenState extends State<ChatsScreen>
   final Map<int, Timer> _typingDecayTimers = {};
   final Set<int> _typingChats = {};
   final Set<int> _onlineChats = {};
+  
+  // Защита от бесконечного цикла в filterChats
+  int _filterChatsCallCount = 0;
+  int _lastFilterResetTime = 0;
+  bool _isFilteringInProgress = false;
   void _setTypingForChat(int chatId) {
     _typingChats.add(chatId);
     _typingDecayTimers[chatId]?.cancel();
@@ -1039,10 +1047,21 @@ class _ChatsScreenState extends State<ChatsScreen>
   }
 
   void _filterChats() {
-    final query = _searchController.text.toLowerCase();
+    // КРИТИЧНО: Блокируем реентрантные вызовы
+    if (_isFilteringInProgress) {
+      print('⚠️ [filterChats] УЖЕ ВЫПОЛНЯЕТСЯ, пропускаем');
+      return;
+    }
+    
+    _isFilteringInProgress = true;
+    
+    try {
+      print('🔍 [filterChats] Начало фильтрации, _allChats.length=${_allChats.length}');
+      final query = _searchController.text.toLowerCase();
     List<Chat> chatsToFilter = _allChats;
 
     if (_selectedFolderId != null) {
+      print('🔍 [filterChats] Фильтруем по папке $_selectedFolderId');
       final selectedFolder = _folders.firstWhere(
         (f) => f.id == _selectedFolderId,
         orElse: () => _folders.first,
@@ -1050,15 +1069,19 @@ class _ChatsScreenState extends State<ChatsScreen>
       chatsToFilter = _allChats
           .where((chat) => _chatBelongsToFolder(chat, selectedFolder))
           .toList();
+      print('🔍 [filterChats] После фильтрации по папке: ${chatsToFilter.length}');
     }
 
     if (query.isEmpty && !_searchFocusNode.hasFocus) {
+      print('🔍 [filterChats] Копируем все чаты');
       _filteredChats = List.from(chatsToFilter);
 
+      print('🔍 [filterChats] Сортируем ${_filteredChats.length} чатов...');
       // Сортировка по времени последнего сообщения (новые сверху)
       _filteredChats.sort((a, b) {
         return b.lastMessage.time.compareTo(a.lastMessage.time);
       });
+      print('🔍 [filterChats] Сортировка завершена');
     } else if (_searchFocusNode.hasFocus && query.isEmpty) {
       _filteredChats = [];
     } else if (query.isNotEmpty) {
@@ -1082,6 +1105,10 @@ class _ChatsScreenState extends State<ChatsScreen>
       });
     } else {
       _filteredChats = [];
+    }
+    print('✅ [filterChats] Завершено, _filteredChats.length=${_filteredChats.length}');
+    } finally {
+      _isFilteringInProgress = false;
     }
   }
 
@@ -1357,7 +1384,8 @@ class _ChatsScreenState extends State<ChatsScreen>
   }
 
   void _loadChatsAndContacts() {
-    final future = ApiService.instance.getChatsOnly();
+    print('🔄 Принудительная загрузка чатов после переподключения...');
+    final future = ApiService.instance.getChatsAndContacts(force: true);
 
     setState(() {
       _chatsFuture = future;
@@ -1632,7 +1660,7 @@ class _ChatsScreenState extends State<ChatsScreen>
                     )
                     .toList();
                 _chatsLoaded = true;
-                _listenForUpdates();
+                unawaited(_listenForUpdates());
 
                 _loadChatDrafts();
                 final contacts = contactListJson.map(
@@ -3091,8 +3119,8 @@ class _ChatsScreenState extends State<ChatsScreen>
                           onTap: (index) {},
                         ),
                       )
-                    : Transform.translate(
-                        offset: const Offset(-42, 0),
+                    : Padding(
+                        padding: const EdgeInsets.only(right: 48), // Место для кнопки +
                         child: TabBar(
                           controller: _folderTabController,
                           isScrollable: true,

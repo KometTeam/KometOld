@@ -5,6 +5,7 @@ import 'package:gwid/api/api_service.dart';
 import 'package:gwid/services/floating_call_manager.dart';
 import 'package:gwid/services/call_overlay_service.dart';
 import 'package:gwid/services/call_recording_service.dart';
+import 'package:gwid/services/chat_encryption_service.dart';
 import 'package:gwid/widgets/contact_avatar_widget.dart';
 import 'package:gwid/widgets/animated_mesh_gradient.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -4264,6 +4265,20 @@ class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerP
   }
 
   Widget _buildMessageBubble(TemporaryChatMessage message, ColorScheme colors) {
+    // Расшифровка сообщения если нужно
+    String displayText = message.text;
+    bool isEncrypted = ChatEncryptionService.isEncryptedMessage(message.text);
+    
+    if (isEncrypted && widget.encryptionPassword != null && widget.encryptionPassword!.isNotEmpty) {
+      final decrypted = ChatEncryptionService.decryptWithPassword(
+        widget.encryptionPassword!,
+        message.text,
+      );
+      if (decrypted != null) {
+        displayText = decrypted;
+      }
+    }
+    
     return Align(
       alignment: message.isMine ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
@@ -4276,11 +4291,31 @@ class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerP
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              message.text,
-              style: TextStyle(
-                color: message.isMine ? colors.onPrimaryContainer : colors.onSurface,
-              ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isEncrypted && widget.encryptionPassword != null) ...[
+                  Icon(
+                    Icons.lock,
+                    size: 14,
+                    color: (message.isMine ? colors.onPrimaryContainer : colors.onSurface).withOpacity(0.7),
+                  ),
+                  const SizedBox(width: 4),
+                ],
+                Flexible(
+                  child: Text(
+                    isEncrypted && (widget.encryptionPassword == null || widget.encryptionPassword!.isEmpty)
+                        ? '🔒 Зашифрованное сообщение'
+                        : displayText,
+                    style: TextStyle(
+                      color: message.isMine ? colors.onPrimaryContainer : colors.onSurface,
+                      fontStyle: isEncrypted && (widget.encryptionPassword == null || widget.encryptionPassword!.isEmpty)
+                          ? FontStyle.italic
+                          : FontStyle.normal,
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 4),
             Text(

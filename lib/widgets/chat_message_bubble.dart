@@ -935,6 +935,15 @@ class ChatMessageBubble extends StatelessWidget {
     final themeProvider = Provider.of<ThemeProvider>(context);
     final isUltraOptimized = themeProvider.ultraOptimizeChats;
 
+    // Системные сообщения (CONTROL) отображаются по центру без аватарки
+    final isSystemMessage =
+        message.attaches.isNotEmpty &&
+        message.attaches.every((a) => a['_type'] == 'CONTROL') &&
+        message.text.isEmpty;
+    if (isSystemMessage) {
+      return _buildSystemMessage(context);
+    }
+
     final isStickerOnly =
         message.attaches.length == 1 &&
         message.attaches.any((a) => a['_type'] == 'STICKER') &&
@@ -1418,6 +1427,54 @@ class ChatMessageBubble extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+
+  Widget _buildSystemMessage(BuildContext context) {
+    final control = message.attaches.firstWhere((a) => a['_type'] == 'CONTROL');
+    final shortMessage = control['shortMessage'] as String? ?? '';
+    
+    if (shortMessage.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: isDarkMode 
+                ? Colors.white.withOpacity(0.1) 
+                : Colors.black.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.info_outline,
+                size: 14,
+                color: isDarkMode ? Colors.white70 : Colors.black54,
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  shortMessage,
+                  style: TextStyle(
+                    color: isDarkMode ? Colors.white70 : Colors.black54,
+                    fontSize: 12,
+                    fontStyle: FontStyle.italic,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -2501,6 +2558,60 @@ class ChatMessageBubble extends StatelessWidget {
         ),
       );
       widgets.add(const SizedBox(height: 6));
+    }
+
+    return widgets;
+  }
+
+  List<Widget> _buildControlMessages(
+    BuildContext context,
+    List<Map<String, dynamic>> attaches,
+    Color textColor,
+    bool isUltraOptimized,
+    double messageTextOpacity,
+  ) {
+    final controls = attaches.where((a) {
+      final type = a['_type'];
+      return type == 'CONTROL';
+    }).toList();
+    final List<Widget> widgets = [];
+
+    if (controls.isEmpty) return widgets;
+
+    for (final control in controls) {
+      final event = control['event'] as String?;
+      final shortMessage = control['shortMessage'] as String?;
+      
+      // Отображаем системные сообщения (звонки, и т.д.)
+      if (event == 'system' && shortMessage != null && shortMessage.isNotEmpty) {
+        widgets.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.info_outline,
+                  size: 16,
+                  color: textColor.withValues(alpha: 0.7 * messageTextOpacity),
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    shortMessage,
+                    style: TextStyle(
+                      color: textColor.withValues(alpha: 0.8 * messageTextOpacity),
+                      fontSize: 13,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+        widgets.add(const SizedBox(height: 6));
+      }
     }
 
     return widgets;
@@ -4535,6 +4646,13 @@ class ChatMessageBubble extends StatelessWidget {
         ],
         if (attachesToShow.isNotEmpty) ...[
           ..._buildCallsWithCaption(
+            context,
+            attachesToShow,
+            textColor,
+            isUltraOptimized,
+            messageTextOpacity,
+          ),
+          ..._buildControlMessages(
             context,
             attachesToShow,
             textColor,
