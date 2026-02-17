@@ -118,14 +118,21 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
         ? const Color(0xFF182533)
         : const Color(0xFF464646);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("Персонализация"),
-        surfaceTintColor: Colors.transparent,
-        backgroundColor: colors.surface,
-        elevation: 0,
-      ),
-      body: ListView(
+    return GestureDetector(
+      onHorizontalDragUpdate: (details) {
+        // Свайп вправо для возврата назад
+        if (details.delta.dx > 10) {
+          Navigator.of(context).pop();
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text("Персонализация"),
+          surfaceTintColor: Colors.transparent,
+          backgroundColor: colors.surface,
+          elevation: 0,
+        ),
+        body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         children: [
           _MessagePreviewSection(isMaterialYou: _isMaterialYou),
@@ -967,6 +974,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
             ],
           ),
         ],
+        ),
       ),
     );
   }

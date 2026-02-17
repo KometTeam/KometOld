@@ -51,6 +51,9 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
       _waveformData = widget.waveBytes!.toList();
     } else if (widget.wave != null && widget.wave!.isNotEmpty) {
       _decodeWaveform(widget.wave!);
+    } else {
+      // Если waveform нет - генерируем простую заглушку
+      _generateFallbackWaveform();
     }
 
     if (widget.url.isNotEmpty) {
@@ -117,6 +120,18 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
     } catch (e) {
       _waveformData = null;
     }
+  }
+  
+  void _generateFallbackWaveform() {
+    // Генерируем простую waveform если её нет
+    // Используем случайные значения для имитации звуковой волны
+    final random = widget.duration.hashCode; // Детерминированный "случайный" seed
+    _waveformData = List.generate(40, (i) {
+      // Создаём волнообразный паттерн
+      final base = (i % 10) / 10.0;
+      final wave = (((random + i * 7) % 100) / 100.0) * 0.6 + base * 0.4;
+      return (wave * 200 + 55).toInt(); // Значения от 55 до 255
+    });
   }
 
   Future<void> _preCacheAudio() async {
@@ -305,7 +320,9 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : Icon(
-                          _isPlaying ? Icons.pause : Icons.play_arrow,
+                          _isPlaying 
+                              ? Icons.pause 
+                              : (_isCompleted ? Icons.replay : Icons.play_arrow),
                           color: widget.textColor.withValues(
                             alpha: 0.8 * widget.messageTextOpacity,
                           ),
@@ -403,9 +420,7 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
                           ),
                         ),
                         Text(
-                          _totalDuration.inMilliseconds > 0
-                              ? _formatDuration(_totalDuration)
-                              : widget.durationText,
+                          _formatDuration(_totalDuration),
                           style: TextStyle(
                             color: widget.textColor.withValues(
                               alpha: 0.7 * widget.messageTextOpacity,
