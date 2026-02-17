@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:gwid/api/api_service.dart';
 import 'package:gwid/models/call_response.dart';
+import 'package:gwid/services/call_notification_service.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 /// Сервис для обработки входящих звонков
@@ -28,6 +29,9 @@ class CallsService extends ChangeNotifier {
   void clearIncomingCall() {
     _currentIncomingCall = null;
     notifyListeners();
+    
+
+    CallNotificationService.instance.cancelIncomingCallNotification();
   }
   
   void markCallAsAccepted(String conversationId) {
@@ -66,7 +70,7 @@ class CallsService extends ChangeNotifier {
     print('📞 CallsService инициализирован');
   }
 
-  void _handleIncomingCall(Map<String, dynamic> payload) {
+  Future<void> _handleIncomingCall(Map<String, dynamic> payload) async {
     try {
       // Парсим данные входящего звонка (старый формат)
       final conversationId = payload['conversationId'] as String?;
@@ -94,7 +98,10 @@ class CallsService extends ChangeNotifier {
       _currentIncomingCall = incomingCall;
       notifyListeners();
       
-      // Отправляем в stream
+
+      await _showAndroidCallNotification(incomingCall);
+      
+
       _incomingCallController.add(incomingCall);
     } catch (e) {
       print('❌ Ошибка обработки входящего звонка: $e');
@@ -146,7 +153,10 @@ class CallsService extends ChangeNotifier {
       _currentIncomingCall = incomingCall;
       notifyListeners();
       
-      // Отправляем в stream
+
+      await _showAndroidCallNotification(incomingCall);
+      
+
       _incomingCallController.add(incomingCall);
     } catch (e) {
       print('❌ Ошибка обработки входящего звонка v2: $e');
@@ -195,6 +205,20 @@ class CallsService extends ChangeNotifier {
     }
   }
 
+  /// Показать Android уведомление о входящем звонке
+  Future<void> _showAndroidCallNotification(IncomingCallData call) async {
+    try {
+      await CallNotificationService.instance.showIncomingCallNotification(
+        conversationId: call.conversationId,
+        callerName: call.callerName,
+        callerId: call.callerId,
+        avatarPath: call.callerAvatarUrl,
+      );
+    } catch (e) {
+      print('❌ Ошибка показа Android уведомления: $e');
+    }
+  }
+  
   Future<void> rejectCall(String conversationId, int callerId) async {
     try {
       print('📴 Rejecting incoming call: $conversationId');

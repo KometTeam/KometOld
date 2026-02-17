@@ -58,7 +58,6 @@ class _CallScreenState extends State<CallScreen> {
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
 
-  // DataChannel
   RTCDataChannel? _dataChannel;
   OverlayEntry? _dataChannelOverlayEntry;
   final ValueNotifier<bool> _isDataChannelOpenNotifier = ValueNotifier(false);
@@ -89,11 +88,10 @@ class _CallScreenState extends State<CallScreen> {
   double _localAudioLevel = 0.0; // Уровень громкости локального микрофона (0.0 - 1.0)
   bool _isVideoEnabled = false;
   OverlayEntry? _soundpadOverlay;
-  List<Map<String, String>> _soundpadSounds = []; // {name, path}
+  List<Map<String, String>> _soundpadSounds = [];
   AudioPlayer? _soundpadPlayer;
-  final GlobalKey _micButtonKey = GlobalKey(); // Для получения позиции кнопки микрофона
+  final GlobalKey _micButtonKey = GlobalKey();
   
-  // Шифрование DataChannel
   String? _chatEncryptionPassword;
   encrypt_lib.Encrypter? _chatEncrypter;
   encrypt_lib.IV? _chatIV;
@@ -2536,14 +2534,12 @@ class _CallScreenState extends State<CallScreen> {
           body: SafeArea(
           child: Stack(
             children: [
-              // Mesh gradient фон
               Positioned.fill(
                 child: AnimatedMeshGradient(
                   accentColor: colors.primary,
                 ),
               ),
 
-              // Drag indicator
               if (_dragOffset > 0)
                 Positioned(
                   top: 8,
@@ -2665,7 +2661,7 @@ class _CallScreenState extends State<CallScreen> {
                   ),
                 ),
 
-            // Видео (показываем если включено локально или есть удаленное видео)
+
             if (_isVideoEnabled || (_isRemoteVideoEnabled && _remoteStream != null)) ...[
               Expanded(
                 child: Stack(
@@ -2816,7 +2812,7 @@ class _CallScreenState extends State<CallScreen> {
               ),
             ],
 
-            // Кнопки управления
+
             Padding(
               padding: const EdgeInsets.all(24.0),
               child: Row(
