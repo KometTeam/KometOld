@@ -9,10 +9,12 @@ list(APPEND FLUTTER_PLUGIN_LIST
   flutter_webrtc
   gtk
   media_kit_libs_linux
+  media_kit_video
   open_file_linux
   record_linux
   smart_auth
   url_launcher_linux
+  volume_controller
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST

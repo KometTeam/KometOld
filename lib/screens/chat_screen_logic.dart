@@ -2207,8 +2207,11 @@ extension on _ChatScreenState {
 
   Future<void> _saveInputState() async {
     try {
+      print('💾 _saveInputState вызван для чата ${widget.chatId}');
       final text = _textController.text;
       final elements = _textController.elements;
+      print('💾 Текст для сохранения: "$text" (длина: ${text.length})');
+      print('💾 Элементов: ${elements.length}');
 
       Map<String, dynamic>? replyingToMessageData;
       if (_replyingToMessage != null) {
@@ -2238,10 +2241,12 @@ extension on _ChatScreenState {
         elements: elements,
         replyingToMessage: replyingToMessageData,
       );
+      print('✅ ChatCacheService.saveChatInputState завершён');
 
       widget.onDraftChanged?.call(widget.chatId, draftData);
+      print('✅ onDraftChanged вызван с draftData: ${draftData != null ? "есть данные" : "null"}');
     } catch (e) {
-      print('Ошибка сохранения состояния ввода: $e');
+      print('❌ Ошибка сохранения состояния ввода: $e');
     }
   }
 

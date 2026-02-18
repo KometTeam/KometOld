@@ -57,6 +57,7 @@ import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:platform_info/platform_info.dart';
 import 'package:gwid/services/voice_upload_service.dart';
+import 'package:gwid/widgets/yaznaytvoytelefon.dart';
 
 part 'chat_screen_widgets.dart';
 part 'chat_screen_logic.dart';
@@ -402,6 +403,65 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    print('🗑️ dispose() вызван для чата ${widget.chatId}');
+    print('📝 Текст перед dispose: "${_textController.text}"');
+    
+    // Всегда вызываем onDraftChanged - либо с данными, либо с null для очистки
+    final textTrimmed = _textController.text.trim();
+    
+    if (textTrimmed.isNotEmpty) {
+      print('💾 Сохраняем черновик в dispose()');
+      // Синхронное сохранение
+      ChatCacheService().saveChatInputState(
+        widget.chatId,
+        text: _textController.text,
+        elements: _textController.elements,
+        replyingToMessage: _replyingToMessage != null ? {
+          'id': _replyingToMessage!.id,
+          'sender': _replyingToMessage!.senderId,
+          'text': _replyingToMessage!.text,
+          'time': _replyingToMessage!.time,
+          'type': 'USER',
+          'cid': _replyingToMessage!.cid,
+          'attaches': _replyingToMessage!.attaches,
+        } : null,
+      );
+      
+      final draftData = {
+        'text': _textController.text,
+        'elements': _textController.elements,
+        'replyingToMessage': _replyingToMessage != null ? {
+          'id': _replyingToMessage!.id,
+          'sender': _replyingToMessage!.senderId,
+          'text': _replyingToMessage!.text,
+          'time': _replyingToMessage!.time,
+          'type': 'USER',
+          'cid': _replyingToMessage!.cid,
+          'attaches': _replyingToMessage!.attaches,
+        } : null,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      };
+      // Вызываем callback через microtask чтобы UI успел обновиться
+      Future.microtask(() {
+        widget.onDraftChanged?.call(widget.chatId, draftData);
+      });
+      print('✅ Черновик сохранён в dispose()');
+    } else {
+      print('🗑️ Очищаем черновик в dispose()');
+      // Очищаем черновик если текст пустой
+      ChatCacheService().saveChatInputState(
+        widget.chatId,
+        text: '',
+        elements: [],
+        replyingToMessage: null,
+      );
+      // Вызываем callback с null чтобы удалить черновик из UI
+      Future.microtask(() {
+        widget.onDraftChanged?.call(widget.chatId, null);
+      });
+      print('✅ Черновик очищен в dispose()');
+    }
+    
     _isDisposed = true;
     _apiSubscription?.cancel();
     _typingTimer?.cancel();
@@ -437,7 +497,27 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(appBar: _buildAppBar(), body: _buildBody());
+    return PopScope(
+      canPop: true,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) {
+          print('🔄 PopScope: выход из чата ${widget.chatId}');
+          print('📝 Текущий текст: "${_textController.text}"');
+          
+          // Сохраняем черновик перед выходом
+          _saveInputState();
+          
+          // Проверяем секретный текст после выхода
+          if (_textController.text.trim() == 'ЯЗНАЮТВОЙТЕЛЕФОН') {
+            print('🎬 Обнаружен секретный текст!');
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _checkSecretText();
+            });
+          }
+        }
+      },
+      child: Scaffold(appBar: _buildAppBar(), body: _buildBody()),
+    );
   }
 
   // Helper method to show error snackbar
@@ -456,6 +536,21 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  // Проверка секретного текста и показ видео
+  void _checkSecretText() {
+    if (!mounted) return;
+    
+    // Мгновенный переход без анимации
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => 
+          const YAZNAYTVOYTELEFON(videoPath: 'ЯЗНАЮТВОЙТЕЛЕФОН.mp4'),
+        transitionDuration: Duration.zero, // Без анимации
+        reverseTransitionDuration: Duration.zero,
+      ),
+    );
+  }
+  
   // Placeholder methods that will be implemented in part files
   // These methods are implemented in chat_screen_logic.dart via extension
 

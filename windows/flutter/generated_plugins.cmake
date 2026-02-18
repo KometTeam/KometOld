@@ -11,11 +11,13 @@ list(APPEND FLUTTER_PLUGIN_LIST
   flutter_timezone
   flutter_webrtc
   just_audio_windows
+  media_kit_video
   permission_handler_windows
   record_windows
   share_plus
   smart_auth
   url_launcher_windows
+  volume_controller
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST

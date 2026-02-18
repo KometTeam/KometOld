@@ -2180,10 +2180,14 @@ class _ChatsScreenState extends State<ChatsScreen>
                     leading: const Icon(Icons.call_outlined),
                     title: const Text('Звонки'),
                     onTap: () {
+                      final apiService = context.read<ApiService>();
                       Navigator.pop(context);
                       Navigator.of(context).push(
                         MaterialPageRoute(
-                          builder: (context) => const CallsScreen(),
+                          builder: (context) => Provider<ApiService>.value(
+                            value: apiService,
+                            child: const CallsScreen(),
+                          ),
                         ),
                       );
                     },

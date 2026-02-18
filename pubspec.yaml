@@ -57,6 +57,8 @@ dependencies:
   wakelock_plus: ^1.2.8
   flutter_markdown_plus: ^1.0.7
   video_player: ^2.9.2
+  media_kit: ^1.1.10
+  media_kit_video: ^1.2.4
   qr_flutter: ^4.1.0
   mobile_scanner: ^7.1.2
   es_compression: ^2.0.14
