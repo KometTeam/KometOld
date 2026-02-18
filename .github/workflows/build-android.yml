@@ -52,14 +52,14 @@ jobs:
           storeFile=\${{ secrets.KEYSTORE_FILE }}
           EOF
 
-      - name: Build Split APKs
-        run: flutter build apk --release --split-per-abi
-
       - name: Configure Gradle
         run: |
           mkdir -p ~/.gradle
           echo "org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m" >> ~/.gradle/gradle.properties
           echo "kotlin.daemon.jvmargs=-Xmx1536m" >> ~/.gradle/gradle.properties
+
+      - name: Build Split APKs
+        run: flutter build apk --release --split-per-abi
 
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4
