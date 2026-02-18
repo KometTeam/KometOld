@@ -211,7 +211,10 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
                             : theme.chatWallpaperType,
                         underline: const SizedBox.shrink(),
                         onChanged: (value) {
-                          if (value != null) theme.setChatWallpaperType(value);
+                          if (value != null) {
+                            theme.setChatWallpaperType(value);
+                            setState(() {}); // Force UI update
+                          }
                         },
                         items: ChatWallpaperType.values
                             .where((type) => type != ChatWallpaperType.komet)

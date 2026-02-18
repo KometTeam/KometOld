@@ -1272,22 +1272,6 @@ extension on _ChatScreenState {
       }
     }
 
-    if (_showMentionDropdown && _filteredMentionableUsers.isNotEmpty) {
-      return CompositedTransformTarget(
-        link: _mentionLayerLink,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _MentionDropdownPanel(
-              users: _filteredMentionableUsers,
-              onUserSelected: _insertMention,
-            ),
-            inputBar,
-          ],
-        ),
-      );
-    }
-
     return inputBar;
   }
 

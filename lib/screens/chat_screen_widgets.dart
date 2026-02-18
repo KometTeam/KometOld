@@ -994,7 +994,11 @@ class _MentionDropdownPanel extends StatelessWidget {
                   ),
                   child: Row(
                     children: [
-                      ContactAvatarWidget(contactId: user.id, radius: 16),
+                      ContactAvatarWidget(
+                        contactId: user.id,
+                        originalAvatarUrl: user.photoBaseUrl,
+                        radius: 16,
+                      ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(

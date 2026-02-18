@@ -66,6 +66,13 @@ bool get _isMobilePlatform =>
     Platform.instance.operatingSystem.iOS ||
     Platform.instance.operatingSystem.android;
 
+// Настройки позиции mention панели
+class MentionPanelPosition {
+  static const double left = 20.0;   // Отступ слева (можете изменить)
+  static const double right = 20.0;  // Отступ справа (можете изменить)
+  static const double bottom = 70.0; // Высота над input bar (можете изменить)
+}
+
 // Intents для клавиатурных сочетаний в чате
 class SendMessageIntent extends Intent {
   const SendMessageIntent();
@@ -238,6 +245,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   // UI States
   Timer? _selectionCheckTimer;
   OverlayEntry? _sparkleMenuOverlay;
+  OverlayEntry? _mentionOverlay;
   final GlobalKey _sparkleButtonKey = GlobalKey();
   final LayerLink _sparkleLayerLink = LayerLink();
 
@@ -398,6 +406,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     _typingTimer?.cancel();
     _voiceRecordingTimer?.cancel();
     _selectionCheckTimer?.cancel();
+    _removeMentionOverlay();
     _textController.removeListener(_onTextControllerChanged);
     _textFocusNode.removeListener(_onTextFocusChanged);
     _textController.dispose();

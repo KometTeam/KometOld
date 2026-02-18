@@ -654,15 +654,18 @@ extension on _ChatScreenState {
       _itemPositionsListener.itemPositions.addListener(() {
         final positions = _itemPositionsListener.itemPositions.value;
         if (positions.isNotEmpty) {
+          // Ищем первый элемент с индексом 0 или самый нижний элемент
           final bottomItemPosition = positions.firstWhere(
             (p) => p.index == 0,
             orElse: () => positions.first,
           );
-          // Считаем что мы внизу если видим первое сообщение (index 0)
-          // и оно почти полностью на экране (itemLeadingEdge близко к 0)
-          final isAtBottom =
-              bottomItemPosition.index == 0 &&
-              bottomItemPosition.itemLeadingEdge <= 0.1; // Строже: было 0.25
+          
+          // Проверяем что мы на самом деле в самом низу списка
+          // Учитываем что первый элемент может быть DateSeparator (event)
+          final isAtBottomIndex = bottomItemPosition.index <= 1; // Индекс 0 или 1
+          final isAtBottomEdge = bottomItemPosition.itemLeadingEdge <= 0.1;
+          final isAtBottom = isAtBottomIndex && isAtBottomEdge;
+          
           _isUserAtBottom = isAtBottom;
           if (isAtBottom) _isScrollingToBottom = false;
           _showScrollToBottomNotifier.value =
@@ -1938,7 +1941,44 @@ extension on _ChatScreenState {
     });
   }
 
-  // ignore: unused_element
+  void _showMentionOverlay() {
+    _removeMentionOverlay();
+    
+    final overlay = Overlay.of(context);
+    _mentionOverlay = OverlayEntry(
+      builder: (context) => ValueListenableBuilder<bool>(
+        valueListenable: _showScrollToBottomNotifier,
+        builder: (context, showScrollButton, child) {
+          return AnimatedPositioned(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+            left: MentionPanelPosition.left,
+            right: showScrollButton 
+                ? MentionPanelPosition.right + 60 // Отступ для кнопки + запас
+                : MentionPanelPosition.right,
+            bottom: MentionPanelPosition.bottom,
+            child: Material(
+              color: Colors.transparent,
+              child: _MentionDropdownPanel(
+                users: _filteredMentionableUsers,
+                onUserSelected: (user) {
+                  _insertMention(user);
+                  _removeMentionOverlay();
+                },
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    overlay.insert(_mentionOverlay!);
+  }
+
+  void _removeMentionOverlay() {
+    _mentionOverlay?.remove();
+    _mentionOverlay = null;
+  }
+
   void _handleMentionFiltering(String text) {
     final cursorPosition = _textController.selection.baseOffset;
     if (cursorPosition > 0) {
@@ -2001,17 +2041,21 @@ extension on _ChatScreenState {
           _setStateIfMounted(() {
             _showMentionDropdown = true;
           });
+          _showMentionOverlay();
         } else {
           _setStateIfMounted(() {});
+          _showMentionOverlay();
         }
       } else {
         if (_showMentionDropdown) {
           _setStateIfMounted(() => _showMentionDropdown = false);
+          _removeMentionOverlay();
         }
       }
     } else {
       if (_showMentionDropdown) {
         _setStateIfMounted(() => _showMentionDropdown = false);
+        _removeMentionOverlay();
       }
     }
   }
@@ -2071,6 +2115,9 @@ extension on _ChatScreenState {
     }
 
     if (shouldShowPanel) _ensureBotCommandsLoaded();
+    
+    // Handle mention filtering when typing
+    _handleMentionFiltering(text);
   }
 
   Future<void> _ensureBotCommandsLoaded() async {
