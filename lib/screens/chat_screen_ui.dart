@@ -627,6 +627,48 @@ extension on _ChatScreenState {
       builder: (context, value, child) {
         if (_isVoiceRecordingUi) {
           final padding = EdgeInsets.all(isSmall ? 10 : 6);
+          final baseIconSize = isSmall ? 20.0 : 24.0;
+          final baseDiameter = baseIconSize + 2 * (isSmall ? 10.0 : 6.0);
+          
+          // Показываем прогресс если идет загрузка
+          if (_isVoiceUploading) {
+            return SizedBox(
+              width: baseDiameter,
+              height: baseDiameter,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Circular progress indicator
+                  SizedBox(
+                    width: baseDiameter,
+                    height: baseDiameter,
+                    child: CircularProgressIndicator(
+                      value: _voiceUploadProgress,
+                      strokeWidth: 2.5,
+                      backgroundColor: colors.primary.withValues(alpha: 0.2),
+                      valueColor: AlwaysStoppedAnimation<Color>(colors.primary),
+                    ),
+                  ),
+                  // Icon в центре
+                  Container(
+                    decoration: BoxDecoration(
+                      color: colors.primary,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Padding(
+                      padding: EdgeInsets.all(isSmall ? 8 : 5),
+                      child: Icon(
+                        Icons.upload_rounded,
+                        color: colors.onPrimary,
+                        size: isSmall ? 16 : 18,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+          
           return InkWell(
             borderRadius: BorderRadius.circular(24),
             onTap: _sendVoiceMessage,
@@ -709,6 +751,45 @@ extension on _ChatScreenState {
         final baseDiameter = baseIconSize + 2 * (isSmall ? 10.0 : 6.0);
         const maxScale = 1.12;
         final scale = 1.0 + (maxScale - 1.0) * dragProgress;
+
+        // Если идет загрузка голосового - показываем кружок прогресса
+        if (_isVoiceUploading) {
+          return SizedBox(
+            width: baseDiameter,
+            height: baseDiameter,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // Circular progress indicator
+                SizedBox(
+                  width: baseDiameter,
+                  height: baseDiameter,
+                  child: CircularProgressIndicator(
+                    value: _voiceUploadProgress,
+                    strokeWidth: 2.5,
+                    backgroundColor: colors.primary.withValues(alpha: 0.2),
+                    valueColor: AlwaysStoppedAnimation<Color>(colors.primary),
+                  ),
+                ),
+                // Icon в центре
+                Container(
+                  decoration: BoxDecoration(
+                    color: colors.primary,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Padding(
+                    padding: EdgeInsets.all(isSmall ? 8 : 5),
+                    child: Icon(
+                      Icons.upload_rounded,
+                      color: colors.onPrimary,
+                      size: isSmall ? 16 : 18,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
 
         final button = Container(
           key: ValueKey<String>(showSend ? 'send' : 'mic'),
@@ -1381,7 +1462,40 @@ extension on _ChatScreenState {
   void _jumpToBottom() {
     if (_chatItems.isEmpty) return;
     if (!_itemScrollController.isAttached) return;
-    _itemScrollController.jumpTo(index: 0);
+    
+    // Получаем текущую позицию
+    final positions = _itemPositionsListener.itemPositions.value;
+    if (positions.isEmpty) {
+      // Если позиции неизвестны, просто телепортируемся
+      _itemScrollController.jumpTo(index: 0);
+      return;
+    }
+    
+    // Находим самый верхний видимый элемент
+    final maxVisibleIndex = positions.map((p) => p.index).reduce((a, b) => a > b ? a : b);
+    
+    // Если далеко (больше 10 элементов от низа), делаем гибридный скролл
+    if (maxVisibleIndex > 10) {
+      // Сначала телепортируемся близко к низу (на 5 элементов выше)
+      _itemScrollController.jumpTo(index: 5);
+      
+      // Затем быстро докручиваем до самого низа
+      Future.delayed(const Duration(milliseconds: 50), () {
+        if (!mounted || !_itemScrollController.isAttached) return;
+        _itemScrollController.scrollTo(
+          index: 0,
+          duration: const Duration(milliseconds: 150), // Быстрее
+          curve: Curves.easeOut,
+        );
+      });
+    } else {
+      // Если близко, просто быстро скроллим
+      _itemScrollController.scrollTo(
+        index: 0,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
+    }
   }
 
   void _scrollToPinnedMessage() {

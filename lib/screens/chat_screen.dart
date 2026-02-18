@@ -56,6 +56,7 @@ import 'package:gwid/screens/chats_screen.dart';
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:platform_info/platform_info.dart';
+import 'package:gwid/services/voice_upload_service.dart';
 
 part 'chat_screen_widgets.dart';
 part 'chat_screen_logic.dart';

@@ -178,6 +178,19 @@ extension on _ChatScreenState {
 
     print('📤 Отправка голосового сообщения: $filePath, длительность: ${duration.inSeconds}s');
 
+    // Для Android запускаем фоновую загрузку с уведомлением
+    String? uploadId;
+    if (Platform.instance.operatingSystem.android) {
+      final voiceUploadService = VoiceUploadService();
+      uploadId = await voiceUploadService.startBackgroundUpload(
+        filePath: filePath,
+        chatId: widget.chatId,
+        durationSeconds: duration.inSeconds,
+        fileSize: fileSize,
+        senderId: _actualMyId ?? 0,
+      );
+    }
+
     try {
       await ApiService.instance.sendVoiceMessage(
         widget.chatId,
@@ -193,10 +206,21 @@ extension on _ChatScreenState {
               _voiceUploadProgress = progress;
             });
           }
+          
+          // Обновляем прогресс в уведомлении (Android)
+          if (Platform.instance.operatingSystem.android && uploadId != null) {
+            VoiceUploadService().updateProgress(uploadId, widget.chatId, progress);
+          }
         },
       );
 
       print('✅ Голосовое сообщение успешно отправлено');
+      
+      // Завершаем уведомление (Android)
+      if (Platform.instance.operatingSystem.android && uploadId != null) {
+        await VoiceUploadService().completeUpload(uploadId, widget.chatId);
+      }
+      
       if (mounted) {
         // ignore: invalid_use_of_protected_member
         setState(() {
@@ -218,6 +242,16 @@ extension on _ChatScreenState {
     } catch (e, stackTrace) {
       print('❌ Ошибка отправки голосового сообщения: $e');
       print(stackTrace);
+      
+      // Показываем ошибку в уведомлении (Android)
+      if (Platform.instance.operatingSystem.android && uploadId != null) {
+        await VoiceUploadService().cancelUpload(
+          uploadId,
+          widget.chatId,
+          errorMessage: 'Не удалось отправить голосовое сообщение',
+        );
+      }
+      
       if (mounted) {
         // ignore: invalid_use_of_protected_member
         setState(() {
@@ -253,6 +287,19 @@ extension on _ChatScreenState {
       });
     }
 
+    // Для Android запускаем фоновую загрузку с уведомлением
+    String? uploadId;
+    if (Platform.instance.operatingSystem.android) {
+      final voiceUploadService = VoiceUploadService();
+      uploadId = await voiceUploadService.startBackgroundUpload(
+        filePath: _cachedVoicePath!,
+        chatId: widget.chatId,
+        durationSeconds: duration.inSeconds,
+        fileSize: fileSize,
+        senderId: _actualMyId ?? 0,
+      );
+    }
+
     try {
       await ApiService.instance.sendVoiceMessage(
         widget.chatId,
@@ -268,8 +315,18 @@ extension on _ChatScreenState {
               _voiceUploadProgress = progress;
             });
           }
+          
+          // Обновляем прогресс в уведомлении (Android)
+          if (Platform.instance.operatingSystem.android && uploadId != null) {
+            VoiceUploadService().updateProgress(uploadId, widget.chatId, progress);
+          }
         },
       );
+
+      // Завершаем уведомление (Android)
+      if (Platform.instance.operatingSystem.android && uploadId != null) {
+        await VoiceUploadService().completeUpload(uploadId, widget.chatId);
+      }
 
       if (mounted) {
         // ignore: invalid_use_of_protected_member
@@ -290,6 +347,16 @@ extension on _ChatScreenState {
       }
     } catch (e) {
       print('❌ Ошибка повторной отправки голосового сообщения: $e');
+      
+      // Показываем ошибку в уведомлении (Android)
+      if (Platform.instance.operatingSystem.android && uploadId != null) {
+        await VoiceUploadService().cancelUpload(
+          uploadId,
+          widget.chatId,
+          errorMessage: 'Не удалось отправить голосовое сообщение',
+        );
+      }
+      
       if (mounted) {
         // ignore: invalid_use_of_protected_member
         setState(() {

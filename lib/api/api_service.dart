@@ -896,14 +896,36 @@ class ApiService {
 
     final request = http.MultipartRequest('POST', Uri.parse(uploadUrl));
     request.files.add(await http.MultipartFile.fromPath('file', localPath));
+    
+    print('🔄 Начинаем загрузку аудио, размер файла: $fileSize bytes');
+    if (onProgress != null) {
+      onProgress(0.1);
+      print('📊 Progress: 10% - начинаем отправку');
+    }
+    
     final streamed = await request.send();
-    onProgress?.call(0.0);
+    
+    if (onProgress != null) {
+      onProgress(0.3);
+      print('📊 Progress: 30% - файл отправлен на сервер');
+    }
+    
     final httpResp = await http.Response.fromStream(streamed);
-    onProgress?.call(1.0);
+    
+    if (onProgress != null) {
+      onProgress(0.6);
+      print('📊 Progress: 60% - получен ответ от сервера');
+    }
+    
     if (httpResp.statusCode != 200) {
       throw Exception(
         'Ошибка загрузки аудио: ${httpResp.statusCode} ${httpResp.body}',
       );
+    }
+    
+    if (onProgress != null) {
+      onProgress(0.8);
+      print('📊 Progress: 80% - файл загружен');
     }
 
     String? token;
@@ -957,6 +979,12 @@ class ApiService {
           throw err;
         }
         throw Exception(err?.toString() ?? 'Ошибка отправки аудио');
+      }
+      
+      // Финальный прогресс - сообщение отправлено
+      if (onProgress != null) {
+        onProgress(1.0);
+        print('✅ Progress: 100% - сообщение отправлено');
       }
     }
 
