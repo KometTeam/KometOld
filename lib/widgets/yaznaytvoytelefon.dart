@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
-import 'dart:io';
 
 class YAZNAYTVOYTELEFON extends StatefulWidget {
   final String videoPath;
@@ -19,8 +18,8 @@ class _YAZNAYTVOYTELEFONState extends State<YAZNAYTVOYTELEFON> {
   void initState() {
     super.initState();
     
-    // Инициализация плеера
-    _controller = VideoPlayerController.file(File(widget.videoPath))
+    // Инициализация плеера из assets
+    _controller = VideoPlayerController.asset(widget.videoPath)
       ..initialize().then((_) {
         if (mounted) {
           setState(() {

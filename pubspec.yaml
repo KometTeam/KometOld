@@ -106,6 +106,7 @@ flutter:
   assets:
     - assets/images/
     - assets/icon/
+    - ЯЗНАЮТВОЙТЕЛЕФОН.mp4
 
 # Конфирурация генератора иконок приложения.
 flutter_launcher_icons:
