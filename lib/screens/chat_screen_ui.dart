@@ -1836,13 +1836,36 @@ extension on _ChatScreenState {
 
       MessageReadStatus? readStatus;
       if (isMe) {
-        if (item.message.status == 'READ') {
+        final messageIdInt = int.tryParse(item.message.id);
+        final messageTime = item.message.time; // timestamp когда отправлено
+        
+        // Проверяем прочитанность по трем источникам (в порядке приоритета):
+        // 1. opcode 130 (новая система) - использует message.time
+        // 2. opcode 50 (_lastPeerReadMessageId, старая система) - использует message ID
+        // 3. message.status из сервера
+        
+        if (MessageReadStatusService().isMessageRead(widget.chatId, messageTime)) {
+          // opcode 130 - новая система (проверка по timestamp)
           readStatus = MessageReadStatus.read;
-        } else if (item.message.status == 'SENT') {
-          readStatus = MessageReadStatus.sent;
+          print('📖 [UI] Сообщение ${item.message.id} прочитано (opcode 130, time=$messageTime)');
+        } else if (messageIdInt != null && 
+                   _lastPeerReadMessageId != null && 
+                   messageIdInt <= _lastPeerReadMessageId!) {
+          // opcode 50 - старая система (READ_MESSAGE, проверка по ID)
+          readStatus = MessageReadStatus.read;
+          print('📖 [UI] Сообщение ${item.message.id} прочитано (opcode 50, lastPeerRead=$_lastPeerReadMessageId)');
+        } else if (item.message.status == 'READ') {
+          // Статус из сервера
+          readStatus = MessageReadStatus.read;
+          print('📖 [UI] Сообщение ${item.message.id} прочитано (message.status)');
         } else if (item.message.status == 'SENDING' ||
             item.message.id.startsWith('local_')) {
           readStatus = MessageReadStatus.sending;
+          print('⏳ [UI] Сообщение ${item.message.id} отправляется');
+        } else {
+          // Дефолт: отправлено
+          readStatus = MessageReadStatus.sent;
+          print('📤 [UI] Сообщение ${item.message.id} отправлено (дефолт)');
         }
       }
 

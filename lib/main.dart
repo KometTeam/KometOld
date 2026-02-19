@@ -29,6 +29,7 @@ import 'services/notification_service.dart';
 import 'services/message_queue_service.dart';
 import 'services/cache_auto_cleanup_service.dart';
 import 'services/calls_service.dart';
+import 'services/message_read_status_service.dart';
 import 'utils/theme_provider.dart';
 import 'utils/device_presets.dart';
 import 'plugins/plugin_service.dart';
@@ -97,6 +98,7 @@ Future<void> main() async {
       ChatCacheService().initialize(),
       ContactLocalNamesService().initialize(),
       MessageQueueService().initialize(),
+      MessageReadStatusService().initialize(),
     ]);
 
     // Инициализация автоочистки кэша

@@ -971,6 +971,14 @@ extension on _ChatScreenState {
                 _lastPeerReadMessageId = messageId;
                 _lastPeerReadMessageIdStr = messageIdStr;
               });
+              
+              // Синхронизируем с новым сервисом статусов прочитанности
+              print('📖 [opcode 50] Обновляем статус через MessageReadStatusService');
+              MessageReadStatusService().handleReadStatusUpdate({
+                'chatId': widget.chatId,
+                'mark': messageId,
+                'setAsUnread': false,
+              });
             }
           } else if (messageIdStr != null && messageIdStr.isNotEmpty) {
             if (_lastPeerReadMessageIdStr == null ||

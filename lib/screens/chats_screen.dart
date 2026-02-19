@@ -39,6 +39,7 @@ import 'package:gwid/models/account.dart';
 import 'package:gwid/services/message_queue_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:gwid/services/contact_local_names_service.dart';
+import 'package:gwid/services/message_read_status_service.dart';
 
 import 'package:gwid/screens/chat/models/search_result.dart';
 import 'package:gwid/screens/chat/widgets/typing_dots.dart';
@@ -120,6 +121,7 @@ class _ChatsScreenState extends State<ChatsScreen>
   StreamSubscription<void>? _connectionStatusSubscription;
   StreamSubscription<String>? _connectionStateSubscription;
   StreamSubscription<int>? _contactNamesSubscription;
+  StreamSubscription<MessageReadUpdate>? _readStatusSubscription;
   bool _isAccountsExpanded = false;
   bool _isReconnecting = false;
 
@@ -196,6 +198,16 @@ class _ChatsScreenState extends State<ChatsScreen>
 
     _contactNamesSubscription = ContactLocalNamesService().changes.listen((_) {
       if (mounted) setState(() {});
+    });
+    
+    // Подписываемся на обновления статусов прочитанности
+    _readStatusSubscription = MessageReadStatusService().statusUpdates.listen((update) {
+      print('🔔 [ChatsScreen] Получено обновление статуса прочитанности для чата ${update.chatId}');
+      if (mounted) {
+        setState(() {
+          // setState триггерит перерисовку списка чатов
+        });
+      }
     });
   }
 
@@ -5262,6 +5274,7 @@ class _ChatsScreenState extends State<ChatsScreen>
     _searchAnimationController.dispose();
     _folderTabController.dispose();
     _contactNamesSubscription?.cancel();
+    _readStatusSubscription?.cancel();
     super.dispose();
   }
 }

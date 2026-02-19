@@ -28,6 +28,7 @@ import 'package:gwid/services/call_overlay_service.dart';
 import 'package:gwid/services/contact_local_names_service.dart';
 import 'package:gwid/services/notification_service.dart';
 import 'package:gwid/services/message_queue_service.dart';
+import 'package:gwid/services/message_read_status_service.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 import 'package:gwid/widgets/message_bubble/models/message_read_status.dart';
 
@@ -215,6 +216,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   // API & Connection
   StreamSubscription? _apiSubscription;
+  StreamSubscription? _readStatusSubscription;
   int? _actualMyId;
   int? _oldestLoadedTime;
   int _maxViewedIndex = 0;
@@ -374,6 +376,32 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     _textController.addListener(_onTextControllerChanged);
     _textFocusNode.addListener(_onTextFocusChanged);
 
+    // Подписываемся на обновления статусов прочитанности
+    _readStatusSubscription = MessageReadStatusService().statusUpdates.listen((update) {
+      if (update.chatId == widget.chatId && mounted) {
+        print('✨ [opcode 130] Обновление статуса в UI для чата ${widget.chatId}');
+        setState(() {
+          // Триггерим анимацию для обновленных сообщений
+          _messagesToAnimate.clear();
+          for (var msg in _messages) {
+            // update.lastReadMessageId - это timestamp, сравниваем с msg.time
+            if (msg.time <= update.lastReadMessageId) {
+              _messagesToAnimate.add(msg.id);
+            }
+          }
+        });
+        
+        // Убираем анимацию через 1 секунду
+        Future.delayed(const Duration(seconds: 1), () {
+          if (mounted) {
+            setState(() {
+              _messagesToAnimate.clear();
+            });
+          }
+        });
+      }
+    });
+
     unawaited(_loadInputState());
   }
 
@@ -464,6 +492,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     
     _isDisposed = true;
     _apiSubscription?.cancel();
+    _readStatusSubscription?.cancel();
     _typingTimer?.cancel();
     _voiceRecordingTimer?.cancel();
     _selectionCheckTimer?.cancel();

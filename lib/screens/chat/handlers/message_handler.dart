@@ -10,6 +10,7 @@ import 'package:gwid/models/chat_folder.dart';
 import 'package:gwid/services/notification_service.dart';
 import 'package:gwid/services/message_queue_service.dart';
 import 'package:gwid/services/chat_cache_service.dart';
+import 'package:gwid/services/message_read_status_service.dart';
 
 class MessageHandler {
   final void Function(VoidCallback) setState;
@@ -236,6 +237,8 @@ class MessageHandler {
         _handleEditedMessage(chatId, payload);
       } else if ((opcode == 66 || opcode == 142) && chatId != null) {
         _handleDeletedMessages(chatId, payload);
+      } else if (opcode == 130) {
+        _handleMessageReadStatus(payload);
       } else if (opcode == 132) {
         _handlePresenceUpdate(payload);
       } else if (opcode == 36) {
@@ -1145,5 +1148,29 @@ class MessageHandler {
     }
 
     return null;
+  }
+
+  /// Обработка opcode 130 - статус прочитанности сообщений
+  /// 
+  /// Payload: {
+  ///   "setAsUnread": false,     // false = прочитали, true = пометить непрочитанным
+  ///   "chatId": 6747636,        // ID чата
+  ///   "userId": 103666767,      // ID пользователя (кто прочитал)
+  ///   "mark": 1771481427964     // ID сообщения которое прочли
+  /// }
+  void _handleMessageReadStatus(Map<String, dynamic> payload) {
+    print('📖 [opcode 130] Получен статус прочитанности: $payload');
+    
+    // Передаем обработку в сервис
+    MessageReadStatusService().handleReadStatusUpdate(payload);
+    
+    // Триггерим обновление UI для чата
+    final chatId = payload['chatId'] as int?;
+    if (chatId != null) {
+      final context = getContext();
+      if (context.mounted) {
+        setState(() {});
+      }
+    }
   }
 }
