@@ -73,7 +73,13 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
 
         if (state.processingState == ProcessingState.completed &&
             !wasCompleted) {
+          // Сбрасываем позицию и останавливаем, чтобы кнопка вернулась к play
+          _audioPlayer.seek(Duration.zero);
           _audioPlayer.pause();
+          setState(() {
+            _isPlaying = false;
+            _position = Duration.zero;
+          });
         }
       }
     });
@@ -86,6 +92,8 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
             _isPlaying;
 
         if (reachedEnd) {
+          // Сбрасываем позицию и останавливаем
+          _audioPlayer.seek(Duration.zero);
           _audioPlayer.pause();
         }
 
@@ -94,6 +102,7 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
           if (reachedEnd) {
             _isPlaying = false;
             _isCompleted = true;
+            _position = Duration.zero;
           }
         });
       }
@@ -336,76 +345,46 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (_waveformData != null && _waveformData!.isNotEmpty)
-                      SizedBox(
-                        height: 30,
-                        child: CustomPaint(
-                          painter: WaveformPainter(
-                            waveform: _waveformData!,
-                            progress: progress,
-                            color: widget.textColor.withValues(
-                              alpha: 0.6 * widget.messageTextOpacity,
-                            ),
-                            progressColor: widget.textColor.withValues(
-                              alpha: 0.9 * widget.messageTextOpacity,
-                            ),
+                    // Всегда показываем waveform (либо настоящую, либо сгенерированную)
+                    SizedBox(
+                      height: 30,
+                      child: CustomPaint(
+                        painter: WaveformPainter(
+                          waveform: _waveformData ?? [],
+                          progress: progress,
+                          color: widget.textColor.withValues(
+                            alpha: 0.6 * widget.messageTextOpacity,
                           ),
-                          child: LayoutBuilder(
-                            builder: (context, constraints) {
-                              return GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onTapDown: (details) {
-                                  final tapProgress =
-                                      details.localPosition.dx /
-                                      constraints.maxWidth;
-                                  final clampedProgress = tapProgress.clamp(
-                                    0.0,
-                                    1.0,
-                                  );
-                                  final newPosition = Duration(
-                                    milliseconds:
-                                        (_totalDuration.inMilliseconds *
-                                                clampedProgress)
-                                            .round(),
-                                  );
-                                  _seek(newPosition);
-                                },
-                                onLongPress: () {},
-                              );
-                            },
-                          ),
-                        ),
-                      )
-                    else
-                      SliderTheme(
-                        data: SliderTheme.of(context).copyWith(
-                          activeTrackColor: widget.textColor.withValues(
-                            alpha: 0.8 * widget.messageTextOpacity,
-                          ),
-                          inactiveTrackColor: widget.textColor.withValues(
-                            alpha: 0.1,
-                          ),
-                          thumbColor: widget.textColor.withValues(
+                          progressColor: widget.textColor.withValues(
                             alpha: 0.9 * widget.messageTextOpacity,
                           ),
-                          overlayColor: widget.textColor.withValues(alpha: 0.1),
-                          thumbShape: const RoundSliderThumbShape(
-                            enabledThumbRadius: 6,
-                          ),
-                          trackHeight: 3,
                         ),
-                        child: Slider(
-                          value: progress.clamp(0.0, 1.0),
-                          onChanged: (value) {
-                            final newPosition = Duration(
-                              milliseconds:
-                                  (_totalDuration.inMilliseconds * value)
-                                      .round(),
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            return GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTapDown: (details) {
+                                final tapProgress =
+                                    details.localPosition.dx /
+                                    constraints.maxWidth;
+                                final clampedProgress = tapProgress.clamp(
+                                  0.0,
+                                  1.0,
+                                );
+                                final newPosition = Duration(
+                                  milliseconds:
+                                      (_totalDuration.inMilliseconds *
+                                              clampedProgress)
+                                          .round(),
+                                );
+                                _seek(newPosition);
+                              },
+                              onLongPress: () {},
                             );
-                            _seek(newPosition);
                           },
                         ),
                       ),
+                    ),
                     const SizedBox(height: 4),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,

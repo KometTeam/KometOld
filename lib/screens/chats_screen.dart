@@ -4996,19 +4996,39 @@ class _ChatsScreenState extends State<ChatsScreen>
         break;
 
       case 'CANCELED':
-        final callTypeText = callType == 'VIDEO'
-            ? 'Видеозвонок отменен'
-            : 'Звонок отменен';
-        callText = callTypeText;
+        if (duration > 0) {
+          final minutes = duration ~/ 60000;
+          final seconds = (duration % 60000) ~/ 1000;
+          final durationText = minutes > 0
+              ? '$minutes:${seconds.toString().padLeft(2, '0')}'
+              : '$seconds сек';
+          final callTypeText = callType == 'VIDEO' ? 'Видеозвонок' : 'Звонок';
+          callText = '$callTypeText, $durationText';
+        } else {
+          final callTypeText = callType == 'VIDEO'
+              ? 'Видеозвонок отменен'
+              : 'Звонок отменен';
+          callText = callTypeText;
+        }
         callIcon = callType == 'VIDEO' ? Icons.videocam_off : Icons.call_end;
         callColor = colors.onSurfaceVariant;
         break;
 
       case 'REJECTED':
-        final callTypeText = callType == 'VIDEO'
-            ? 'Видеозвонок отклонен'
-            : 'Звонок отклонен';
-        callText = callTypeText;
+        if (duration > 0) {
+          final minutes = duration ~/ 60000;
+          final seconds = (duration % 60000) ~/ 1000;
+          final durationText = minutes > 0
+              ? '$minutes:${seconds.toString().padLeft(2, '0')}'
+              : '$seconds сек';
+          final callTypeText = callType == 'VIDEO' ? 'Видеозвонок' : 'Звонок';
+          callText = '$callTypeText, $durationText';
+        } else {
+          final callTypeText = callType == 'VIDEO'
+              ? 'Видеозвонок отклонен'
+              : 'Звонок отклонен';
+          callText = callTypeText;
+        }
         callIcon = callType == 'VIDEO' ? Icons.videocam_off : Icons.call_end;
         callColor = colors.onSurfaceVariant;
         break;

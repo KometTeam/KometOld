@@ -149,6 +149,11 @@ class _CallsScreenState extends State<CallsScreen> {
     final hangupType = (callAttach['hangupType'] as String? ?? 'unknown').toLowerCase();
     final duration = callAttach['duration'] as int? ?? 0;
     final callType = (callAttach['callType'] as String? ?? 'audio').toLowerCase();
+    
+    // DEBUG: Проверим что приходит
+    if (hangupType == 'rejected' || hangupType == 'canceled') {
+      print('🔍 [CallsScreen] hangupType=$hangupType, duration=$duration, callAttach=$callAttach');
+    }
     final contactIds = callAttach['contactIds'] as List? ?? [];
     final time = message['time'] as int? ?? 0;
     
@@ -171,12 +176,13 @@ class _CallsScreenState extends State<CallsScreen> {
     String statusText;
     if (hangupType == 'missed') {
       statusText = 'Пропущенный';
+    } else if (duration > 0) {
+      // Если есть длительность - показываем её (даже для REJECTED/CANCELED)
+      statusText = _formatDuration(duration);
     } else if (hangupType == 'rejected') {
       statusText = 'Отклонен';
     } else if (hangupType == 'canceled') {
       statusText = 'Отменен';
-    } else if (duration > 0) {
-      statusText = _formatDuration(duration);
     } else {
       statusText = 'Звонок';
     }
@@ -235,7 +241,8 @@ class _CallsScreenState extends State<CallsScreen> {
     );
   }
 
-  String _formatDuration(int seconds) {
+  String _formatDuration(int milliseconds) {
+    final seconds = milliseconds ~/ 1000;
     if (seconds < 60) {
       return '$seconds сек';
     }

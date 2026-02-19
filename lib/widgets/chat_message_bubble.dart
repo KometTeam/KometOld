@@ -3648,9 +3648,17 @@ class ChatMessageBubble extends StatelessWidget {
 
     for (final audio in audioAttaches) {
       final url = (audio['url'] ?? audio['baseUrl'] ?? '').toString();
-      final durationSeconds = (audio['count'] is num)
+      // Пробуем получить длительность из разных полей (приходит в МИЛЛИСЕКУНДАХ!)
+      final durationMs = (audio['count'] is num)
           ? (audio['count'] as num).toInt()
-          : int.tryParse(audio['count']?.toString() ?? '') ?? 0;
+          : (audio['duration'] is num)
+          ? (audio['duration'] as num).toInt()
+          : int.tryParse(audio['count']?.toString() ?? '') 
+          ?? int.tryParse(audio['duration']?.toString() ?? '') 
+          ?? 0;
+      
+      // Конвертируем миллисекунды в секунды
+      final durationSeconds = durationMs ~/ 1000;
       final audioId = (audio['audioId'] is num)
           ? (audio['audioId'] as num).toInt()
           : (audio['id'] is num)
