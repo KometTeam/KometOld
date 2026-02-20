@@ -40,6 +40,10 @@ class MessageHandler {
   static final Map<int, int> _lastChatUpdateTime = {};
   static const int _chatUpdateThrottleMs = 500;
 
+  // Debouncer для filterChats - объединяет множественные вызовы в один
+  Timer? _filterChatsDebouncer;
+  bool _filterChatsScheduled = false;
+
   MessageHandler({
     required this.setState,
     required this.getContext,
@@ -61,6 +65,22 @@ class MessageHandler {
     required this.isSavedMessages,
   });
 
+  /// Вызывает filterChats с debouncing для оптимизации при множественных обновлениях
+  void _debouncedFilterChats() {
+    _filterChatsDebouncer?.cancel();
+    _filterChatsScheduled = true;
+    _filterChatsDebouncer = Timer(const Duration(milliseconds: 50), () {
+      if (_filterChatsScheduled) {
+        _filterChatsScheduled = false;
+        filterChats();
+      }
+    });
+  }
+
+  /// Освобождает ресурсы
+  void dispose() {
+    _filterChatsDebouncer?.cancel();
+  }
   /// Получить текстовое представление вложения для уведомления
   String _getAttachmentPreviewText(Message message) {
     if (message.attaches.isEmpty) {
@@ -299,8 +319,10 @@ class MessageHandler {
             final insertIndex = savedIndex >= 0 ? savedIndex + 1 : 0;
             allChats.insert(insertIndex, newChat);
           }
-          filterChats();
         });
+        // ОПТИМИЗАЦИЯ: Используем debounced вызов filterChats
+        // При множественных обновлениях это объединит вызовы в один
+        _debouncedFilterChats();
       }
     }
     // Если есть только сообщение и chatId - обновляем существующий чат
@@ -315,9 +337,11 @@ class MessageHandler {
             final updatedChat = oldChat.copyWith(lastMessage: newMessage);
             allChats.removeAt(chatIndex);
             _insertChatAtCorrectPosition(updatedChat);
-            filterChats();
           }
         });
+        // ОПТИМИЗАЦИЯ: Используем debounced вызов filterChats
+        // При множественных обновлениях это объединит вызовы в один
+        _debouncedFilterChats();
       }
     }
   }
@@ -517,8 +541,8 @@ class MessageHandler {
       setState(() {
         allChats.removeAt(chatIndex);
         _insertChatAtCorrectPosition(updatedChat);
-        filterChats();
       });
+      _debouncedFilterChats();
     } else if (payload['chat'] is Map<String, dynamic>) {
       final chatJson = payload['chat'] as Map<String, dynamic>;
       final newChat = Chat.fromJson(chatJson);
@@ -528,8 +552,8 @@ class MessageHandler {
         final savedIndex = allChats.indexWhere(isSavedMessages);
         final insertIndex = savedIndex >= 0 ? savedIndex + 1 : 0;
         allChats.insert(insertIndex, newChat);
-        filterChats();
       });
+      _debouncedFilterChats();
     } else {
       final lastPayload = ApiService.instance.lastChatsPayload;
       if (lastPayload != null) {
@@ -553,8 +577,8 @@ class MessageHandler {
             setState(() {
               allChats.add(updatedChat);
               _insertChatAtCorrectPosition(updatedChat);
-              filterChats();
             });
+            _debouncedFilterChats();
           }
         }
       }
@@ -573,8 +597,8 @@ class MessageHandler {
         setState(() {
           allChats.removeAt(chatIndex);
           _insertChatAtCorrectPosition(updatedChat);
-          filterChats();
         });
+        _debouncedFilterChats();
       }
     }
   }
@@ -604,8 +628,8 @@ class MessageHandler {
               setState(() {
                 allChats.removeAt(chatIndex);
                 _insertChatAtCorrectPosition(updatedChat);
-                filterChats();
               });
+              _debouncedFilterChats();
             }
           }
         });
@@ -710,7 +734,7 @@ class MessageHandler {
             allChats.insert(insertIndex, newChat);
           }
         });
-        filterChats();
+        _debouncedFilterChats();
       }
     } else {
       refreshChats();
@@ -738,8 +762,8 @@ class MessageHandler {
               final insertIndex = savedIndex >= 0 ? savedIndex + 1 : 0;
               allChats.insert(insertIndex, newChat);
             }
-            filterChats();
           });
+          _debouncedFilterChats();
         }
       }
     }
@@ -764,8 +788,8 @@ class MessageHandler {
             final insertIndex = savedIndex >= 0 ? savedIndex + 1 : 0;
             allChats.insert(insertIndex, updatedChat);
           }
-          filterChats();
         });
+        _debouncedFilterChats();
       }
     }
   }
@@ -801,8 +825,8 @@ class MessageHandler {
         // Удаляем чат из списка
         setState(() {
           allChats.removeWhere((chat) => chat.id == chatId);
-          filterChats();
         });
+        _debouncedFilterChats();
       } else if (status == 'ACTIVE') {
         print('✅ [opcode 135] Обновляем/добавляем чат $chatId');
         
@@ -892,7 +916,7 @@ class MessageHandler {
             sortFoldersByOrder(foldersOrder);
           });
           updateFolderTabController();
-          filterChats();
+          _debouncedFilterChats();
         }
       }
     } catch (e) {
@@ -924,7 +948,7 @@ class MessageHandler {
           });
 
           updateFolderTabController();
-          filterChats();
+          _debouncedFilterChats();
 
           if (isNewFolder) {
             final newFolderIndex = folders.indexWhere((f) => f.id == folderId);
@@ -957,7 +981,7 @@ class MessageHandler {
         });
 
         updateFolderTabController();
-        filterChats();
+        _debouncedFilterChats();
 
         if (currentIndex >= folderTabController.length) {
           folderTabController.animateTo(0);

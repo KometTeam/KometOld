@@ -221,6 +221,11 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   int? _oldestLoadedTime;
   int _maxViewedIndex = 0;
 
+  // Swipe gesture tracking
+  double _swipeStartX = 0.0;
+  double _swipeCurrentX = 0.0;
+  bool _isSwiping = false;
+
   // Queue for messages received during history loading
   final List<Message> _pendingMessagesDuringLoad = [];
   int _lastLoadedAtViewedIndex = 0;
@@ -524,6 +529,22 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     super.dispose();
   }
 
+  // Helper method to show error snackbar
+  void _showErrorSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
+    );
+  }
+
+  // Helper method to show info snackbar
+  void _showInfoSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -545,24 +566,52 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
           }
         }
       },
-      child: Scaffold(appBar: _buildAppBar(), body: _buildBody()),
+      child: GestureDetector(
+        // Свайп слева направо для возврата назад (работает от любой точки экрана!)
+        onHorizontalDragStart: _handleSwipeStart,
+        onHorizontalDragUpdate: _handleSwipeUpdate,
+        onHorizontalDragEnd: _handleSwipeEnd,
+        child: Scaffold(
+          appBar: _buildAppBar(),
+          body: _buildBody(),
+        ),
+      ),
     );
   }
 
-  // Helper method to show error snackbar
-  void _showErrorSnackBar(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.red),
-    );
+  // Обработчики свайпа для возврата назад
+  void _handleSwipeStart(DragStartDetails details) {
+    _swipeStartX = details.globalPosition.dx;
+    _swipeCurrentX = details.globalPosition.dx;
+    _isSwiping = true;
   }
 
-  // Helper method to show info snackbar
-  void _showInfoSnackBar(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+  void _handleSwipeUpdate(DragUpdateDetails details) {
+    if (!_isSwiping) return;
+    _swipeCurrentX = details.globalPosition.dx;
+    
+    // Можно добавить визуальную обратную связь здесь
+    // Например, setState для анимации свайпа
+  }
+
+  void _handleSwipeEnd(DragEndDetails details) {
+    if (!_isSwiping) return;
+    
+    final swipeDistance = _swipeCurrentX - _swipeStartX;
+    final screenWidth = MediaQuery.of(context).size.width;
+    
+    // Если свайп больше 30% ширины экрана ИЛИ скорость достаточная - возвращаемся
+    final threshold = screenWidth * 0.3;
+    final velocity = details.velocity.pixelsPerSecond.dx;
+    
+    if (swipeDistance > threshold || velocity > 500) {
+      print('👈 Свайп назад: distance=$swipeDistance, velocity=$velocity');
+      Navigator.of(context).pop();
+    }
+    
+    _isSwiping = false;
+    _swipeStartX = 0.0;
+    _swipeCurrentX = 0.0;
   }
 
   // Проверка секретного текста и показ видео

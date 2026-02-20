@@ -373,10 +373,9 @@ class _ChatsScreenState extends State<ChatsScreen>
       final updatedChat = _allChats[chatIndex].copyWith(
         lastMessage: newLastMessage,
       );
-      setState(() {
-        _allChats[chatIndex] = updatedChat;
-        _filterChats();
-      });
+      _allChats[chatIndex] = updatedChat;
+      _filterChats();
+      setState(() {});
     }
   }
 
@@ -462,58 +461,60 @@ class _ChatsScreenState extends State<ChatsScreen>
       builder: (context) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
           title: const Text('Создать канал'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: titleController,
-                decoration: const InputDecoration(
-                  labelText: 'Название канала',
-                  border: OutlineInputBorder(),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: titleController,
+                  decoration: const InputDecoration(
+                    labelText: 'Название канала',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              const Text('Выберите первых подписчиков:'),
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 200,
-                width: 300,
-                child: ListView.builder(
-                  itemCount: availableContacts.length,
-                  itemBuilder: (context, index) {
-                    final contact = availableContacts[index];
-                    final isSelected = selectedContacts.contains(contact.id);
+                const SizedBox(height: 16),
+                const Text('Выберите первых подписчиков:'),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 200,
+                  width: 300,
+                  child: ListView.builder(
+                    itemCount: availableContacts.length,
+                    itemBuilder: (context, index) {
+                      final contact = availableContacts[index];
+                      final isSelected = selectedContacts.contains(contact.id);
 
-                    return CheckboxListTile(
-                      title: Text(
-                        getContactDisplayName(
-                          contactId: contact.id,
-                          originalName: contact.name,
-                          originalFirstName: contact.firstName,
-                          originalLastName: contact.lastName,
+                      return CheckboxListTile(
+                        title: Text(
+                          getContactDisplayName(
+                            contactId: contact.id,
+                            originalName: contact.name,
+                            originalFirstName: contact.firstName,
+                            originalLastName: contact.lastName,
+                          ),
                         ),
-                      ),
-                      subtitle: Text(
-                        contact.firstName.isNotEmpty &&
-                                contact.lastName.isNotEmpty
-                            ? '${contact.firstName} ${contact.lastName}'
-                            : '',
-                      ),
-                      value: isSelected,
-                      onChanged: (value) {
-                        setState(() {
-                          if (value == true) {
-                            selectedContacts.add(contact.id);
-                          } else {
-                            selectedContacts.remove(contact.id);
-                          }
-                        });
-                      },
-                    );
-                  },
+                        subtitle: Text(
+                          contact.firstName.isNotEmpty &&
+                                  contact.lastName.isNotEmpty
+                              ? '${contact.firstName} ${contact.lastName}'
+                              : '',
+                        ),
+                        value: isSelected,
+                        onChanged: (value) {
+                          setState(() {
+                            if (value == true) {
+                              selectedContacts.add(contact.id);
+                            } else {
+                              selectedContacts.remove(contact.id);
+                            }
+                          });
+                        },
+                      );
+                    },
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -655,13 +656,12 @@ class _ChatsScreenState extends State<ChatsScreen>
               _contacts[contact.id] = contact;
             }
 
-            setState(() {
-              if (profileData != null) {
-                _myProfile = Profile.fromJson(profileData);
-                _isProfileLoading = false;
-              }
-              _filterChats();
-            });
+            if (profileData != null) {
+              _myProfile = Profile.fromJson(profileData);
+              _isProfileLoading = false;
+            }
+            _filterChats();
+            setState(() {});
           }
         })
         .catchError((error) {
@@ -679,9 +679,10 @@ class _ChatsScreenState extends State<ChatsScreen>
       builder: (BuildContext context) {
         return Container(
           padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
               Container(
                 width: 40,
                 height: 4,
@@ -799,7 +800,8 @@ class _ChatsScreenState extends State<ChatsScreen>
               ),
 
               const SizedBox(height: 20),
-            ],
+              ],
+            ),
           ),
         );
       },
@@ -824,59 +826,61 @@ class _ChatsScreenState extends State<ChatsScreen>
       builder: (context) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
           title: const Text('Создать группу'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Название группы',
-                  border: OutlineInputBorder(),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Название группы',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              const Text('Выберите участников:'),
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 200,
-                width: 300,
+                const SizedBox(height: 16),
+                const Text('Выберите участников:'),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 200,
+                  width: 300,
 
-                child: ListView.builder(
-                  itemCount: availableContacts.length,
-                  itemBuilder: (context, index) {
-                    final contact = availableContacts[index];
-                    final isSelected = selectedContacts.contains(contact.id);
+                  child: ListView.builder(
+                    itemCount: availableContacts.length,
+                    itemBuilder: (context, index) {
+                      final contact = availableContacts[index];
+                      final isSelected = selectedContacts.contains(contact.id);
 
-                    return CheckboxListTile(
-                      title: Text(
-                        getContactDisplayName(
-                          contactId: contact.id,
-                          originalName: contact.name,
-                          originalFirstName: contact.firstName,
-                          originalLastName: contact.lastName,
+                      return CheckboxListTile(
+                        title: Text(
+                          getContactDisplayName(
+                            contactId: contact.id,
+                            originalName: contact.name,
+                            originalFirstName: contact.firstName,
+                            originalLastName: contact.lastName,
+                          ),
                         ),
-                      ),
-                      subtitle: Text(
-                        contact.firstName.isNotEmpty &&
-                                contact.lastName.isNotEmpty
-                            ? '${contact.firstName} ${contact.lastName}'
-                            : '',
-                      ),
-                      value: isSelected,
-                      onChanged: (value) {
-                        setState(() {
-                          if (value == true) {
-                            selectedContacts.add(contact.id);
-                          } else {
-                            selectedContacts.remove(contact.id);
-                          }
-                        });
-                      },
-                    );
-                  },
+                        subtitle: Text(
+                          contact.firstName.isNotEmpty &&
+                                  contact.lastName.isNotEmpty
+                              ? '${contact.firstName} ${contact.lastName}'
+                              : '',
+                        ),
+                        value: isSelected,
+                        onChanged: (value) {
+                          setState(() {
+                            if (value == true) {
+                              selectedContacts.add(contact.id);
+                            } else {
+                              selectedContacts.remove(contact.id);
+                            }
+                          });
+                        },
+                      );
+                    },
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -1068,7 +1072,9 @@ class _ChatsScreenState extends State<ChatsScreen>
     _isFilteringInProgress = true;
     
     try {
+      // DEBUG: Выводим откуда вызван
       print('🔍 [filterChats] Начало фильтрации, _allChats.length=${_allChats.length}');
+      print('📍 [filterChats] Вызван из:\n${StackTrace.current}');
       final query = _searchController.text.toLowerCase();
     List<Chat> chatsToFilter = _allChats;
 
@@ -1450,6 +1456,7 @@ class _ChatsScreenState extends State<ChatsScreen>
             }
             
             _filterChats();
+            setState(() {});
           });
           
           _loadChatDrafts();
@@ -2973,10 +2980,9 @@ class _ChatsScreenState extends State<ChatsScreen>
       final folderId = index == 0 ? null : _folders[index - 1].id;
 
       if (_selectedFolderId != folderId) {
-        setState(() {
-          _selectedFolderId = folderId;
-          _filterChats();
-        });
+        _selectedFolderId = folderId;
+        _filterChats();
+        setState(() {});
       }
     }
   }
@@ -5119,10 +5125,9 @@ class _ChatsScreenState extends State<ChatsScreen>
             final updatedChat = oldChat.copyWith(newMessages: 0);
             SchedulerBinding.instance.addPostFrameCallback((_) {
               if (mounted) {
-                setState(() {
-                  _allChats[chatIndex] = updatedChat;
-                  _filterChats();
-                });
+                _allChats[chatIndex] = updatedChat;
+                _filterChats();
+                setState(() {});
               }
             });
           }
@@ -5288,6 +5293,7 @@ class _ChatsScreenState extends State<ChatsScreen>
     _connectionStatusSubscription?.cancel();
     _connectionStateSubscription?.cancel();
     _messageHandler?.listen()?.cancel();
+    _messageHandler?.dispose(); // Освобождаем ресурсы MessageHandler (debouncer)
     _searchController.dispose();
     _searchFocusNode.dispose();
     // Debouncer очищается автоматически в dispose миксина

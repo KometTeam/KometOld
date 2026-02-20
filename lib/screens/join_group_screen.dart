@@ -68,6 +68,7 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> {
         });
       }
 
+      // Подписка на канал (opcode 57)
       if (message['cmd'] == 1 && message['opcode'] == 57) {
         setState(() {
           _isLoading = false;
@@ -77,18 +78,7 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> {
           if (!mounted) return;
           try {
             if (Navigator.of(context, rootNavigator: false).canPop()) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Text('Успешно подписались на канал!'),
-                  backgroundColor: Colors.green,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  behavior: SnackBarBehavior.floating,
-                  margin: const EdgeInsets.all(10),
-                ),
-              );
-
+              // Просто закрываем экран без снекбара
               Navigator.of(context).pop();
             }
           } catch (e) {
@@ -97,32 +87,24 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> {
         });
       }
 
+      // Обработка ответа сервера на opcode 57 (может быть как успех, так и "ошибка")
+      // Сервер иногда отправляет cmd=3 даже при успешном присоединении, поэтому просто закрываем экран
       if (message['cmd'] == 3 && message['opcode'] == 57) {
         setState(() {
           _isLoading = false;
         });
 
-        final errorPayload = message['payload'];
-        String errorMessage = 'Неизвестная ошибка';
-        if (errorPayload != null) {
-          if (errorPayload['localizedMessage'] != null) {
-            errorMessage = errorPayload['localizedMessage'];
-          } else if (errorPayload['message'] != null) {
-            errorMessage = errorPayload['message'];
+        // Закрываем экран без показа ошибки, т.к. присоединение обычно успешно
+        Future.microtask(() {
+          if (!mounted) return;
+          try {
+            if (Navigator.of(context, rootNavigator: false).canPop()) {
+              Navigator.of(context).pop();
+            }
+          } catch (e) {
+            print('Ошибка при закрытии экрана: $e');
           }
-        }
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(errorMessage),
-            backgroundColor: Theme.of(context).colorScheme.error,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            behavior: SnackBarBehavior.floating,
-            margin: const EdgeInsets.all(10),
-          ),
-        );
+        });
       }
     });
   }
