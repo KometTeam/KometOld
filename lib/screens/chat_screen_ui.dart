@@ -716,41 +716,43 @@ extension on _ChatScreenState {
           };
         }
 
-        final dragProgress =
-            (_sendDragPullDy.abs() / _ChatScreenState._sendDragVisualThreshold)
-                .clamp(0.0, 1.0);
+        final recordIcon =
+            _isVideoRecordMode ? Icons.videocam_rounded : Icons.mic_rounded;
 
-        final sendColor = showSend
-            ? iconColor
-            : iconColor.withValues(alpha: 0.4);
-        icon = Stack(
-          alignment: Alignment.center,
-          children: [
-            Opacity(
-              opacity: 1.0 - dragProgress,
-              child: Icon(
-                Icons.send_rounded,
-                color: sendColor,
-                size: isSmall ? 20 : 24,
-              ),
+        if (showSend) {
+          icon = Icon(
+            Icons.send_rounded,
+            color: iconColor,
+            size: isSmall ? 20 : 24,
+          );
+          onTap = (!isBlocked) ? _sendMessage : null;
+        } else {
+          // Нет текста: показываем mic или camera с анимацией переключения
+          icon = AnimatedSwitcher(
+            duration: const Duration(milliseconds: 220),
+            transitionBuilder: (child, animation) => ScaleTransition(
+              scale: Tween<double>(begin: 0.75, end: 1.0).animate(animation),
+              child: FadeTransition(opacity: animation, child: child),
             ),
-            Opacity(
-              opacity: dragProgress,
-              child: Icon(
-                Icons.mic_rounded,
-                color: iconColor,
-                size: isSmall ? 20 : 24,
-              ),
+            child: Icon(
+              recordIcon,
+              key: ValueKey<bool>(_isVideoRecordMode),
+              color: iconColor,
+              size: isSmall ? 20 : 24,
             ),
-          ],
-        );
-        onTap = (showSend && !isBlocked) ? _sendMessage : null;
+          );
+          // Короткое нажатие — переключить режим
+          onTap = (!isBlocked)
+              ? () {
+                  // ignore: invalid_use_of_protected_member
+                  setState(() => _isVideoRecordMode = !_isVideoRecordMode);
+                }
+              : null;
+        }
 
         final padding = EdgeInsets.all(isSmall ? 10 : 6);
         final baseIconSize = isSmall ? 20.0 : 24.0;
         final baseDiameter = baseIconSize + 2 * (isSmall ? 10.0 : 6.0);
-        const maxScale = 1.12;
-        final scale = 1.0 + (maxScale - 1.0) * dragProgress;
 
         // Если идет загрузка голосового - показываем кружок прогресса
         if (_isVoiceUploading) {
@@ -791,162 +793,40 @@ extension on _ChatScreenState {
           );
         }
 
-        final button = Container(
-          key: ValueKey<String>(showSend ? 'send' : 'mic'),
-          decoration: BoxDecoration(
-            color: backgroundColor,
-            shape: BoxShape.circle,
-          ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(24),
-              onTap: _isSendDragging ? null : onTap,
-              child: Padding(padding: padding, child: icon),
-            ),
-          ),
-        );
-
-        final ring = SizedBox(
-          width: baseDiameter * maxScale,
-          height: baseDiameter * maxScale,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: iconColor.withValues(alpha: 0.22),
-                width: 1.25,
-              ),
-            ),
-          ),
-        );
-
-        final scaled = Transform.scale(scale: scale, child: button);
-
-        final dragEnabled = !isBlocked;
-
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onPanStart: dragEnabled
-              ? (_) {
-                  _sendDragReturnController.stop();
-                  // ignore: invalid_use_of_protected_member
-                  setState(() {
-                    _isSendDragging = true;
-                  });
-                }
-              : null,
-          onPanUpdate: dragEnabled
-              ? (details) {
-                  final nextPull = (_sendDragPullDy + details.delta.dy).clamp(
-                    -_ChatScreenState._sendDragVisualThreshold,
-                    0.0,
-                  );
-                  final nextPos = nextPull.clamp(
-                    -_ChatScreenState._sendDragThreshold,
-                    0.0,
-                  );
-                  if (nextPull == _sendDragPullDy && nextPos == _sendDragDy)
-                    return;
-                  // ignore: invalid_use_of_protected_member
-                  setState(() {
-                    _sendDragPullDy = nextPull;
-                    _sendDragDy = nextPos;
-                  });
-                }
-              : null,
-          onPanEnd: dragEnabled
-              ? (_) {
-                  final reached =
-                      _sendDragDy <= -_ChatScreenState._sendDragThreshold;
-                  if (!reached) {
-                    final tween =
-                        Tween<double>(begin: _sendDragPullDy, end: 0.0).animate(
-                          CurvedAnimation(
-                            parent: _sendDragReturnController,
-                            curve: Curves.easeOutCubic,
-                          ),
-                        );
-                    void listener() {
-                      // ignore: invalid_use_of_protected_member
-                      setState(() {
-                        _sendDragPullDy = tween.value;
-                        _sendDragDy = tween.value.clamp(
-                          -_ChatScreenState._sendDragThreshold,
-                          0.0,
-                        );
-                      });
-                    }
-
-                    _sendDragReturnController
-                      ..removeListener(listener)
-                      ..reset();
-                    _sendDragReturnController.addListener(listener);
-                    _sendDragReturnController.forward().whenComplete(() {
-                      _sendDragReturnController.removeListener(listener);
-                      if (!mounted) return;
-                      // ignore: invalid_use_of_protected_member
-                      setState(() {
-                        _sendDragPullDy = 0.0;
-                        _sendDragDy = 0.0;
-                        _isSendDragging = false;
-                      });
-                    });
+          onLongPress: (!isBlocked && !showSend)
+              ? () {
+                  if (_isVideoRecordMode) {
+                    _startVideoRecordingUi();
                   } else {
-                    _sendDragReturnController.duration = const Duration(
-                      milliseconds: 320,
-                    );
-                    final tween = Tween<double>(begin: _sendDragDy, end: 0.0)
-                        .animate(
-                          CurvedAnimation(
-                            parent: _sendDragReturnController,
-                            curve: Curves.easeOutCubic,
-                          ),
-                        );
-
-                    void listener() {
-                      // ignore: invalid_use_of_protected_member
-                      setState(() {
-                        _sendDragDy = tween.value;
-                        _sendDragPullDy =
-                            -_ChatScreenState._sendDragVisualThreshold;
-                      });
-                    }
-
-                    _sendDragReturnController
-                      ..removeListener(listener)
-                      ..reset();
-                    _sendDragReturnController.addListener(listener);
-                    _sendDragReturnController.forward().whenComplete(() {
-                      _sendDragReturnController.removeListener(listener);
-                      if (!mounted) return;
-                      _sendDragReturnController.duration = const Duration(
-                        milliseconds: 180,
-                      );
-                      _startVoiceRecordingUi();
-                    });
+                    _startVoiceRecordingUi();
                   }
                 }
               : null,
-          child: Transform.translate(
-            offset: Offset(0, _sendDragDy),
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 160),
-              switchInCurve: Curves.easeOutCubic,
-              switchOutCurve: Curves.easeInCubic,
-              transitionBuilder: (child, animation) {
-                return ScaleTransition(
-                  scale: Tween<double>(
-                    begin: 0.85,
-                    end: 1.0,
-                  ).animate(animation),
-                  child: FadeTransition(opacity: animation, child: child),
-                );
-              },
-              child: Stack(
-                alignment: Alignment.center,
-                clipBehavior: Clip.none,
-                children: [if (dragProgress > 0.0) ring, scaled],
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 160),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            transitionBuilder: (child, animation) => ScaleTransition(
+              scale: Tween<double>(begin: 0.85, end: 1.0).animate(animation),
+              child: FadeTransition(opacity: animation, child: child),
+            ),
+            child: Container(
+              key: ValueKey<String>(
+                showSend ? 'send' : (_isVideoRecordMode ? 'video' : 'mic'),
+              ),
+              decoration: BoxDecoration(
+                color: backgroundColor,
+                shape: BoxShape.circle,
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(24),
+                  onTap: onTap,
+                  child: Padding(padding: padding, child: icon),
+                ),
               ),
             ),
           ),
@@ -1155,28 +1035,6 @@ extension on _ChatScreenState {
             ),
             onPressed: _onAttachPressed,
             tooltip: 'Прикрепить файл',
-          ),
-          IconButton(
-            icon: Icon(
-              Icons.videocam_rounded,
-              color: Theme.of(context).colorScheme.onSurface,
-            ),
-            onPressed: _startVideoRecordingUi,
-            tooltip: 'Записать видеокружок (зажмите в диалоге)',
-          ),
-          CompositedTransformTarget(
-            link: _sparkleLayerLink,
-            child: IconButton(
-              key: _sparkleButtonKey,
-              icon: Icon(
-                Icons.auto_awesome_outlined,
-                color: _sparkleMenuOverlay != null
-                    ? Theme.of(context).colorScheme.primary
-                    : Theme.of(context).colorScheme.onSurface,
-              ),
-              onPressed: _toggleKometSpecialMenu,
-              tooltip: 'Специальные эффекты',
-            ),
           ),
           Expanded(
             child: Column(
@@ -1391,7 +1249,10 @@ extension on _ChatScreenState {
               ],
             ),
           ),
-          sendButton,
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: sendButton,
+          ),
         ],
       ),
     );
@@ -1424,7 +1285,7 @@ extension on _ChatScreenState {
       }
     }
 
-    return inputBar;
+    return SafeArea(top: false, child: inputBar);
   }
 
   // Snackbars
@@ -2485,6 +2346,31 @@ extension on _ChatScreenState {
                                 senderId: _actualMyId,
                               );
                             }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(color: colors.outlineVariant),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 12,
+                              horizontal: 12,
+                            ),
+                          ),
+                          icon: const Icon(Icons.auto_awesome_outlined),
+                          label: const Text('Спецэффекты'),
+                          onPressed: () {
+                            Navigator.of(ctx).pop();
+                            _toggleKometSpecialMenu();
                           },
                         ),
                       ),

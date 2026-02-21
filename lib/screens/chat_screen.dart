@@ -272,10 +272,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   // UI States
   Timer? _selectionCheckTimer;
-  OverlayEntry? _sparkleMenuOverlay;
   OverlayEntry? _mentionOverlay;
-  final GlobalKey _sparkleButtonKey = GlobalKey();
-  final LayerLink _sparkleLayerLink = LayerLink();
 
   String? _highlightedMessageId;
   bool _isSearching = false;
@@ -300,16 +297,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   final Set<String> _sendingReactions = {};
   final Map<int, String> _pendingReactionSeqs = {};
 
-  // Send drag
-  static const double _sendDragThreshold = 52.0;
-  static const double _sendDragVisualThreshold = 88.0;
-  double _sendDragDy = 0.0;
-  double _sendDragPullDy = 0.0;
-  bool _isSendDragging = false;
-  late final AnimationController _sendDragReturnController;
 
   // Voice recording
   bool _isVoiceRecordingUi = false;
+  bool _isVideoRecordMode = false; // true = режим видеокружка, false = голосовое
   final AudioRecorder _audioRecorder = AudioRecorder();
   String? _currentRecordingPath;
   bool _isActuallyRecording = false;
@@ -372,10 +363,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     _pinnedMessage = widget.pinnedMessage;
     _pinnedMessageNotifier.value = widget.pinnedMessage;
 
-    _sendDragReturnController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 200),
-    );
     _recordCancelReturnController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 200),
@@ -545,7 +532,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     _showScrollToBottomNotifier.dispose();
     _pinnedMessageNotifier.dispose();
     _testAnimationTrigger.dispose();
-    _sendDragReturnController.dispose();
     _recordCancelReturnController.dispose();
     _audioRecorder.dispose();
     _cameraController?.dispose();

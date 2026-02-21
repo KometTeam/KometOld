@@ -48,9 +48,6 @@ extension on _ChatScreenState {
       _isVoiceRecordingPaused = false;
       _voiceRecordingDuration = Duration.zero;
       _recordCancelDragDx = 0.0;
-      _sendDragPullDy = 0.0;
-      _sendDragDy = 0.0;
-      _isSendDragging = false;
     });
 
     _voiceRecordingTimer = Timer.periodic(const Duration(seconds: 1), (_) {

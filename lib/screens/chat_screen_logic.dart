@@ -2262,69 +2262,122 @@ extension on _ChatScreenState {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
     if (!themeProvider.specialMessagesEnabled) return;
 
-    if (_sparkleMenuOverlay != null) {
-      _sparkleMenuOverlay!.remove();
-      _sparkleMenuOverlay = null;
-      _setStateIfMounted(() {});
-      return;
-    }
+    final colors = Theme.of(context).colorScheme;
 
-    final RenderBox? buttonBox =
-        _sparkleButtonKey.currentContext?.findRenderObject() as RenderBox?;
-    if (buttonBox == null) return;
-
-    _sparkleMenuOverlay = OverlayEntry(
-      builder: (context) => Stack(
-        children: [
-          Positioned.fill(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: _toggleKometSpecialMenu,
-              child: Container(color: Colors.transparent),
-            ),
-          ),
-          CompositedTransformFollower(
-            link: _sparkleLayerLink,
-            showWhenUnlinked: false,
-            followerAnchor: Alignment.bottomCenter,
-            targetAnchor: Alignment.topCenter,
-            offset: const Offset(0, -12),
-            child: Material(
-              color: Colors.transparent,
-              child: IntrinsicWidth(
-                child: Container(
-                  constraints: const BoxConstraints(maxWidth: 220),
-                  child: _KometSpecialMenu(
-                    onItemSelected: (value) {
-                      _toggleKometSpecialMenu();
-                      if (value.contains('#')) {
-                        _insertKometPrefix(value);
-                        _openColorPickerDialog(value);
-                      } else {
-                        _insertKometPrefix(value);
-                      }
-                    },
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: colors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: colors.outlineVariant,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
                   ),
                 ),
-              ),
+                const Text(
+                  'Спецэффекты',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: colors.outlineVariant),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 12,
+                            horizontal: 12,
+                          ),
+                        ),
+                        icon: const Icon(Icons.color_lens_outlined),
+                        label: const Text('Цветной текст'),
+                        onPressed: () {
+                          Navigator.of(ctx).pop();
+                          _insertKometPrefix('komet.color_#');
+                          _openColorPickerDialog('komet.color_#');
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: colors.outlineVariant),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 12,
+                            horizontal: 12,
+                          ),
+                        ),
+                        icon: const Icon(Icons.animation),
+                        label: const Text('Пульсация'),
+                        onPressed: () {
+                          Navigator.of(ctx).pop();
+                          _insertKometPrefix('komet.cosmetic.pulse#');
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: colors.outlineVariant),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 12,
+                            horizontal: 12,
+                          ),
+                        ),
+                        icon: const Icon(Icons.stars),
+                        label: const Text('Галактика'),
+                        onPressed: () {
+                          Navigator.of(ctx).pop();
+                          _insertKometPrefix("komet.cosmetic.galaxy''");
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
-        ],
-      ),
+        );
+      },
     );
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_sparkleMenuOverlay != null && mounted) {
-        final renderObject = _sparkleButtonKey.currentContext
-            ?.findRenderObject();
-        if (renderObject != null) {
-          Overlay.of(context).insert(_sparkleMenuOverlay!);
-          _setStateIfMounted(() {});
-        } else {
-          _sparkleMenuOverlay = null;
-        }
-      }
-    });
   }
 
   void _insertKometPrefix(String prefix) {
