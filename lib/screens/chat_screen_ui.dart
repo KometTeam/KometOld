@@ -975,6 +975,7 @@ extension on _ChatScreenState {
     final isBlocked = _currentContact.isBlockedByMe && !theme.blockBypass;
 
     if (_isVideoRecordingUi) {
+      final colors = Theme.of(context).colorScheme;
       final inputBar = Stack(
         clipBehavior: Clip.none,
         children: [
@@ -984,7 +985,7 @@ extension on _ChatScreenState {
               vertical: 10.0,
             ),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
+              color: colors.surface,
               borderRadius: BorderRadius.circular(24),
               boxShadow: [
                 BoxShadow(
@@ -1003,69 +1004,27 @@ extension on _ChatScreenState {
               ),
             ),
           ),
+          // Send/stop button
           Positioned(
             right: 12,
             top: 0,
             bottom: 0,
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onHorizontalDragStart: (!isBlocked && !_isVideoRecordingPaused)
-                  ? (_) => _handleRecordCancelDragStart()
-                  : null,
-              onHorizontalDragUpdate: (!isBlocked && !_isVideoRecordingPaused)
-                  ? (details) => _handleRecordCancelDragUpdate(details)
-                  : null,
-              onHorizontalDragEnd: (!isBlocked && !_isVideoRecordingPaused)
-                  ? (_) => _handleRecordCancelDragEnd()
-                  : null,
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(24),
-                  onTap: _sendVideoMessage,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.primary,
-                      shape: BoxShape.circle,
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(6),
-                      child: Icon(
-                        Icons.send_rounded,
-                        color: Theme.of(context).colorScheme.onPrimary,
-                        size: 24,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            right:
-                12 +
-                _ChatScreenState._recordSendButtonSpace +
-                _ChatScreenState._recordButtonGap,
-            top: 0,
-            bottom: 0,
             child: Align(
               alignment: Alignment.centerRight,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: (!isBlocked) ? _toggleVideoRecordingPause : null,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(24),
+                onTap: _sendVideoMessage,
                 child: Container(
                   decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primary,
+                    color: colors.primary,
                     shape: BoxShape.circle,
                   ),
                   child: Padding(
                     padding: const EdgeInsets.all(6),
                     child: Icon(
-                      _isVideoRecordingPaused
-                          ? Icons.play_arrow_rounded
-                          : Icons.pause_rounded,
-                      color: Theme.of(context).colorScheme.onPrimary,
-                      size: 16,
+                      Icons.send_rounded,
+                      color: colors.onPrimary,
+                      size: 24,
                     ),
                   ),
                 ),
@@ -1203,7 +1162,7 @@ extension on _ChatScreenState {
               color: Theme.of(context).colorScheme.onSurface,
             ),
             onPressed: _startVideoRecordingUi,
-            tooltip: 'Записать видеокружок',
+            tooltip: 'Записать видеокружок (зажмите в диалоге)',
           ),
           CompositedTransformTarget(
             link: _sparkleLayerLink,
@@ -1849,6 +1808,9 @@ extension on _ChatScreenState {
               _buildTextInput(),
             ],
           ),
+
+          // Floating video circle preview (Telegram-style)
+          if (_isVideoRecordingUi) _buildVideoCirclePreview(),
 
           // Scroll-to-bottom FAB
           Positioned(

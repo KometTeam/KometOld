@@ -8670,7 +8670,14 @@ class _VideoCirclePlayerState extends State<_VideoCirclePlayer> {
                         ),
                       )
               else
-                VideoPlayer(_controller!),
+                FittedBox(
+                  fit: BoxFit.cover,
+                  child: SizedBox(
+                    width: _controller!.value.size.width,
+                    height: _controller!.value.size.height,
+                    child: VideoPlayer(_controller!),
+                  ),
+                ),
 
               if (_isLoading)
                 Container(

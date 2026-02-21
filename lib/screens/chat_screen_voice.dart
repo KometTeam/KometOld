@@ -605,135 +605,231 @@ extension on _ChatScreenState {
   Future<void> _startVideoRecordingUi() async {
     _videoRecordingTimer?.cancel();
 
-    final hasPermission = await _audioRecorder.hasPermission();
-    if (!hasPermission) {
-      _showErrorSnackBar('Нет разрешения на запись видео');
-      return;
-    }
-
-    final directory = await getTemporaryDirectory();
-    final timestamp = DateTime.now().millisecondsSinceEpoch;
-    _currentVideoRecordingPath = '${directory.path}/video_$timestamp.mp4';
-
-    print('Начинаем запись видео в: $_currentVideoRecordingPath');
-
-    // Note: В реальном приложении нужно использовать камеру/видео плагин
-    // Здесь мы используем те же настройки для базовой интеграции
     try {
-      _isActuallyVideoRecording = true;
-      print('📹 Запись видеокружка начата: $_currentVideoRecordingPath');
-    } catch (e) {
-      print('❌ Ошибка начала записи видео: $e');
-      _showErrorSnackBar('Не удалось начать запись видео');
-      return;
-    }
+      final cameraPermission = await Permission.camera.request();
+      final micPermission = await Permission.microphone.request();
 
-    if (!mounted) return;
-    setState(() {
-      _isVideoRecordingUi = true;
-      _isVideoRecordingPaused = false;
-      _videoRecordingDuration = Duration.zero;
-      _recordCancelDragDx = 0.0;
-    });
+      if (!cameraPermission.isGranted || !micPermission.isGranted) {
+        _showErrorSnackBar('Нет разрешения на доступ к камере или микрофону');
+        return;
+      }
 
-    _videoRecordingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) return;
-      if (!_isVideoRecordingUi) return;
-      if (_isVideoRecordingPaused) return;
+      final cameras = await availableCameras();
+      if (cameras.isEmpty) {
+        _showErrorSnackBar('Камера не найдена');
+        return;
+      }
+
+      final frontCamera = cameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.front,
+        orElse: () => cameras.first,
+      );
+
+      await _cameraController?.dispose();
+      _cameraController = null;
+
+      final controller = CameraController(
+        frontCamera,
+        ResolutionPreset.high,
+        enableAudio: true,
+      );
+
+      await controller.initialize();
+
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+
+      // ignore: invalid_use_of_protected_member
       setState(() {
-        _videoRecordingDuration += const Duration(seconds: 1);
+        _cameraController = controller;
+        _isVideoRecordingUi = true;
+        _isActuallyVideoRecording = false;
+        _videoRecordingDuration = Duration.zero;
+        _isVideoRecordingPaused = false;
+        _recordCancelDragDx = 0.0;
       });
-    });
+
+      await controller.startVideoRecording();
+
+      if (!mounted) return;
+
+      // ignore: invalid_use_of_protected_member
+      setState(() {
+        _isActuallyVideoRecording = true;
+      });
+
+      _videoRecordingTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+        if (!mounted || !_isVideoRecordingUi) return;
+        final newDuration = _videoRecordingDuration + const Duration(milliseconds: 100);
+        if (newDuration >= const Duration(seconds: 60)) {
+          _videoRecordingTimer?.cancel();
+          _sendVideoMessage();
+          return;
+        }
+        // ignore: invalid_use_of_protected_member
+        setState(() {
+          _videoRecordingDuration = newDuration;
+        });
+      });
+    } catch (e) {
+      print('❌ [VIDEO] Ошибка запуска камеры: $e');
+      _showErrorSnackBar('Не удалось запустить камеру');
+      await _cancelVideoRecordingUi();
+    }
   }
 
   Future<void> _cancelVideoRecordingUi() async {
     _videoRecordingTimer?.cancel();
 
-    if (_isActuallyVideoRecording) {
-      _isActuallyVideoRecording = false;
-
-      if (_currentVideoRecordingPath != null) {
-        final file = File(_currentVideoRecordingPath!);
-        if (await file.exists()) {
-          await file.delete();
-          print('🗑️ Видеозапись удалена: $_currentVideoRecordingPath');
-        }
+    if (_isActuallyVideoRecording && _cameraController != null) {
+      try {
+        final xfile = await _cameraController!.stopVideoRecording();
+        _isActuallyVideoRecording = false;
+        try {
+          final f = File(xfile.path);
+          if (await f.exists()) await f.delete();
+        } catch (_) {}
+      } catch (e) {
+        print('⚠️ [VIDEO] Ошибка остановки при отмене: $e');
+        _isActuallyVideoRecording = false;
       }
     }
 
+    await _cameraController?.dispose();
+
     if (!mounted) return;
+    // ignore: invalid_use_of_protected_member
     setState(() {
+      _cameraController = null;
       _isVideoRecordingUi = false;
       _isVideoRecordingPaused = false;
       _videoRecordingDuration = Duration.zero;
       _recordCancelDragDx = 0.0;
       _currentVideoRecordingPath = null;
-    });
-  }
-
-  Future<void> _toggleVideoRecordingPause() async {
-    if (_isActuallyVideoRecording) {
-      // Pause/Resume видеозаписи (реализация зависит от используемого плагина)
-      print(_isVideoRecordingPaused ? '▶️ Запись видео возобновлена' : '⏸️ Запись видео на паузе');
-    }
-
-    if (!mounted) return;
-    setState(() {
-      _isVideoRecordingPaused = !_isVideoRecordingPaused;
-      _recordCancelDragDx = 0.0;
+      _isActuallyVideoRecording = false;
     });
   }
 
   Future<void> _sendVideoMessage() async {
-    if (!_isActuallyVideoRecording || _currentVideoRecordingPath == null) {
-      print('⚠️ Нет активной видеозаписи для отправки');
+    if (_cameraController == null) {
+      await _cancelVideoRecordingUi();
       return;
     }
 
     _videoRecordingTimer?.cancel();
 
-    _isActuallyVideoRecording = false;
+    // Сохраняем ссылку на контроллер и длительность ДО setState,
+    // чтобы сразу скрыть UI (иначе пользователь видит "зависание")
+    final capturedController = _cameraController!;
+    final duration = _videoRecordingDuration;
+    final wasRecording = _isActuallyVideoRecording;
 
-    await Future.delayed(const Duration(milliseconds: 200));
+    // ignore: invalid_use_of_protected_member
+    setState(() {
+      _cameraController = null;
+      _isVideoRecordingUi = false;
+      _isActuallyVideoRecording = false;
+      _isVideoRecordingPaused = false;
+      _videoRecordingDuration = Duration.zero;
+      _recordCancelDragDx = 0.0;
+      _currentVideoRecordingPath = null;
+      _isVideoUploading = wasRecording;
+      _videoUploadProgress = 0.0;
+      _isVideoUploadFailed = false;
+    });
 
-    final filePath = _currentVideoRecordingPath!;
-    final file = File(filePath);
-    var fileExists = await file.exists();
-    var fileSize = fileExists ? await file.length() : 0;
-
-    if (!fileExists || fileSize == 0) {
-      await Future.delayed(const Duration(milliseconds: 300));
-      fileExists = await file.exists();
-      fileSize = fileExists ? await file.length() : 0;
-    }
-
-    if (!fileExists || fileSize == 0) {
-      print('❌ Видеофайл не создан или пуст: $filePath');
-      if (mounted) {
-        _showErrorSnackBar('Не удалось сохранить видеозапись');
-      }
-      await _cancelVideoRecordingUi();
+    if (!wasRecording) {
+      await capturedController.dispose();
       return;
     }
 
-    print('✅ Видеофайл записан: $filePath (${fileSize} bytes)');
-
-    final duration = _videoRecordingDuration;
-
-    if (mounted) {
-      setState(() {
-        _isVideoRecordingUi = false;
-        _isVideoRecordingPaused = false;
-        _videoRecordingDuration = Duration.zero;
-        _recordCancelDragDx = 0.0;
-        _currentVideoRecordingPath = null;
-        _isVideoUploading = true;
-        _videoUploadProgress = 0.0;
-        _isVideoUploadFailed = false;
-      });
+    XFile? videoFile;
+    try {
+      videoFile = await capturedController.stopVideoRecording();
+    } catch (e) {
+      print('❌ [VIDEO] Ошибка остановки записи: $e');
+      await capturedController.dispose();
+      if (mounted) {
+        // ignore: invalid_use_of_protected_member
+        setState(() { _isVideoUploading = false; });
+      }
+      return;
     }
 
-    print('📤 Отправка видеокружка: $filePath, длительность: ${duration.inSeconds}s');
+    await capturedController.dispose();
+
+    final rawPath = videoFile.path;
+    final rawFile = File(rawPath);
+
+    if (!await rawFile.exists() || await rawFile.length() == 0) {
+      _showErrorSnackBar('Видеофайл не найден или пуст');
+      if (mounted) {
+        // ignore: invalid_use_of_protected_member
+        setState(() { _isVideoUploading = false; });
+      }
+      return;
+    }
+
+    // Обрезаем видео в квадрат 480×480 через FFmpeg (center-crop + scale)
+    final dir = rawFile.parent;
+    final croppedPath = '${dir.path}/video_sq_${DateTime.now().millisecondsSinceEpoch}.mp4';
+    const int targetSize = 480;
+
+    print('📹 [FFMPEG] Входной файл: $rawPath');
+    print('📹 [FFMPEG] Выходной файл: $croppedPath');
+
+    final session = await FFmpegKit.executeWithArguments([
+      '-y',
+      '-i', rawPath,
+      // \, экранирует запятую внутри min() от парсера граф-фильтров FFmpeg
+      '-vf', 'crop=min(iw\\,ih):min(iw\\,ih),scale=$targetSize:$targetSize',
+      '-c:v', 'libx264',
+      '-preset', 'fast',
+      '-crf', '18',
+      '-c:a', 'aac',
+      '-movflags', '+faststart',
+      croppedPath,
+    ]);
+
+    // Логируем весь вывод FFmpeg для отладки
+    final logs = await session.getAllLogs();
+    for (final log in logs) {
+      print('📹 [FFMPEG] ${log.getMessage()}');
+    }
+
+    final returnCode = await session.getReturnCode();
+    print('📹 [FFMPEG] Return code: $returnCode');
+
+    // Удаляем исходный файл в любом случае
+    try { await rawFile.delete(); } catch (_) {}
+
+    String filePath;
+    if (ReturnCode.isSuccess(returnCode)) {
+      filePath = croppedPath;
+      print('✅ [FFMPEG] Обрезка успешна: $croppedPath');
+    } else {
+      print('❌ [FFMPEG] Ошибка обрезки, returnCode=$returnCode');
+      _showErrorSnackBar('Не удалось обработать видеокружок');
+      if (mounted) {
+        // ignore: invalid_use_of_protected_member
+        setState(() { _isVideoUploading = false; });
+      }
+      return;
+    }
+
+    final file = File(filePath);
+    if (!await file.exists() || await file.length() == 0) {
+      _showErrorSnackBar('Обработанный видеофайл не найден');
+      if (mounted) {
+        // ignore: invalid_use_of_protected_member
+        setState(() { _isVideoUploading = false; });
+      }
+      return;
+    }
+
+    final fileSize = await file.length();
 
     try {
       await ApiService.instance.sendVideoMessage(
@@ -741,11 +837,12 @@ extension on _ChatScreenState {
         localPath: filePath,
         durationSeconds: duration.inSeconds,
         fileSize: fileSize,
-        width: _videoWidth,
-        height: _videoHeight,
+        width: targetSize,
+        height: targetSize,
         senderId: _actualMyId,
         onProgress: (progress) {
           if (mounted) {
+            // ignore: invalid_use_of_protected_member
             setState(() {
               _isVideoUploading = progress < 1.0;
               _videoUploadProgress = progress;
@@ -754,9 +851,8 @@ extension on _ChatScreenState {
         },
       );
 
-      print('✅ Видеокружок успешно отправлен');
-      
       if (mounted) {
+        // ignore: invalid_use_of_protected_member
         setState(() {
           _isVideoUploading = false;
           _videoUploadProgress = 0.0;
@@ -766,17 +862,12 @@ extension on _ChatScreenState {
       }
 
       try {
-        if (await file.exists()) {
-          await file.delete();
-        }
-      } catch (e) {
-        print('⚠️ Не удалось удалить временный видеофайл: $e');
-      }
-    } catch (e, stackTrace) {
-      print('❌ Ошибка отправки видеокружка: $e');
-      print(stackTrace);
-      
+        if (await file.exists()) await file.delete();
+      } catch (_) {}
+    } catch (e) {
+      print('❌ [VIDEO] Ошибка отправки видеокружка: $e');
       if (mounted) {
+        // ignore: invalid_use_of_protected_member
         setState(() {
           _isVideoUploading = false;
           _videoUploadProgress = 0.0;
@@ -788,6 +879,82 @@ extension on _ChatScreenState {
     }
   }
 
+  // Floating circular camera preview — positioned above the input bar
+  Widget _buildVideoCirclePreview() {
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) {
+      return const SizedBox.shrink();
+    }
+
+    const circleSize = 200.0;
+    const ringPadding = 6.0;
+    final outerSize = circleSize + ringPadding * 2;
+    final progress = (_videoRecordingDuration.inMilliseconds / 60000.0).clamp(0.0, 1.0);
+    final previewSize = controller.value.previewSize;
+
+    final screenHeight = MediaQuery.of(context).size.height;
+
+    return Positioned(
+      bottom: screenHeight * 0.18,
+      left: 0,
+      right: 0,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: outerSize,
+              height: outerSize,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Progress arc
+                  CustomPaint(
+                    size: Size(outerSize, outerSize),
+                    painter: _VideoProgressArcPainter(progress: progress),
+                  ),
+                  // Circular camera preview
+                  ClipOval(
+                    child: SizedBox.square(
+                      dimension: circleSize,
+                      child: previewSize != null
+                          ? FittedBox(
+                              fit: BoxFit.cover,
+                              child: SizedBox(
+                                width: previewSize.height,
+                                height: previewSize.width,
+                                child: CameraPreview(controller),
+                              ),
+                            )
+                          : CameraPreview(controller),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (_isActuallyVideoRecording)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  _formatVideoDuration(_videoRecordingDuration),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _buildVideoRecordingBar({
     required bool isBlocked,
@@ -802,26 +969,10 @@ extension on _ChatScreenState {
       cancelProgress,
     )!;
 
-    final canInteract = !isBlocked && !_isVideoRecordingPaused;
-
-    final trashButton = Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(18),
-        onTap: (!isBlocked) ? _cancelVideoRecordingUi : null,
-        child: Padding(
-          padding: const EdgeInsets.all(6.0),
-          child: Icon(
-            Icons.delete_rounded,
-            size: 20,
-            color: colors.error,
-          ),
-        ),
-      ),
-    );
-
     final content = Row(
       children: [
+        _RecordingDot(isRecording: _isActuallyVideoRecording),
+        const SizedBox(width: 8),
         Text(
           _formatVideoDuration(_videoRecordingDuration),
           style: TextStyle(
@@ -829,51 +980,20 @@ extension on _ChatScreenState {
             fontWeight: FontWeight.w600,
           ),
         ),
-        const SizedBox(width: 6),
-        AnimatedSwitcher(
-          duration: const Duration(milliseconds: 220),
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeInCubic,
-          transitionBuilder: (child, animation) {
-            final offset = Tween<Offset>(begin: const Offset(-0.15, 0), end: Offset.zero).animate(animation);
-            return FadeTransition(
-              opacity: animation,
-              child: SlideTransition(position: offset, child: child),
-            );
-          },
-          child: _isVideoRecordingPaused
-              ? SizedBox(key: const ValueKey<String>('trash'), child: trashButton)
-              : const SizedBox(key: ValueKey<String>('trashSpacer'), width: 32, height: 32),
-        ),
         const SizedBox(width: 12),
         Expanded(
           child: Center(
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 220),
-              switchInCurve: Curves.easeOutCubic,
-              switchOutCurve: Curves.easeInCubic,
-              transitionBuilder: (child, animation) {
-                return FadeTransition(opacity: animation, child: child);
-              },
-              child: _isVideoRecordingPaused
-                  ? const SizedBox(
-                key: ValueKey<String>('recordingIcon'),
-                height: 24,
-                child: Icon(Icons.videocam, color: Colors.red, size: 20),
-              )
-                  : Transform.translate(
-                key: const ValueKey<String>('cancel'),
-                offset: Offset(_recordCancelDragDx, 0),
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: canInteract ? _cancelVideoRecordingUi : null,
-                  child: Text(
-                    'CANCEL',
-                    style: TextStyle(
-                      color: cancelColor,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8,
-                    ),
+            child: Transform.translate(
+              offset: Offset(_recordCancelDragDx, 0),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: (!isBlocked) ? _cancelVideoRecordingUi : null,
+                child: Text(
+                  'CANCEL',
+                  style: TextStyle(
+                    color: cancelColor,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.8,
                   ),
                 ),
               ),
@@ -881,22 +1001,152 @@ extension on _ChatScreenState {
           ),
         ),
         const SizedBox(width: 12),
-        const SizedBox(width: _ChatScreenState._recordSendButtonSpace + _ChatScreenState._recordButtonGap + _ChatScreenState._recordPauseButtonSpace)
+        const SizedBox(width: _ChatScreenState._recordSendButtonSpace),
       ],
     );
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onHorizontalDragStart: canInteract
-          ? (_) => _handleRecordCancelDragStart()
-          : null,
-      onHorizontalDragUpdate: canInteract
-          ? (details) => _handleRecordCancelDragUpdate(details)
-          : null,
-      onHorizontalDragEnd: canInteract
-          ? (_) => _handleRecordCancelDragEnd()
-          : null,
+      onHorizontalDragStart: (!isBlocked) ? (_) => _handleRecordCancelDragStart() : null,
+      onHorizontalDragUpdate: (!isBlocked) ? (d) => _handleRecordCancelDragUpdate(d) : null,
+      onHorizontalDragEnd: (!isBlocked) ? (_) => _handleVideoCancelDragEnd() : null,
       child: content,
+    );
+  }
+
+  void _handleVideoCancelDragEnd() {
+    final reached = _recordCancelDragDx <= -_ChatScreenState._recordCancelThreshold;
+    if (reached) {
+      _cancelVideoRecordingUi();
+      return;
+    }
+
+    final tween = Tween<double>(begin: _recordCancelDragDx, end: 0.0).animate(
+      CurvedAnimation(parent: _recordCancelReturnController, curve: Curves.easeOutCubic),
+    );
+    void listener() {
+      // ignore: invalid_use_of_protected_member
+      setState(() {
+        _recordCancelDragDx = tween.value;
+      });
+    }
+
+    _recordCancelReturnController
+      ..removeListener(listener)
+      ..reset();
+    _recordCancelReturnController.addListener(listener);
+    _recordCancelReturnController.forward().whenComplete(() {
+      _recordCancelReturnController.removeListener(listener);
+    });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Arc progress painter for the video circle
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _VideoProgressArcPainter extends CustomPainter {
+  final double progress;
+
+  _VideoProgressArcPainter({required this.progress});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2 - 2;
+
+    // Background track
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      -pi / 2,
+      2 * pi,
+      false,
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.25)
+        ..strokeWidth = 3
+        ..style = PaintingStyle.stroke,
+    );
+
+    // Progress fill
+    if (progress > 0) {
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        -pi / 2,
+        2 * pi * progress,
+        false,
+        Paint()
+          ..color = Colors.red
+          ..strokeWidth = 3
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_VideoProgressArcPainter old) => old.progress != progress;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Blinking recording dot for the recording bar
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _RecordingDot extends StatefulWidget {
+  final bool isRecording;
+
+  const _RecordingDot({required this.isRecording});
+
+  @override
+  State<_RecordingDot> createState() => _RecordingDotState();
+}
+
+class _RecordingDotState extends State<_RecordingDot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _opacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      duration: const Duration(milliseconds: 900),
+      vsync: this,
+    );
+    _opacity = Tween<double>(begin: 1.0, end: 0.2).animate(
+      CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
+    );
+    if (widget.isRecording) _ctrl.repeat(reverse: true);
+  }
+
+  @override
+  void didUpdateWidget(_RecordingDot old) {
+    super.didUpdateWidget(old);
+    if (widget.isRecording && !_ctrl.isAnimating) {
+      _ctrl.repeat(reverse: true);
+    } else if (!widget.isRecording) {
+      _ctrl.stop();
+      _ctrl.value = 1.0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _opacity,
+      child: Container(
+        width: 10,
+        height: 10,
+        decoration: const BoxDecoration(
+          color: Colors.red,
+          shape: BoxShape.circle,
+        ),
+      ),
     );
   }
 }

@@ -30,10 +30,11 @@ android {
 
     defaultConfig {
         applicationId = "com.gwid.app.gwid"
-        minSdk = flutter.minSdkVersion
+        minSdk = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        multiDexEnabled = true
         // ndk {
         //     abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
         // }
@@ -89,4 +90,5 @@ flutter {
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
     implementation("androidx.core:core-ktx:1.12.0")
+    implementation("androidx.multidex:multidex:2.0.1")
 }

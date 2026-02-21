@@ -59,6 +59,11 @@ import 'package:path_provider/path_provider.dart';
 import 'package:platform_info/platform_info.dart';
 import 'package:gwid/services/voice_upload_service.dart';
 import 'package:gwid/widgets/yaznaytvoytelefon.dart';
+import 'package:camera/camera.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_flutter_new/return_code.dart';
+import 'dart:math' show pi;
 
 part 'chat_screen_widgets.dart';
 part 'chat_screen_logic.dart';
@@ -329,6 +334,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   bool _isVideoUploadFailed = false;
   final int _videoWidth = 480;
   final int _videoHeight = 480;
+  CameraController? _cameraController;
 
   static const double _recordCancelThreshold = 92.0;
   double _recordCancelDragDx = 0.0;
@@ -542,6 +548,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     _sendDragReturnController.dispose();
     _recordCancelReturnController.dispose();
     _audioRecorder.dispose();
+    _cameraController?.dispose();
     _pendingMessagesDuringLoad.clear();
 
     if (ApiService.instance.currentActiveChatId == widget.chatId) {
