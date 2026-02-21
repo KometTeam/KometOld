@@ -6,7 +6,7 @@ extension on _ChatScreenState {
     // Пытаемся получить информацию о чате из кэша
     final chatData = ApiService.instance.lastChatsPayload;
     final chats = chatData?['chats'] as List?;
-    
+
     Chat? currentChat;
     if (chats != null) {
       for (final chatJson in chats) {
@@ -118,8 +118,8 @@ extension on _ChatScreenState {
             ),
       actions: [
         // Кнопка звонка только для обычных пользователей (не группы, не каналы, не боты, не MAX)
-        if (!widget.isGroupChat && 
-            !widget.isChannel && 
+        if (!widget.isGroupChat &&
+            !widget.isChannel &&
             widget.chatId != 0 &&
             widget.chatId != 1 && // MAX chat
             !widget.contact.isBot)
@@ -486,7 +486,6 @@ extension on _ChatScreenState {
                   const SizedBox(height: 2),
                   if (widget.isGroupChat || widget.isChannel)
                     _buildGroupSubtitle()
-                  
                   else if (widget.chatId != 0)
                     _ContactPresenceSubtitle(
                       chatId: widget.chatId,
@@ -629,7 +628,7 @@ extension on _ChatScreenState {
           final padding = EdgeInsets.all(isSmall ? 10 : 6);
           final baseIconSize = isSmall ? 20.0 : 24.0;
           final baseDiameter = baseIconSize + 2 * (isSmall ? 10.0 : 6.0);
-          
+
           // Показываем прогресс если идет загрузка
           if (_isVoiceUploading) {
             return SizedBox(
@@ -668,7 +667,7 @@ extension on _ChatScreenState {
               ),
             );
           }
-          
+
           return InkWell(
             borderRadius: BorderRadius.circular(24),
             onTap: _sendVoiceMessage,
@@ -711,13 +710,12 @@ extension on _ChatScreenState {
 
         // Блокируем отправку пока нет ID
         if (_actualMyId == null) {
-          onTap = () {
-            _showInfoSnackBar('Загрузка чата...');
-          };
+          onTap = () {};
         }
 
-        final recordIcon =
-            _isVideoRecordMode ? Icons.videocam_rounded : Icons.mic_rounded;
+        final recordIcon = _isVideoRecordMode
+            ? Icons.videocam_rounded
+            : Icons.mic_rounded;
 
         if (showSend) {
           icon = Icon(
@@ -1243,16 +1241,67 @@ extension on _ChatScreenState {
                               setState(() {});
                               _handleChatInputChanged(text);
                             },
+                            contextMenuBuilder: (context, editableTextState) {
+                              final List<ContextMenuButtonItem> buttonItems =
+                                  editableTextState.contextMenuButtonItems;
+
+                              buttonItems.insertAll(0, [
+                                ContextMenuButtonItem(
+                                  label: 'Жирный',
+                                  onPressed: () {
+                                    editableTextState.hideToolbar();
+                                    _toggleStyle('STRONG');
+                                  },
+                                ),
+                                ContextMenuButtonItem(
+                                  label: 'Курсив',
+                                  onPressed: () {
+                                    editableTextState.hideToolbar();
+                                    _toggleStyle('EMPHASIZED');
+                                  },
+                                ),
+                                ContextMenuButtonItem(
+                                  label: 'Зачеркнуть',
+                                  onPressed: () {
+                                    editableTextState.hideToolbar();
+                                    _toggleStyle('STRIKETHROUGH');
+                                  },
+                                ),
+                                ContextMenuButtonItem(
+                                  label: 'Подчеркнуть',
+                                  onPressed: () {
+                                    editableTextState.hideToolbar();
+                                    _toggleStyle('UNDERLINE');
+                                  },
+                                ),
+                                ContextMenuButtonItem(
+                                  label: 'Цитата',
+                                  onPressed: () {
+                                    editableTextState.hideToolbar();
+                                    _toggleStyle('QUOTE');
+                                  },
+                                ),
+                                ContextMenuButtonItem(
+                                  label: 'Убрать стили',
+                                  onPressed: () {
+                                    editableTextState.hideToolbar();
+                                    _clearSelectionStyles();
+                                  },
+                                ),
+                              ]);
+
+                              return AdaptiveTextSelectionToolbar.buttonItems(
+                                anchors: editableTextState.contextMenuAnchors,
+                                buttonItems: buttonItems,
+                              );
+                            },
                           ),
                         ),
                 ),
               ],
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.only(bottom: 6),
-            child: sendButton,
-          ),
+          Padding(padding: const EdgeInsets.only(bottom: 6), child: sendButton),
         ],
       ),
     );
@@ -1285,7 +1334,13 @@ extension on _ChatScreenState {
       }
     }
 
-    return SafeArea(top: false, child: inputBar);
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+        child: inputBar,
+      ),
+    );
   }
 
   // Snackbars
@@ -1297,17 +1352,6 @@ extension on _ChatScreenState {
         backgroundColor: Colors.red,
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 3),
-      ),
-    );
-  }
-
-  void _showInfoSnackBar(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
       ),
     );
   }
@@ -1394,7 +1438,7 @@ extension on _ChatScreenState {
   void _jumpToBottom() {
     if (_chatItems.isEmpty) return;
     if (!_itemScrollController.isAttached) return;
-    
+
     // Получаем текущую позицию
     final positions = _itemPositionsListener.itemPositions.value;
     if (positions.isEmpty) {
@@ -1402,15 +1446,17 @@ extension on _ChatScreenState {
       _itemScrollController.jumpTo(index: 0);
       return;
     }
-    
+
     // Находим самый верхний видимый элемент
-    final maxVisibleIndex = positions.map((p) => p.index).reduce((a, b) => a > b ? a : b);
-    
+    final maxVisibleIndex = positions
+        .map((p) => p.index)
+        .reduce((a, b) => a > b ? a : b);
+
     // Если далеко (больше 10 элементов от низа), делаем гибридный скролл
     if (maxVisibleIndex > 10) {
       // Сначала телепортируемся близко к низу (на 5 элементов выше)
       _itemScrollController.jumpTo(index: 5);
-      
+
       // Затем быстро докручиваем до самого низа
       Future.delayed(const Duration(milliseconds: 50), () {
         if (!mounted || !_itemScrollController.isAttached) return;
@@ -1537,7 +1583,6 @@ extension on _ChatScreenState {
                         status: _currentContact.status,
                       );
                     });
-                    _showInfoSnackBar('Пользователь заблокирован');
                     widget.onChatUpdated?.call();
                   })
                   .catchError((error) {
@@ -1589,7 +1634,6 @@ extension on _ChatScreenState {
                         status: _currentContact.status,
                       );
                     });
-                    _showInfoSnackBar('Пользователь разблокирован');
                     widget.onChatUpdated?.call();
                   })
                   .catchError((error) {
@@ -1773,26 +1817,35 @@ extension on _ChatScreenState {
       if (isMe) {
         final messageIdInt = int.tryParse(item.message.id);
         final messageTime = item.message.time; // timestamp когда отправлено
-        
+
         // Проверяем прочитанность по трем источникам (в порядке приоритета):
         // 1. opcode 130 (новая система) - использует message.time
         // 2. opcode 50 (_lastPeerReadMessageId, старая система) - использует message ID
         // 3. message.status из сервера
-        
-        if (MessageReadStatusService().isMessageRead(widget.chatId, messageTime)) {
+
+        if (MessageReadStatusService().isMessageRead(
+          widget.chatId,
+          messageTime,
+        )) {
           // opcode 130 - новая система (проверка по timestamp)
           readStatus = MessageReadStatus.read;
-          print('📖 [UI] Сообщение ${item.message.id} прочитано (opcode 130, time=$messageTime)');
-        } else if (messageIdInt != null && 
-                   _lastPeerReadMessageId != null && 
-                   messageIdInt <= _lastPeerReadMessageId!) {
+          print(
+            '📖 [UI] Сообщение ${item.message.id} прочитано (opcode 130, time=$messageTime)',
+          );
+        } else if (messageIdInt != null &&
+            _lastPeerReadMessageId != null &&
+            messageIdInt <= _lastPeerReadMessageId!) {
           // opcode 50 - старая система (READ_MESSAGE, проверка по ID)
           readStatus = MessageReadStatus.read;
-          print('📖 [UI] Сообщение ${item.message.id} прочитано (opcode 50, lastPeerRead=$_lastPeerReadMessageId)');
+          print(
+            '📖 [UI] Сообщение ${item.message.id} прочитано (opcode 50, lastPeerRead=$_lastPeerReadMessageId)',
+          );
         } else if (item.message.status == 'READ') {
           // Статус из сервера
           readStatus = MessageReadStatus.read;
-          print('📖 [UI] Сообщение ${item.message.id} прочитано (message.status)');
+          print(
+            '📖 [UI] Сообщение ${item.message.id} прочитано (message.status)',
+          );
         } else if (item.message.status == 'SENDING' ||
             item.message.id.startsWith('local_')) {
           readStatus = MessageReadStatus.sending;
@@ -1828,11 +1881,14 @@ extension on _ChatScreenState {
         if (currentChat != null && _actualMyId != null) {
           final admins = currentChat['admins'] as List<dynamic>? ?? [];
           final owner = currentChat['owner'] as int?;
-          canDeleteAnyMessage = admins.contains(_actualMyId) || owner == _actualMyId;
+          canDeleteAnyMessage =
+              admins.contains(_actualMyId) || owner == _actualMyId;
         }
       }
 
-      final bool canDeleteForAll = (isMe && item.message.canEdit(_actualMyId ?? 0)) || canDeleteAnyMessage;
+      final bool canDeleteForAll =
+          (isMe && item.message.canEdit(_actualMyId ?? 0)) ||
+          canDeleteAnyMessage;
 
       // Расшифровка сообщения если нужно
       String? decryptedText;
@@ -1907,29 +1963,35 @@ extension on _ChatScreenState {
       _isOpeningChannelSettings = false;
       return;
     }
-    
+
     try {
-      print('📋 [ChannelSettings] Начинаем загрузку данных канала ${widget.chatId}...');
-      
+      print(
+        '📋 [ChannelSettings] Начинаем загрузку данных канала ${widget.chatId}...',
+      );
+
       // Сохраняем контекст ДО await
       final navigatorContext = context;
-      
+
       print('📋 [ChannelSettings] Вызываем getChannelDetails с timeout...');
-      final channelDetails = await ApiService.instance.getChannelDetails(widget.chatId)
+      final channelDetails = await ApiService.instance
+          .getChannelDetails(widget.chatId)
           .timeout(
             const Duration(seconds: 10),
             onTimeout: () {
               print('⏱️ [ChannelSettings] Timeout при загрузке данных канала');
-              throw TimeoutException('Таймаут загрузки данных канала', const Duration(seconds: 10));
+              throw TimeoutException(
+                'Таймаут загрузки данных канала',
+                const Duration(seconds: 10),
+              );
             },
           );
       print('✅ [ChannelSettings] Данные канала получены');
-      
+
       if (!mounted) {
         print('⚠️ [ChannelSettings] Widget не mounted после загрузки');
         return;
       }
-      
+
       if (channelDetails == null) {
         print('⚠️ [ChannelSettings] channelDetails null, показываем ошибку');
         ScaffoldMessenger.of(navigatorContext).showSnackBar(
@@ -1954,11 +2016,10 @@ extension on _ChatScreenState {
         ),
       );
       print('✅ [ChannelSettings] Экран открыт');
-      
     } catch (e, stackTrace) {
       print('❌ [ChannelSettings] Ошибка открытия настроек канала: $e');
       print('❌ [ChannelSettings] Stack: $stackTrace');
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -2014,7 +2075,6 @@ extension on _ChatScreenState {
                       _messages.clear();
                       _chatItems.clear();
                     });
-                    _showInfoSnackBar('История очищена');
                     widget.onLastMessageChanged?.call(null);
                   })
                   .catchError((error) {
@@ -2053,7 +2113,6 @@ extension on _ChatScreenState {
                   .then((_) {
                     widget.onChatRemoved?.call();
                     Navigator.of(context).pop();
-                    _showInfoSnackBar('Чат удалён');
                   })
                   .catchError((error) {
                     _showErrorSnackBar('Ошибка удаления чата');
@@ -2102,11 +2161,6 @@ extension on _ChatScreenState {
                 widget.onChatRemoved?.call();
                 if (mounted) {
                   Navigator.of(context).pop();
-                  _showInfoSnackBar(
-                    widget.isChannel
-                        ? 'Вы покинули канал'
-                        : 'Вы вышли из группы',
-                  );
                 }
               } catch (error) {
                 if (mounted) {
@@ -2128,14 +2182,6 @@ extension on _ChatScreenState {
     try {
       final theme = context.read<ThemeProvider>();
       await theme.setChatSpecificWallpaper(widget.chatId, imagePath);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Обои для чата установлены'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2152,14 +2198,6 @@ extension on _ChatScreenState {
     try {
       final theme = context.read<ThemeProvider>();
       await theme.setChatSpecificWallpaper(widget.chatId, null);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Обои для чата удалены'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2236,16 +2274,6 @@ extension on _ChatScreenState {
                                     .isNotEmpty &&
                                 _sendEncryptedForCurrentChat;
                             if (isEncryptionActive) {
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'Нельзя отправлять медиа при включенном шифровании',
-                                    ),
-                                    backgroundColor: Colors.orange,
-                                  ),
-                                );
-                              }
                               Navigator.of(ctx).pop();
                               return;
                             }
@@ -2399,16 +2427,6 @@ extension on _ChatScreenState {
           _encryptionConfigForCurrentChat!.password.isNotEmpty &&
           _sendEncryptedForCurrentChat;
       if (isEncryptionActive) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Нельзя отправлять медиа при включенном шифровании',
-              ),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
         return;
       }
       if (!mounted) return;

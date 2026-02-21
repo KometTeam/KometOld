@@ -65,7 +65,9 @@ class _ManageAccountScreenState extends State<ManageAccountScreen> {
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Не удалось получить статус удаления аккаунта. Попробуйте позже.'),
+            content: Text(
+              'Не удалось получить статус удаления аккаунта. Попробуйте позже.',
+            ),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -87,13 +89,7 @@ class _ManageAccountScreenState extends State<ManageAccountScreen> {
     });
 
     try {
-      await ApiService.instance.sendRequest(
-        199,
-        {
-          'delete': delete,
-          'type': 0,
-        },
-      );
+      await ApiService.instance.sendRequest(199, {'delete': delete, 'type': 0});
 
       if (mounted) {
         setState(() {
@@ -106,7 +102,9 @@ class _ManageAccountScreenState extends State<ManageAccountScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Не удалось выполнить запрос. Попробуйте позже.'),
+            content: const Text(
+              'Не удалось выполнить запрос. Попробуйте позже.',
+            ),
             backgroundColor: Theme.of(context).colorScheme.error,
             behavior: SnackBarBehavior.floating,
           ),
@@ -127,7 +125,9 @@ class _ManageAccountScreenState extends State<ManageAccountScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Удалить аккаунт?'),
-        content: const Text('Учетная запись MAX, к которой подключается Komet, будет удалена через 30 дней'),
+        content: const Text(
+          'Учетная запись MAX, к которой подключается Komet, будет удалена через 30 дней',
+        ),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         actions: [
           TextButton(
@@ -194,12 +194,6 @@ class _ManageAccountScreenState extends State<ManageAccountScreen> {
     }
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Заявка на удаление отменена'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
   }
 
   Future<void> _wipeLocalDataAndGoToLogin() async {
@@ -332,16 +326,6 @@ class _ManageAccountScreenState extends State<ManageAccountScreen> {
       if (updatedProfile != null) {
         _actualProfile = updatedProfile;
       }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Профиль обновлен"),
-            behavior: SnackBarBehavior.floating,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -426,12 +410,6 @@ class _ManageAccountScreenState extends State<ManageAccountScreen> {
         setState(() {
           _actualProfile = updatedProfile;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("Фотография профиля обновлена"),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
       }
     } catch (e) {
       if (mounted) {
@@ -592,12 +570,6 @@ class _ManageAccountScreenState extends State<ManageAccountScreen> {
                             Clipboard.setData(
                               ClipboardData(
                                 text: widget.myProfile!.id.toString(),
-                              ),
-                            );
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('ID скопирован в буфер обмена'),
-                                behavior: SnackBarBehavior.floating,
                               ),
                             );
                           },
@@ -894,17 +866,6 @@ class _ManageAccountScreenState extends State<ManageAccountScreen> {
                                                         updatedProfile;
                                                   });
                                                   Navigator.of(context).pop();
-                                                  ScaffoldMessenger.of(
-                                                    context,
-                                                  ).showSnackBar(
-                                                    const SnackBar(
-                                                      content: Text(
-                                                        'Аватар обновлён',
-                                                      ),
-                                                      behavior: SnackBarBehavior
-                                                          .floating,
-                                                    ),
-                                                  );
                                                 }
                                               } catch (e) {
                                                 if (!mounted) return;
@@ -1021,14 +982,18 @@ class _ManageAccountScreenState extends State<ManageAccountScreen> {
     final label = isRequested ? 'Не удалять аккаунт' : 'Удалить аккаунт';
 
     final enabled =
-        !_isDeleteStatusLoading && !_isDeleteActionInProgress && _hasDeleteRequest != null;
+        !_isDeleteStatusLoading &&
+        !_isDeleteActionInProgress &&
+        _hasDeleteRequest != null;
 
     return OutlinedButton.icon(
       icon: Icon(isRequested ? Icons.undo : Icons.delete_outline),
       label: Text(label),
       onPressed: !enabled
           ? null
-          : (isRequested ? _onCancelDeleteAccountPressed : _onDeleteAccountPressed),
+          : (isRequested
+                ? _onCancelDeleteAccountPressed
+                : _onDeleteAccountPressed),
       style: OutlinedButton.styleFrom(
         foregroundColor: Colors.red.shade400,
         side: BorderSide(color: Colors.red.shade200),

@@ -3,14 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gwid/api/api_service.dart';
 
-enum TwoFAStep {
-  start,
-  password,
-  hint,
-  email,
-  verifyEmail,
-  complete,
-}
+enum TwoFAStep { start, password, hint, email, verifyEmail, complete }
 
 class PasswordManagementScreen extends StatefulWidget {
   const PasswordManagementScreen({super.key});
@@ -112,7 +105,9 @@ class _PasswordManagementScreenState extends State<PasswordManagementScreen> {
             _isLoading = false;
             _currentStep = TwoFAStep.complete;
           });
-          _showSuccessSnackBar('Двухфакторная аутентификация успешно включена!');
+          _showSuccessSnackBar(
+            'Двухфакторная аутентификация успешно включена!',
+          );
           break;
 
         case '2fa_error':
@@ -158,17 +153,7 @@ class _PasswordManagementScreenState extends State<PasswordManagementScreen> {
     });
   }
 
-  void _showSuccessSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.green,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.all(10),
-      ),
-    );
-  }
+  void _showSuccessSnackBar(String message) {}
 
   void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -182,17 +167,7 @@ class _PasswordManagementScreenState extends State<PasswordManagementScreen> {
     );
   }
 
-  void _showWarningSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.orange,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.all(10),
-      ),
-    );
-  }
+  void _showWarningSnackBar(String message) {}
 
   // Step 1: Start 2FA setup
   void _startSetup() async {
@@ -347,7 +322,10 @@ class _PasswordManagementScreenState extends State<PasswordManagementScreen> {
 
     setState(() => _isLoading = true);
     try {
-      await ApiService.instance.set2FAEmail(_trackId!, _emailController.text.trim());
+      await ApiService.instance.set2FAEmail(
+        _trackId!,
+        _emailController.text.trim(),
+      );
     } catch (e) {
       setState(() => _isLoading = false);
       _showErrorSnackBar('Ошибка: ${e.toString()}');
@@ -361,7 +339,9 @@ class _PasswordManagementScreenState extends State<PasswordManagementScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Двухфакторная аутентификация'),
-        leading: _currentStep != TwoFAStep.start && _currentStep != TwoFAStep.complete
+        leading:
+            _currentStep != TwoFAStep.start &&
+                _currentStep != TwoFAStep.complete
             ? IconButton(
                 icon: const Icon(Icons.arrow_back),
                 onPressed: _isLoading ? null : () => _goBack(),
@@ -454,7 +434,9 @@ class _PasswordManagementScreenState extends State<PasswordManagementScreen> {
                       height: 28,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: isActive ? colors.primary : colors.surfaceContainerHighest,
+                        color: isActive
+                            ? colors.primary
+                            : colors.surfaceContainerHighest,
                         border: isCurrent
                             ? Border.all(color: colors.primary, width: 2)
                             : null,
@@ -548,7 +530,8 @@ class _PasswordManagementScreenState extends State<PasswordManagementScreen> {
           colors,
           icon: Icons.lock_outline,
           title: 'Надёжный пароль',
-          description: 'Придумайте пароль с заглавными и строчными буквами, цифрами и специальными символами',
+          description:
+              'Придумайте пароль с заглавными и строчными буквами, цифрами и специальными символами',
         ),
         const SizedBox(height: 12),
         _buildInfoCard(
@@ -641,9 +624,9 @@ class _PasswordManagementScreenState extends State<PasswordManagementScreen> {
         _buildStepIndicator(colors),
         Text(
           'Создайте пароль',
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
         Text(
@@ -757,9 +740,9 @@ class _PasswordManagementScreenState extends State<PasswordManagementScreen> {
         _buildStepIndicator(colors),
         Text(
           'Добавьте подсказку',
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
         Text(
@@ -825,9 +808,9 @@ class _PasswordManagementScreenState extends State<PasswordManagementScreen> {
         _buildStepIndicator(colors),
         Text(
           'Email для восстановления',
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
         Text(
@@ -859,7 +842,10 @@ class _PasswordManagementScreenState extends State<PasswordManagementScreen> {
               Expanded(
                 child: Text(
                   'На указанный email будет отправлен код подтверждения',
-                  style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12),
+                  style: TextStyle(
+                    color: colors.onSurfaceVariant,
+                    fontSize: 12,
+                  ),
                 ),
               ),
             ],
@@ -890,9 +876,9 @@ class _PasswordManagementScreenState extends State<PasswordManagementScreen> {
         _buildStepIndicator(colors),
         Text(
           'Подтвердите email',
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 8),
         Text(
@@ -967,18 +953,15 @@ class _PasswordManagementScreenState extends State<PasswordManagementScreen> {
           const SizedBox(height: 32),
           Text(
             'Готово!',
-            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 12),
           Text(
             'Двухфакторная аутентификация успешно включена',
             textAlign: TextAlign.center,
-            style: TextStyle(
-              color: colors.onSurfaceVariant,
-              fontSize: 16,
-            ),
+            style: TextStyle(color: colors.onSurfaceVariant, fontSize: 16),
           ),
           if (_maskedEmail != null) ...[
             const SizedBox(height: 8),

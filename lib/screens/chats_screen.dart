@@ -87,7 +87,8 @@ class _ChatsScreenState extends State<ChatsScreen>
   StreamSubscription? _apiSubscription;
   List<Chat> _allChats = [];
   bool _chatsLoaded = false;
-  bool _chatOrderLoaded = false; // Флаг для предотвращения повторной загрузки порядка
+  bool _chatOrderLoaded =
+      false; // Флаг для предотвращения повторной загрузки порядка
   MessageHandler? _messageHandler;
   List<Chat> _filteredChats = [];
   Map<int, Contact> _contacts = {};
@@ -199,10 +200,14 @@ class _ChatsScreenState extends State<ChatsScreen>
     _contactNamesSubscription = ContactLocalNamesService().changes.listen((_) {
       if (mounted) setState(() {});
     });
-    
+
     // Подписываемся на обновления статусов прочитанности
-    _readStatusSubscription = MessageReadStatusService().statusUpdates.listen((update) {
-      print('🔔 [ChatsScreen] Получено обновление статуса прочитанности для чата ${update.chatId}');
+    _readStatusSubscription = MessageReadStatusService().statusUpdates.listen((
+      update,
+    ) {
+      print(
+        '🔔 [ChatsScreen] Получено обновление статуса прочитанности для чата ${update.chatId}',
+      );
       if (mounted) {
         setState(() {
           // setState триггерит перерисовку списка чатов
@@ -543,7 +548,7 @@ class _ChatsScreenState extends State<ChatsScreen>
     // КРИТИЧНО: отменяем старую подписку перед созданием новой
     await _apiSubscription?.cancel();
     _apiSubscription = null;
-    
+
     final handler = MessageHandler(
       setState: setState,
       getContext: () => context,
@@ -589,10 +594,7 @@ class _ChatsScreenState extends State<ChatsScreen>
   final Map<int, Timer> _typingDecayTimers = {};
   final Set<int> _typingChats = {};
   final Set<int> _onlineChats = {};
-  
-  // Защита от бесконечного цикла в filterChats
-  int _filterChatsCallCount = 0;
-  int _lastFilterResetTime = 0;
+
   bool _isFilteringInProgress = false;
   void _setTypingForChat(int chatId) {
     _typingChats.add(chatId);
@@ -683,123 +685,123 @@ class _ChatsScreenState extends State<ChatsScreen>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                'Создать',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 20),
-
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Theme.of(
-                    context,
-                  ).colorScheme.primaryContainer,
-                  child: Icon(
-                    Icons.group_add,
-                    color: Theme.of(context).colorScheme.onPrimaryContainer,
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    borderRadius: BorderRadius.circular(2),
                   ),
                 ),
-                title: const Text('Создать группу'),
-                subtitle: const Text('Создать чат с несколькими участниками'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _showCreateGroupDialog();
-                },
-              ),
-
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Theme.of(
+                const SizedBox(height: 20),
+                Text(
+                  'Создать',
+                  style: Theme.of(
                     context,
-                  ).colorScheme.primaryContainer,
-                  child: Icon(
-                    Icons.campaign,
-                    color: Theme.of(context).colorScheme.onPrimaryContainer,
-                  ),
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
                 ),
-                title: const Text('Создать канал'),
-                subtitle: const Text('Публичные посты для подписчиков'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _showCreateChannelDialog();
-                },
-              ),
+                const SizedBox(height: 20),
 
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Theme.of(
-                    context,
-                  ).colorScheme.primaryContainer,
-                  child: Icon(
-                    Icons.person_search,
-                    color: Theme.of(context).colorScheme.onPrimaryContainer,
-                  ),
-                ),
-                title: const Text('Найти контакт'),
-                subtitle: const Text('Поиск по номеру телефона'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (context) => const SearchContactScreen(),
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: Theme.of(
+                      context,
+                    ).colorScheme.primaryContainer,
+                    child: Icon(
+                      Icons.group_add,
+                      color: Theme.of(context).colorScheme.onPrimaryContainer,
                     ),
-                  );
-                },
-              ),
-
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Theme.of(
-                    context,
-                  ).colorScheme.secondaryContainer,
-                  child: Icon(
-                    Icons.link,
-                    color: Theme.of(context).colorScheme.onSecondaryContainer,
                   ),
+                  title: const Text('Создать группу'),
+                  subtitle: const Text('Создать чат с несколькими участниками'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showCreateGroupDialog();
+                  },
                 ),
-                title: const Text('Присоединиться по ссылке'),
-                subtitle: const Text('По ссылке-приглашению'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (context) => const JoinGroupScreen(),
-                    ),
-                  );
-                },
-              ),
 
-              ListTile(
-                leading: CircleAvatar(
-                  backgroundColor: Theme.of(
-                    context,
-                  ).colorScheme.primaryContainer,
-                  child: const Icon(Icons.download, color: Colors.white),
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: Theme.of(
+                      context,
+                    ).colorScheme.primaryContainer,
+                    child: Icon(
+                      Icons.campaign,
+                      color: Theme.of(context).colorScheme.onPrimaryContainer,
+                    ),
+                  ),
+                  title: const Text('Создать канал'),
+                  subtitle: const Text('Публичные посты для подписчиков'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showCreateChannelDialog();
+                  },
                 ),
-                title: const Text('Загрузки'),
-                subtitle: const Text('Скачанные файлы'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (context) => const DownloadsScreen(),
-                    ),
-                  );
-                },
-              ),
 
-              const SizedBox(height: 20),
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: Theme.of(
+                      context,
+                    ).colorScheme.primaryContainer,
+                    child: Icon(
+                      Icons.person_search,
+                      color: Theme.of(context).colorScheme.onPrimaryContainer,
+                    ),
+                  ),
+                  title: const Text('Найти контакт'),
+                  subtitle: const Text('Поиск по номеру телефона'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => const SearchContactScreen(),
+                      ),
+                    );
+                  },
+                ),
+
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: Theme.of(
+                      context,
+                    ).colorScheme.secondaryContainer,
+                    child: Icon(
+                      Icons.link,
+                      color: Theme.of(context).colorScheme.onSecondaryContainer,
+                    ),
+                  ),
+                  title: const Text('Присоединиться по ссылке'),
+                  subtitle: const Text('По ссылке-приглашению'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => const JoinGroupScreen(),
+                      ),
+                    );
+                  },
+                ),
+
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: Theme.of(
+                      context,
+                    ).colorScheme.primaryContainer,
+                    child: const Icon(Icons.download, color: Colors.white),
+                  ),
+                  title: const Text('Загрузки'),
+                  subtitle: const Text('Скачанные файлы'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => const DownloadsScreen(),
+                      ),
+                    );
+                  },
+                ),
+
+                const SizedBox(height: 20),
               ],
             ),
           ),
@@ -1068,63 +1070,69 @@ class _ChatsScreenState extends State<ChatsScreen>
       print('⚠️ [filterChats] УЖЕ ВЫПОЛНЯЕТСЯ, пропускаем');
       return;
     }
-    
+
     _isFilteringInProgress = true;
-    
+
     try {
       // DEBUG: Выводим откуда вызван
-      print('🔍 [filterChats] Начало фильтрации, _allChats.length=${_allChats.length}');
+      print(
+        '🔍 [filterChats] Начало фильтрации, _allChats.length=${_allChats.length}',
+      );
       print('📍 [filterChats] Вызван из:\n${StackTrace.current}');
       final query = _searchController.text.toLowerCase();
-    List<Chat> chatsToFilter = _allChats;
+      List<Chat> chatsToFilter = _allChats;
 
-    if (_selectedFolderId != null) {
-      print('🔍 [filterChats] Фильтруем по папке $_selectedFolderId');
-      final selectedFolder = _folders.firstWhere(
-        (f) => f.id == _selectedFolderId,
-        orElse: () => _folders.first,
-      );
-      chatsToFilter = _allChats
-          .where((chat) => _chatBelongsToFolder(chat, selectedFolder))
-          .toList();
-      print('🔍 [filterChats] После фильтрации по папке: ${chatsToFilter.length}');
-    }
-
-    if (query.isEmpty && !_searchFocusNode.hasFocus) {
-      print('🔍 [filterChats] Копируем все чаты');
-      _filteredChats = List.from(chatsToFilter);
-
-      print('🔍 [filterChats] Сортируем ${_filteredChats.length} чатов...');
-      // Сортировка по времени последнего сообщения (новые сверху)
-      _filteredChats.sort((a, b) {
-        return b.lastMessage.time.compareTo(a.lastMessage.time);
-      });
-      print('🔍 [filterChats] Сортировка завершена');
-    } else if (_searchFocusNode.hasFocus && query.isEmpty) {
-      _filteredChats = [];
-    } else if (query.isNotEmpty) {
-      _filteredChats = chatsToFilter.where((chat) {
-        final isSavedMessages = _isSavedMessages(chat);
-        if (isSavedMessages) {
-          return "избранное".contains(query);
-        }
-        final otherParticipantId = chat.participantIds.firstWhere(
-          (id) => id != _myId,
-          orElse: () => 0,
+      if (_selectedFolderId != null) {
+        print('🔍 [filterChats] Фильтруем по папке $_selectedFolderId');
+        final selectedFolder = _folders.firstWhere(
+          (f) => f.id == _selectedFolderId,
+          orElse: () => _folders.first,
         );
-        final contactName =
-            _contacts[otherParticipantId]?.name.toLowerCase() ?? '';
-        return contactName.contains(query);
-      }).toList();
+        chatsToFilter = _allChats
+            .where((chat) => _chatBelongsToFolder(chat, selectedFolder))
+            .toList();
+        print(
+          '🔍 [filterChats] После фильтрации по папке: ${chatsToFilter.length}',
+        );
+      }
 
-      // Сортировка по времени последнего сообщения (новые сверху)
-      _filteredChats.sort((a, b) {
-        return b.lastMessage.time.compareTo(a.lastMessage.time);
-      });
-    } else {
-      _filteredChats = [];
-    }
-    print('✅ [filterChats] Завершено, _filteredChats.length=${_filteredChats.length}');
+      if (query.isEmpty && !_searchFocusNode.hasFocus) {
+        print('🔍 [filterChats] Копируем все чаты');
+        _filteredChats = List.from(chatsToFilter);
+
+        print('🔍 [filterChats] Сортируем ${_filteredChats.length} чатов...');
+        // Сортировка по времени последнего сообщения (новые сверху)
+        _filteredChats.sort((a, b) {
+          return b.lastMessage.time.compareTo(a.lastMessage.time);
+        });
+        print('🔍 [filterChats] Сортировка завершена');
+      } else if (_searchFocusNode.hasFocus && query.isEmpty) {
+        _filteredChats = [];
+      } else if (query.isNotEmpty) {
+        _filteredChats = chatsToFilter.where((chat) {
+          final isSavedMessages = _isSavedMessages(chat);
+          if (isSavedMessages) {
+            return "избранное".contains(query);
+          }
+          final otherParticipantId = chat.participantIds.firstWhere(
+            (id) => id != _myId,
+            orElse: () => 0,
+          );
+          final contactName =
+              _contacts[otherParticipantId]?.name.toLowerCase() ?? '';
+          return contactName.contains(query);
+        }).toList();
+
+        // Сортировка по времени последнего сообщения (новые сверху)
+        _filteredChats.sort((a, b) {
+          return b.lastMessage.time.compareTo(a.lastMessage.time);
+        });
+      } else {
+        _filteredChats = [];
+      }
+      print(
+        '✅ [filterChats] Завершено, _filteredChats.length=${_filteredChats.length}',
+      );
     } finally {
       _isFilteringInProgress = false;
     }
@@ -1454,11 +1462,11 @@ class _ChatsScreenState extends State<ChatsScreen>
               _myProfile = Profile.fromJson(profileData);
               _isProfileLoading = false;
             }
-            
+
             _filterChats();
             setState(() {});
           });
-          
+
           _loadChatDrafts();
         })
         .catchError((error) {
@@ -1724,7 +1732,9 @@ class _ChatsScreenState extends State<ChatsScreen>
               }
 
               // ИСПРАВЛЕНИЕ: Проверяем флаг перед изменением состояния в build()
-              if (_filteredChats.isEmpty && _allChats.isNotEmpty && _chatOrderLoaded) {
+              if (_filteredChats.isEmpty &&
+                  _allChats.isNotEmpty &&
+                  _chatOrderLoaded) {
                 // Используем временную переменную вместо прямого изменения состояния
                 final sortedChats = List.from(_allChats)
                   ..sort(
@@ -2248,15 +2258,6 @@ class _ChatsScreenState extends State<ChatsScreen>
                       try {
                         await ApiService.instance.performFullReconnection();
                         if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: const Text(
-                                'Переподключение выполнено успешно',
-                              ),
-                              backgroundColor: colors.primaryContainer,
-                              duration: const Duration(seconds: 2),
-                            ),
-                          );
                           Navigator.pop(context);
                         }
                       } catch (e) {
@@ -2430,7 +2431,11 @@ class _ChatsScreenState extends State<ChatsScreen>
     final int localItemsCount = _searchResults.length;
 
     final int totalCount =
-        globalHeaderCount + globalItemsCount + globalMoreCount + localHeaderCount + localItemsCount;
+        globalHeaderCount +
+        globalItemsCount +
+        globalMoreCount +
+        localHeaderCount +
+        localItemsCount;
 
     if (!_isGlobalSearchLoading &&
         _globalSearchError == null &&
@@ -2505,7 +2510,10 @@ class _ChatsScreenState extends State<ChatsScreen>
 
           if (chat is Map) {
             final chatMap = chat.cast<String, dynamic>();
-            title = chatMap['title']?.toString() ?? chatMap['link']?.toString() ?? '';
+            title =
+                chatMap['title']?.toString() ??
+                chatMap['link']?.toString() ??
+                '';
             subtitle = chatMap['description']?.toString() ?? '';
           }
 
@@ -3142,7 +3150,9 @@ class _ChatsScreenState extends State<ChatsScreen>
                         ),
                       )
                     : Padding(
-                        padding: const EdgeInsets.only(right: 48), // Место для кнопки +
+                        padding: const EdgeInsets.only(
+                          right: 48,
+                        ), // Место для кнопки +
                         child: TabBar(
                           controller: _folderTabController,
                           isScrollable: true,
@@ -3579,12 +3589,6 @@ class _ChatsScreenState extends State<ChatsScreen>
     final currentInclude = folder.include ?? [];
 
     if (currentInclude.contains(chat.id)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Чат уже находится в папке "${folder.title}"'),
-          duration: const Duration(seconds: 2),
-        ),
-      );
       return;
     }
 
@@ -3595,13 +3599,6 @@ class _ChatsScreenState extends State<ChatsScreen>
       title: folder.title,
       include: newInclude,
       filters: folder.filters,
-    );
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Чат добавлен в папку "${folder.title}"'),
-        duration: const Duration(seconds: 2),
-      ),
     );
   }
 
@@ -3639,42 +3636,12 @@ class _ChatsScreenState extends State<ChatsScreen>
   }
 
   void _updateFolderChats(List<Chat> selectedChats, ChatFolder folder) {
-    final currentInclude = folder.include ?? [];
-    final selectedChatIds = selectedChats.map((chat) => chat.id).toSet();
-
-    final newInclude = selectedChatIds.toList();
-
-    final addedCount = newInclude
-        .where((id) => !currentInclude.contains(id))
-        .length;
-    final removedCount = currentInclude
-        .where((id) => !selectedChatIds.contains(id))
-        .length;
-
+    final selectedChatIds = selectedChats.map((chat) => chat.id).toList();
     ApiService.instance.updateFolder(
       folder.id,
       title: folder.title,
-      include: newInclude,
+      include: selectedChatIds,
       filters: folder.filters,
-    );
-
-    String message;
-    if (addedCount > 0 && removedCount > 0) {
-      message = 'Папка "${folder.title}" обновлена';
-    } else if (addedCount > 0) {
-      message = addedCount == 1
-          ? 'Чат добавлен в папку "${folder.title}"'
-          : '$addedCount чатов добавлено в папку "${folder.title}"';
-    } else if (removedCount > 0) {
-      message = removedCount == 1
-          ? 'Чат удален из папки "${folder.title}"'
-          : '$removedCount чатов удалено из папки "${folder.title}"';
-    } else {
-      message = 'Изменения сохранены';
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
     );
   }
 
@@ -4090,12 +4057,6 @@ class _ChatsScreenState extends State<ChatsScreen>
                   await accountManager.removeAccount(account.id);
                   if (mounted) {
                     onDeleted();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Аккаунт удален'),
-                        backgroundColor: Colors.green,
-                      ),
-                    );
                   }
                 } catch (e) {
                   if (mounted) {
@@ -5293,7 +5254,8 @@ class _ChatsScreenState extends State<ChatsScreen>
     _connectionStatusSubscription?.cancel();
     _connectionStateSubscription?.cancel();
     _messageHandler?.listen()?.cancel();
-    _messageHandler?.dispose(); // Освобождаем ресурсы MessageHandler (debouncer)
+    _messageHandler
+        ?.dispose(); // Освобождаем ресурсы MessageHandler (debouncer)
     _searchController.dispose();
     _searchFocusNode.dispose();
     // Debouncer очищается автоматически в dispose миксина

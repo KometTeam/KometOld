@@ -21,16 +21,18 @@ extension on _ChatScreenState {
       }
 
       if (_isEncryptionRestrictionActive(originalText)) {
-        _showInfoSnackBar('Нее, так нельзя)');
         return;
       }
 
       final textToSend = _prepareTextToSend(originalText);
       final int tempCid = DateTime.now().millisecondsSinceEpoch;
-      final List<Map<String, dynamic>> elements = _captureMentions();
+      final List<Map<String, dynamic>> elements = [
+        ..._captureMentions(),
+        ..._textController.elements,
+      ];
 
       if (!_validateMentions(elements)) {
-        elements.clear();
+        elements.removeWhere((e) => e['type'] == 'USER_MENTION');
       }
 
       final tempMessage = _createTempMessage(
@@ -98,6 +100,43 @@ extension on _ChatScreenState {
       }
     }
     return true;
+  }
+
+  void _toggleStyle(String type) {
+    if (_isDisposed) return;
+
+    final selection = _textController.selection;
+    if (selection.isCollapsed || selection.start < 0) return;
+
+    final from = selection.start;
+    final length = selection.end - selection.start;
+
+    bool found = false;
+    for (int i = 0; i < _textController.elements.length; i++) {
+      final el = _textController.elements[i];
+      if (el['type'] == type && el['from'] == from && el['length'] == length) {
+        _textController.elements.removeAt(i);
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      _textController.elements.add({
+        'type': type,
+        'from': from,
+        'length': length,
+      });
+    }
+
+    _textController.refresh();
+    _setStateIfMounted(() {});
+  }
+
+  void _clearSelectionStyles() {
+    if (_isDisposed) return;
+    _textController.clearStylesForSelection(_textController.selection);
+    _setStateIfMounted(() {});
   }
 
   Message _createTempMessage({
@@ -243,29 +282,21 @@ extension on _ChatScreenState {
   // Инициация звонка
   void _initiateCall() async {
     // Проверяем, есть ли уже активный НЕ минимизированный звонок
-    if (FloatingCallManager.instance.hasActiveCall && 
+    if (FloatingCallManager.instance.hasActiveCall &&
         !FloatingCallManager.instance.isMinimized) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('⚠️ У вас уже есть активный звонок'),
-          backgroundColor: Colors.orange,
-          duration: Duration(seconds: 3),
-        ),
-      );
       return;
     }
-    
+
     // Показываем диалог с опцией DATA_CHANNEL
     final enableDataChannel = await showDialog<bool>(
       context: context,
-      builder: (context) => _OutgoingCallDialog(
-        contactName: widget.contact.name,
-      ),
+      builder: (context) =>
+          _OutgoingCallDialog(contactName: widget.contact.name),
     );
-    
+
     // Если пользователь отменил - выходим
     if (enableDataChannel == null) return;
-    
+
     try {
       // Вызываем API для инициации звонка
       final response = await ApiService.instance.initiateCall(
@@ -281,18 +312,20 @@ extension on _ChatScreenState {
 
       // Если дошли сюда, значит сервер ответил успешно
       if (!mounted) return;
-      
+
       // Получаем полную информацию о контакте для аватарки
       String? avatarUrl;
       try {
-        final contacts = await ApiService.instance.fetchContactsByIds([widget.contact.id]);
+        final contacts = await ApiService.instance.fetchContactsByIds([
+          widget.contact.id,
+        ]);
         if (contacts.isNotEmpty && contacts.first.photoBaseUrl != null) {
           avatarUrl = contacts.first.photoBaseUrl;
         }
       } catch (e) {
         print('⚠️ Не удалось загрузить аватарку контакта: $e');
       }
-      
+
       // Открываем экран звонка через CallOverlayService
       CallOverlayService.instance.showCall(
         context,
@@ -304,10 +337,9 @@ extension on _ChatScreenState {
         isOutgoing: true,
         enableDataChannel: enableDataChannel, // Передаем флаг
       );
-      
     } catch (e) {
       if (!mounted) return;
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('❌ Ошибка: $e'),
@@ -322,10 +354,11 @@ extension on _ChatScreenState {
   void _handleGroupCall() async {
     try {
       print('📞 [1/6] _handleGroupCall начат...');
-      
+
       // Получаем актуальную информацию о чате с timeout
       print('📞 [2/6] Загрузка данных чата...');
-      final chatData = await ApiService.instance.getChatsAndContacts(force: false)
+      final chatData = await ApiService.instance
+          .getChatsAndContacts(force: false)
           .timeout(
             const Duration(seconds: 5),
             onTimeout: () {
@@ -334,9 +367,9 @@ extension on _ChatScreenState {
             },
           );
       print('✅ [2/6] Данные чата загружены');
-      
+
       final chats = chatData['chats'] as List?;
-      
+
       Chat? currentChat;
       if (chats != null) {
         for (final chatJson in chats) {
@@ -349,26 +382,30 @@ extension on _ChatScreenState {
       }
 
       print('📞 [3/6] Найдено чатов: ${chats?.length ?? 0}');
-      
+
       if (!mounted) return;
 
       // Проверяем есть ли активный звонок
       if (currentChat?.hasActiveCall ?? false) {
-        print('📞 [4/6] Найден активный звонок с ${currentChat!.videoConversation!.participantsCount} участниками');
-        
+        print(
+          '📞 [4/6] Найден активный звонок с ${currentChat!.videoConversation!.participantsCount} участниками',
+        );
+
         // Присоединяемся к существующему звонку
         final conference = currentChat.videoConversation!;
-        
+
         print('📞 [5/6] Присоединение через API...');
-        final connection = await ApiService.instance.joinGroupCallByConferenceId(
-          conferenceId: conference.conferenceId,
-          chatId: widget.chatId,
-        ).timeout(
-          const Duration(seconds: 10),
-          onTimeout: () {
-            throw Exception('Timeout при присоединении к звонку');
-          },
-        );
+        final connection = await ApiService.instance
+            .joinGroupCallByConferenceId(
+              conferenceId: conference.conferenceId,
+              chatId: widget.chatId,
+            )
+            .timeout(
+              const Duration(seconds: 10),
+              onTimeout: () {
+                throw Exception('Timeout при присоединении к звонку');
+              },
+            );
         print('✅ [5/6] API ответил, открываем экран звонка');
 
         if (!mounted) return;
@@ -377,22 +414,22 @@ extension on _ChatScreenState {
         // Открываем экран группового звонка
         await Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (context) => GroupCallScreen(
-              conference: conference,
-              connection: connection,
-            ),
+            builder: (context) =>
+                GroupCallScreen(conference: conference, connection: connection),
           ),
         );
         print('✅ [6/6] Экран звонка закрыт');
       } else {
         print('📞 [4/6] Активного звонка нет, показываем диалог');
-        
+
         // Начинаем новый звонок
         final shouldStartCall = await showDialog<bool>(
           context: context,
           builder: (context) => AlertDialog(
             title: const Text('Начать звонок?'),
-            content: Text('Начать ${widget.isGroupChat ? 'групповой' : ''} звонок в чате?'),
+            content: Text(
+              'Начать ${widget.isGroupChat ? 'групповой' : ''} звонок в чате?',
+            ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
@@ -409,15 +446,14 @@ extension on _ChatScreenState {
         if (shouldStartCall != true || !mounted) return;
 
         print('📞 [5/6] Начинаем звонок через API...');
-        final connection = await ApiService.instance.startGroupCall(
-          widget.chatId,
-          isVideo: false,
-        ).timeout(
-          const Duration(seconds: 10),
-          onTimeout: () {
-            throw Exception('Timeout при создании звонка');
-          },
-        );
+        final connection = await ApiService.instance
+            .startGroupCall(widget.chatId, isVideo: false)
+            .timeout(
+              const Duration(seconds: 10),
+              onTimeout: () {
+                throw Exception('Timeout при создании звонка');
+              },
+            );
         print('✅ [5/6] API ответил, создаем объект конференции');
 
         if (!mounted) return;
@@ -446,10 +482,8 @@ extension on _ChatScreenState {
         // Открываем экран группового звонка
         await Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (context) => GroupCallScreen(
-              conference: conference,
-              connection: connection,
-            ),
+            builder: (context) =>
+                GroupCallScreen(conference: conference, connection: connection),
           ),
         );
         print('✅ [6/6] Экран звонка закрыт');
@@ -457,7 +491,7 @@ extension on _ChatScreenState {
     } catch (e, stackTrace) {
       print('❌ Ошибка в _handleGroupCall: $e');
       print('Stack trace: $stackTrace');
-      
+
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -467,7 +501,7 @@ extension on _ChatScreenState {
           duration: const Duration(seconds: 5),
         ),
       );
-      
+
       // Важно: ничего не делаем дальше, просто выходим
       return;
     }
@@ -484,12 +518,6 @@ extension on _ChatScreenState {
 
     if (chatData == null || chatData['chats'] == null) {
       print(' Не удалось загрузить чаты для пересылки');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Список чатов не загружен'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
       return;
     }
 
@@ -659,13 +687,14 @@ extension on _ChatScreenState {
             (p) => p.index == 0,
             orElse: () => positions.first,
           );
-          
+
           // Проверяем что мы на самом деле в самом низу списка
           // Учитываем что первый элемент может быть DateSeparator (event)
-          final isAtBottomIndex = bottomItemPosition.index <= 1; // Индекс 0 или 1
+          final isAtBottomIndex =
+              bottomItemPosition.index <= 1; // Индекс 0 или 1
           final isAtBottomEdge = bottomItemPosition.itemLeadingEdge <= 0.1;
           final isAtBottom = isAtBottomIndex && isAtBottomEdge;
-          
+
           _isUserAtBottom = isAtBottom;
           if (isAtBottom) _isScrollingToBottom = false;
           _showScrollToBottomNotifier.value =
@@ -801,14 +830,17 @@ extension on _ChatScreenState {
 
       if (opcode == 64 && (cmd == 0x100 || cmd == 256)) {
         // Обновляем данные чата если они пришли (включая список админов)
-        if (payload['chat'] != null && payload['chat'] is Map<String, dynamic>) {
+        if (payload['chat'] != null &&
+            payload['chat'] is Map<String, dynamic>) {
           print('✅ [ChatScreen] Получены данные чата в opcode 64, обновляем');
-          ApiService.instance.updateChatInCacheFromJson(payload['chat'] as Map<String, dynamic>);
+          ApiService.instance.updateChatInCacheFromJson(
+            payload['chat'] as Map<String, dynamic>,
+          );
           _invalidateCache(); // Сбрасываем локальный кэш
         } else {
           print('⚠️ [ChatScreen] payload[\'chat\'] отсутствует в opcode 64');
         }
-        
+
         final messageMap = payload['message'];
         if (messageMap is! Map<String, dynamic>) return;
         final newMessage = Message.fromJson(messageMap);
@@ -820,12 +852,12 @@ extension on _ChatScreenState {
             if (queueItem != null) queueService.removeFromQueue(queueItem.id);
           }
         }
-        
+
         // Добавляем в кэш (с сохранением link из локального сообщения)
         unawaited(
           ChatCacheService().addMessageToCache(widget.chatId, newMessage),
         );
-        
+
         // Если идёт загрузка истории, откладываем обработку
         if (_isLoadingHistory) {
           _pendingMessagesDuringLoad.add(newMessage);
@@ -836,14 +868,17 @@ extension on _ChatScreenState {
         });
       } else if (opcode == 128) {
         // Обновляем данные чата если они пришли (включая список админов)
-        if (payload['chat'] != null && payload['chat'] is Map<String, dynamic>) {
+        if (payload['chat'] != null &&
+            payload['chat'] is Map<String, dynamic>) {
           print('✅ [ChatScreen] Получены данные чата в opcode 128, обновляем');
-          ApiService.instance.updateChatInCacheFromJson(payload['chat'] as Map<String, dynamic>);
+          ApiService.instance.updateChatInCacheFromJson(
+            payload['chat'] as Map<String, dynamic>,
+          );
           _invalidateCache(); // Сбрасываем локальный кэш
         } else {
           print('⚠️ [ChatScreen] payload[\'chat\'] отсутствует в opcode 128');
         }
-        
+
         final messageMap = payload['message'];
         if (messageMap is! Map<String, dynamic>) return;
         final newMessage = Message.fromJson(messageMap);
@@ -971,9 +1006,11 @@ extension on _ChatScreenState {
                 _lastPeerReadMessageId = messageId;
                 _lastPeerReadMessageIdStr = messageIdStr;
               });
-              
+
               // Синхронизируем с новым сервисом статусов прочитанности
-              print('📖 [opcode 50] Обновляем статус через MessageReadStatusService');
+              print(
+                '📖 [opcode 50] Обновляем статус через MessageReadStatusService',
+              );
               MessageReadStatusService().handleReadStatusUpdate({
                 'chatId': widget.chatId,
                 'mark': messageId,
@@ -1029,7 +1066,9 @@ extension on _ChatScreenState {
     if (hasCache) {
       if (!mounted) return;
       _messages.clear();
-      _messages.addAll(_hydrateLinksSequentially(_filterControlMessages(cachedMessages)));
+      _messages.addAll(
+        _hydrateLinksSequentially(_filterControlMessages(cachedMessages)),
+      );
       if (_messages.isNotEmpty) _oldestLoadedTime = _messages.first.time;
       _hasMore = true;
 
@@ -1065,7 +1104,9 @@ extension on _ChatScreenState {
               // Обновляем UI только если ещё не показали кэш или кэш пустой
               if (!hasCache || _messages.isEmpty) {
                 _messages.clear();
-                _messages.addAll(_hydrateLinksSequentially(_filterControlMessages(initial)));
+                _messages.addAll(
+                  _hydrateLinksSequentially(_filterControlMessages(initial)),
+                );
                 if (_messages.isNotEmpty)
                   _oldestLoadedTime = _messages.first.time;
                 _hasMore = initial.length >= initialLimit;
@@ -1090,7 +1131,9 @@ extension on _ChatScreenState {
 
               // Обновляем полный список
               _messages.clear();
-              _messages.addAll(_hydrateLinksSequentially(_filterControlMessages(all)));
+              _messages.addAll(
+                _hydrateLinksSequentially(_filterControlMessages(all)),
+              );
               if (_messages.isNotEmpty)
                 _oldestLoadedTime = _messages.first.time;
               _hasMore = all.length >= initialMaxMessages;
@@ -1951,7 +1994,7 @@ extension on _ChatScreenState {
 
   void _showMentionOverlay() {
     _removeMentionOverlay();
-    
+
     final overlay = Overlay.of(context);
     _mentionOverlay = OverlayEntry(
       builder: (context) => ValueListenableBuilder<bool>(
@@ -1961,8 +2004,9 @@ extension on _ChatScreenState {
             duration: const Duration(milliseconds: 200),
             curve: Curves.easeInOut,
             left: MentionPanelPosition.left,
-            right: showScrollButton 
-                ? MentionPanelPosition.right + 60 // Отступ для кнопки + запас
+            right: showScrollButton
+                ? MentionPanelPosition.right +
+                      60 // Отступ для кнопки + запас
                 : MentionPanelPosition.right,
             bottom: MentionPanelPosition.bottom,
             child: Material(
@@ -2123,7 +2167,7 @@ extension on _ChatScreenState {
     }
 
     if (shouldShowPanel) _ensureBotCommandsLoaded();
-    
+
     // Handle mention filtering when typing
     _handleMentionFiltering(text);
   }
@@ -2252,7 +2296,9 @@ extension on _ChatScreenState {
       print('✅ ChatCacheService.saveChatInputState завершён');
 
       widget.onDraftChanged?.call(widget.chatId, draftData);
-      print('✅ onDraftChanged вызван с draftData: ${draftData != null ? "есть данные" : "null"}');
+      print(
+        '✅ onDraftChanged вызван с draftData: ${draftData != null ? "есть данные" : "null"}',
+      );
     } catch (e) {
       print('❌ Ошибка сохранения состояния ввода: $e');
     }

@@ -46,20 +46,7 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> {
           if (!mounted) return;
           try {
             if (Navigator.of(context, rootNavigator: false).canPop()) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    'Успешно присоединились к группе "$chatTitle"!',
-                  ),
-                  backgroundColor: Colors.green,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  behavior: SnackBarBehavior.floating,
-                  margin: const EdgeInsets.all(10),
-                ),
-              );
-
+              // Просто закрываем экран без снекбара
               Navigator.of(context).pop();
             }
           } catch (e) {
@@ -160,17 +147,6 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> {
     final inputLink = _normalizeLink(rawInput);
 
     if (inputLink.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Введите ссылку'),
-          backgroundColor: Colors.orange,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          behavior: SnackBarBehavior.floating,
-          margin: const EdgeInsets.all(10),
-        ),
-      );
       return;
     }
 
@@ -210,19 +186,6 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> {
     final processedLink = _extractJoinLink(inputLink);
 
     if (!processedLink.contains('join/')) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text(
-            'Неверный формат ссылки. Для группы ссылка должна содержать "join/"',
-          ),
-          backgroundColor: Colors.orange,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          behavior: SnackBarBehavior.floating,
-          margin: const EdgeInsets.all(10),
-        ),
-      );
       return;
     }
 
@@ -244,19 +207,6 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> {
           if (!mounted) return;
           try {
             if (Navigator.of(context, rootNavigator: false).canPop()) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Text(
-                    'Присоединение выполнено. Обновите список чатов.',
-                  ),
-                  backgroundColor: Colors.green,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  behavior: SnackBarBehavior.floating,
-                  margin: const EdgeInsets.all(10),
-                ),
-              );
               Navigator.of(context).pop();
             }
           } catch (e) {
@@ -286,19 +236,6 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> {
             if (!mounted) return;
             try {
               if (Navigator.of(context, rootNavigator: false).canPop()) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'Успешно присоединились к группе "$chatTitle"!',
-                    ),
-                    backgroundColor: Colors.green,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    behavior: SnackBarBehavior.floating,
-                    margin: const EdgeInsets.all(10),
-                  ),
-                );
                 Navigator.of(context).pop();
               }
             } catch (e) {
@@ -326,19 +263,6 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> {
             if (!mounted) return;
             try {
               if (Navigator.of(context, rootNavigator: false).canPop()) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text(
-                      'Присоединение выполнено. Обновите список чатов.',
-                    ),
-                    backgroundColor: Colors.green,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    behavior: SnackBarBehavior.floating,
-                    margin: const EdgeInsets.all(10),
-                  ),
-                );
                 Navigator.of(context).pop();
               }
             } catch (e) {

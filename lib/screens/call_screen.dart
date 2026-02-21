@@ -32,7 +32,8 @@ class CallScreen extends StatefulWidget {
   final bool isVideo;
   final bool enableDataChannel; // Флаг для включения DataChannel
   final VoidCallback? onMinimize; // Callback для минимизации через Overlay
-  final DateTime? callStartTime; // Опциональное время начала (для восстановления таймера)
+  final DateTime?
+  callStartTime; // Опциональное время начала (для восстановления таймера)
 
   const CallScreen({
     super.key,
@@ -62,19 +63,27 @@ class _CallScreenState extends State<CallScreen> {
   RTCDataChannel? _dataChannel;
   OverlayEntry? _dataChannelOverlayEntry;
   final ValueNotifier<bool> _isDataChannelOpenNotifier = ValueNotifier(false);
-  final ValueNotifier<String> _dataChannelStatusNotifier = ValueNotifier('⏳ Не инициализирован');
-  final ValueNotifier<List<String>> _dataChannelLogsNotifier = ValueNotifier([]);
-  final ValueNotifier<List<TemporaryChatMessage>> _temporaryChatMessagesNotifier = ValueNotifier([]);
+  final ValueNotifier<String> _dataChannelStatusNotifier = ValueNotifier(
+    '⏳ Не инициализирован',
+  );
+  final ValueNotifier<List<String>> _dataChannelLogsNotifier = ValueNotifier(
+    [],
+  );
+  final ValueNotifier<List<TemporaryChatMessage>>
+  _temporaryChatMessagesNotifier = ValueNotifier([]);
 
   // Геттеры для обратной совместимости
   bool get _isDataChannelOpen => _isDataChannelOpenNotifier.value;
-  set _isDataChannelOpen(bool value) => _isDataChannelOpenNotifier.value = value;
+  set _isDataChannelOpen(bool value) =>
+      _isDataChannelOpenNotifier.value = value;
 
   String get _dataChannelStatus => _dataChannelStatusNotifier.value;
-  set _dataChannelStatus(String value) => _dataChannelStatusNotifier.value = value;
+  set _dataChannelStatus(String value) =>
+      _dataChannelStatusNotifier.value = value;
 
   List<String> get _dataChannelLogs => _dataChannelLogsNotifier.value;
-  List<TemporaryChatMessage> get _temporaryChatMessages => _temporaryChatMessagesNotifier.value;
+  List<TemporaryChatMessage> get _temporaryChatMessages =>
+      _temporaryChatMessagesNotifier.value;
 
   // WebSocket signaling
   WebSocketChannel? _signalingChannel;
@@ -86,21 +95,19 @@ class _CallScreenState extends State<CallScreen> {
   bool _isMuted = false;
   bool _blurPanels = true; // По умолчанию включён блюр (TODO: реализовать)
   bool _isSpeakerOn = false;
-  double _localAudioLevel = 0.0; // Уровень громкости локального микрофона (0.0 - 1.0)
+  double _localAudioLevel =
+      0.0; // Уровень громкости локального микрофона (0.0 - 1.0)
   bool _isVideoEnabled = false;
   OverlayEntry? _soundpadOverlay;
   List<Map<String, String>> _soundpadSounds = [];
   AudioPlayer? _soundpadPlayer;
   final GlobalKey _micButtonKey = GlobalKey();
-  
+
   String? _chatEncryptionPassword;
   encrypt_lib.Encrypter? _chatEncrypter;
   encrypt_lib.IV? _chatIV;
-  
+
   // Шифрование DataChannel
-  String? _encryptionPassword;
-  bool _isEncryptionEnabled = false;
-  bool _remoteDeclinedEncryption = false;
   bool _isRemoteVideoEnabled = false;
   bool _isRemoteMuted = false;
   int _callDuration = 0;
@@ -202,7 +209,9 @@ class _CallScreenState extends State<CallScreen> {
       } else {
         // ВХОДЯЩИЙ ЗВОНОК: отправляем accept-call и ждём offer от звонящего
         _sendAcceptCall();
-        print('✅ WebRTC инициализирован (входящий), ожидаем offer от звонящего...');
+        print(
+          '✅ WebRTC инициализирован (входящий), ожидаем offer от звонящего...',
+        );
       }
 
       setState(() => _callState = CallState.ringing);
@@ -221,16 +230,18 @@ class _CallScreenState extends State<CallScreen> {
 
       // Добавляем ОБЯЗАТЕЛЬНЫЕ параметры как у официального клиента!
       final uri = Uri.parse(wsUrl);
-      final newUri = uri.replace(queryParameters: {
-        ...uri.queryParameters,
-        'platform': 'WEB',
-        'appVersion': '1.1',
-        'version': '5',
-        'device': 'browser',
-        'capabilities': '2A03F',
-        'clientType': 'ONE_ME', // КРИТИЧЕСКИ ВАЖНО!
-        'tgt': 'start', // ВАЖНО!
-      });
+      final newUri = uri.replace(
+        queryParameters: {
+          ...uri.queryParameters,
+          'platform': 'WEB',
+          'appVersion': '1.1',
+          'version': '5',
+          'device': 'browser',
+          'capabilities': '2A03F',
+          'clientType': 'ONE_ME', // КРИТИЧЕСКИ ВАЖНО!
+          'tgt': 'start', // ВАЖНО!
+        },
+      );
 
       print('🔌 Итоговый URL: $newUri');
       print('🔑 Query params: ${newUri.queryParameters.keys}');
@@ -293,7 +304,7 @@ class _CallScreenState extends State<CallScreen> {
             'isFastScreenSharingEnabled': false,
             'isAudioSharingEnabled': false,
             'isAnimojiEnabled': false,
-          }
+          },
         });
         print('📤 Отправлены media settings');
       }
@@ -351,7 +362,8 @@ class _CallScreenState extends State<CallScreen> {
       }
 
       // Парсим TURN/STUN серверы
-      final conversationParams = message['conversationParams'] as Map<String, dynamic>?;
+      final conversationParams =
+          message['conversationParams'] as Map<String, dynamic>?;
       if (conversationParams != null) {
         final turn = conversationParams['turn'] as Map<String, dynamic>?;
         final stun = conversationParams['stun'] as Map<String, dynamic>?;
@@ -373,7 +385,9 @@ class _CallScreenState extends State<CallScreen> {
             }
           }
 
-          print('✅ NetworkInfo обновлен: TURN=${_networkInfo!.turnServers.length}, STUN=${_networkInfo!.stunServers.length}, Geo=${_networkInfo!.remoteGeo}');
+          print(
+            '✅ NetworkInfo обновлен: TURN=${_networkInfo!.turnServers.length}, STUN=${_networkInfo!.stunServers.length}, Geo=${_networkInfo!.remoteGeo}',
+          );
         });
       }
     } catch (e) {
@@ -414,8 +428,12 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   void _handleSignalingMessage(Map<String, dynamic> message) {
-    print('📥 Signaling message type: ${message['type'] ?? message['command'] ?? message['notification']}');
-    print('📥 Full message: ${message.toString().substring(0, message.toString().length > 500 ? 500 : message.toString().length)}...');
+    print(
+      '📥 Signaling message type: ${message['type'] ?? message['command'] ?? message['notification']}',
+    );
+    print(
+      '📥 Full message: ${message.toString().substring(0, message.toString().length > 500 ? 500 : message.toString().length)}...',
+    );
 
     // Парсим сетевую информацию из аналитики
     _parseNetworkInfo(message);
@@ -452,7 +470,9 @@ class _CallScreenState extends State<CallScreen> {
           final participantId = message['participantId'] as int?;
           final myId = widget.callData.internalCallerParams.id.internal;
 
-          print('🔍 transmitted-data: participantId=$participantId, myId=$myId');
+          print(
+            '🔍 transmitted-data: participantId=$participantId, myId=$myId',
+          );
 
           if (participantId != null && participantId != myId) {
             print('📨 Получены данные от участника $participantId');
@@ -468,13 +488,17 @@ class _CallScreenState extends State<CallScreen> {
               // Проверяем есть ли ICE candidate
               if (data.containsKey('candidate')) {
                 print('🧊 Получен ICE candidate от участника!');
-                _handleRemoteCandidate(data['candidate'] as Map<String, dynamic>);
+                _handleRemoteCandidate(
+                  data['candidate'] as Map<String, dynamic>,
+                );
               }
             } else {
               print('⚠️ Data is null!');
             }
           } else {
-            print('⏭️ Пропускаем transmitted-data от себя или без participantId');
+            print(
+              '⏭️ Пропускаем transmitted-data от себя или без participantId',
+            );
           }
           break;
 
@@ -531,13 +555,18 @@ class _CallScreenState extends State<CallScreen> {
 
           // Обрабатываем только изменения от собеседника, не от себя
           if (participantId != null && participantId != myId) {
-            final mediaSettings = message['mediaSettings'] as Map<String, dynamic>?;
+            final mediaSettings =
+                message['mediaSettings'] as Map<String, dynamic>?;
             if (mediaSettings != null) {
               // Если mediaSettings пустой {}, значит всё выключено
-              final isAudioEnabled = mediaSettings['isAudioEnabled'] as bool? ?? false;
-              final isVideoEnabled = mediaSettings['isVideoEnabled'] as bool? ?? false;
+              final isAudioEnabled =
+                  mediaSettings['isAudioEnabled'] as bool? ?? false;
+              final isVideoEnabled =
+                  mediaSettings['isVideoEnabled'] as bool? ?? false;
 
-              print('🔊 Собеседник изменил настройки: audio=$isAudioEnabled, video=$isVideoEnabled');
+              print(
+                '🔊 Собеседник изменил настройки: audio=$isAudioEnabled, video=$isVideoEnabled',
+              );
 
               if (mounted) {
                 setState(() {
@@ -562,7 +591,8 @@ class _CallScreenState extends State<CallScreen> {
               // Лимиты камеры
               if (camera != null) {
                 _networkInfo!.maxVideoBitrate = camera['maxBitrateK'] as int?;
-                _networkInfo!.maxVideoResolution = camera['maxDimension'] as int?;
+                _networkInfo!.maxVideoResolution =
+                    camera['maxDimension'] as int?;
               }
 
               // Пороги качества сети
@@ -572,15 +602,19 @@ class _CallScreenState extends State<CallScreen> {
 
                 if (badNet != null) {
                   _networkInfo!.badNetRtt = badNet['rtt'] as int?;
-                  _networkInfo!.badNetLoss = (badNet['loss'] as num?)?.toDouble();
+                  _networkInfo!.badNetLoss = (badNet['loss'] as num?)
+                      ?.toDouble();
                 }
                 if (goodNet != null) {
                   _networkInfo!.goodNetRtt = goodNet['rtt'] as int?;
-                  _networkInfo!.goodNetLoss = (goodNet['loss'] as num?)?.toDouble();
+                  _networkInfo!.goodNetLoss = (goodNet['loss'] as num?)
+                      ?.toDouble();
                 }
               }
 
-              print('✅ Settings-update сохранены: maxBitrate=${_networkInfo!.maxVideoBitrate}, badNetRtt=${_networkInfo!.badNetRtt}');
+              print(
+                '✅ Settings-update сохранены: maxBitrate=${_networkInfo!.maxVideoBitrate}, badNetRtt=${_networkInfo!.badNetRtt}',
+              );
             });
           }
           break;
@@ -595,7 +629,10 @@ class _CallScreenState extends State<CallScreen> {
     switch (command) {
       case 'ping':
         // Отвечаем на ping (JSON формат)
-        _sendSignalingMessage({'command': 'pong', 'sequence': _sequenceNumber++});
+        _sendSignalingMessage({
+          'command': 'pong',
+          'sequence': _sequenceNumber++,
+        });
         break;
 
       default:
@@ -702,13 +739,17 @@ class _CallScreenState extends State<CallScreen> {
           );
 
           // Избегаем дубликатов
-          if (!_networkInfo!.remoteCandidates.any((c) => c.ip == ip && c.port == port)) {
+          if (!_networkInfo!.remoteCandidates.any(
+            (c) => c.ip == ip && c.port == port,
+          )) {
             _networkInfo!.remoteCandidates.add(candidate);
           }
 
           // Обновляем основной IP (приоритет: srflx > host > relay)
-          final shouldUpdate = _networkInfo!.remoteAddress == null ||
-              (type == 'srflx' && _networkInfo!.remoteConnectionType != 'srflx') ||
+          final shouldUpdate =
+              _networkInfo!.remoteAddress == null ||
+              (type == 'srflx' &&
+                  _networkInfo!.remoteConnectionType != 'srflx') ||
               (type == 'host' && _networkInfo!.remoteConnectionType == 'relay');
 
           if (shouldUpdate) {
@@ -746,18 +787,17 @@ class _CallScreenState extends State<CallScreen> {
         'isFastScreenSharingEnabled': false,
         'isAudioSharingEnabled': false,
         'isAnimojiEnabled': false,
-      }
+      },
     });
   }
-
 
   Future<void> _createPeerConnection() async {
     final configuration = {
       'iceServers': [
         // STUN серверы
-        ...widget.callData.internalCallerParams.stun.urls.map((url) => {
-          'urls': url,
-        }),
+        ...widget.callData.internalCallerParams.stun.urls.map(
+          (url) => {'urls': url},
+        ),
         // TURN серверы
         {
           'urls': widget.callData.internalCallerParams.turn.urls,
@@ -878,11 +918,13 @@ class _CallScreenState extends State<CallScreen> {
 
       final constraints = {
         'audio': true,
-        'video': _isVideoEnabled ? {
-          'facingMode': 'user',
-          'width': {'ideal': 1280},
-          'height': {'ideal': 720},
-        } : false,
+        'video': _isVideoEnabled
+            ? {
+                'facingMode': 'user',
+                'width': {'ideal': 1280},
+                'height': {'ideal': 720},
+              }
+            : false,
       };
 
       print('📹 Запрашиваем медиа: audio=true, video=$_isVideoEnabled');
@@ -911,7 +953,9 @@ class _CallScreenState extends State<CallScreen> {
         try {
           _isVideoEnabled = false;
           final audioConstraints = {'audio': true, 'video': false};
-          _localStream = await navigator.mediaDevices.getUserMedia(audioConstraints);
+          _localStream = await navigator.mediaDevices.getUserMedia(
+            audioConstraints,
+          );
           _localRenderer.srcObject = _localStream;
           _localStream!.getTracks().forEach((track) {
             _peerConnection!.addTrack(track, _localStream!);
@@ -931,7 +975,8 @@ class _CallScreenState extends State<CallScreen> {
     try {
       final offer = await _peerConnection!.createOffer({
         'offerToReceiveAudio': true,
-        'offerToReceiveVideo': true, // Всегда готовы принять видео от собеседника
+        'offerToReceiveVideo':
+            true, // Всегда готовы принять видео от собеседника
       });
 
       await _peerConnection!.setLocalDescription(offer);
@@ -952,17 +997,16 @@ class _CallScreenState extends State<CallScreen> {
     // Используем INTERNAL ID второго участника, если получили
     final recipientId = _remoteParticipantInternalId ?? widget.contactId;
 
-    print('📤 Отправляем SDP на participantId=$recipientId (internal=${_remoteParticipantInternalId != null})');
+    print(
+      '📤 Отправляем SDP на participantId=$recipientId (internal=${_remoteParticipantInternalId != null})',
+    );
 
     final message = {
       'command': 'transmit-data',
       'sequence': _sequenceNumber++,
       'participantId': recipientId, // INTERNAL ID собеседника!
       'data': {
-        'sdp': {
-          'type': description.type,
-          'sdp': description.sdp,
-        },
+        'sdp': {'type': description.type, 'sdp': description.sdp},
         'animojiVersion': 1,
       },
       'participantType': 'USER',
@@ -988,7 +1032,7 @@ class _CallScreenState extends State<CallScreen> {
           'candidate': candidate.candidate,
           'sdpMid': candidate.sdpMid,
           'sdpMLineIndex': candidate.sdpMLineIndex,
-        }
+        },
       },
       'participantType': 'USER',
     };
@@ -1040,11 +1084,15 @@ class _CallScreenState extends State<CallScreen> {
             stunServer: stunServer,
           );
 
-          if (!_networkInfo!.localCandidates.any((c) => c.ip == ip && c.port == port)) {
+          if (!_networkInfo!.localCandidates.any(
+            (c) => c.ip == ip && c.port == port,
+          )) {
             _networkInfo!.localCandidates.add(candidate);
           }
 
-          if (type == 'srflx' && (_networkInfo!.localAddress == null || _networkInfo!.localAddress == '0.0.0.0')) {
+          if (type == 'srflx' &&
+              (_networkInfo!.localAddress == null ||
+                  _networkInfo!.localAddress == '0.0.0.0')) {
             _networkInfo!.localAddress = ip;
             _networkInfo!.localConnectionType = type;
             print('Local public IP: $ip ($type)');
@@ -1066,11 +1114,15 @@ class _CallScreenState extends State<CallScreen> {
 
         final name = item['name'] as String?;
 
-        if (name == 'websocket_connected' || name == 'signaling_connected' || name == 'call_start' || name == 'first_media_received') {
+        if (name == 'websocket_connected' ||
+            name == 'signaling_connected' ||
+            name == 'call_start' ||
+            name == 'first_media_received') {
           final localAddress = item['local_address'] as String?;
           final localConnectionType = item['local_connection_type'] as String?;
           final remoteAddress = item['remote_address'] as String?;
-          final remoteConnectionType = item['remote_connection_type'] as String?;
+          final remoteConnectionType =
+              item['remote_connection_type'] as String?;
           final transport = item['transport'] as String?;
           final networkType = item['network_type'] as String?;
           final rtt = item['rtt'] as int?;
@@ -1078,19 +1130,29 @@ class _CallScreenState extends State<CallScreen> {
           if (localAddress != null || remoteAddress != null) {
             setState(() {
               _networkInfo ??= NetworkInfo();
-              if (localAddress != null) _networkInfo!.localAddress = localAddress;
-              if (localConnectionType != null) _networkInfo!.localConnectionType = localConnectionType;
-              if (remoteAddress != null) _networkInfo!.remoteAddress = remoteAddress;
-              if (remoteConnectionType != null) _networkInfo!.remoteConnectionType = remoteConnectionType;
+              if (localAddress != null)
+                _networkInfo!.localAddress = localAddress;
+              if (localConnectionType != null)
+                _networkInfo!.localConnectionType = localConnectionType;
+              if (remoteAddress != null)
+                _networkInfo!.remoteAddress = remoteAddress;
+              if (remoteConnectionType != null)
+                _networkInfo!.remoteConnectionType = remoteConnectionType;
               if (transport != null) _networkInfo!.transport = transport;
               if (networkType != null) _networkInfo!.networkType = networkType;
               if (rtt != null) _networkInfo!.rtt = rtt;
             });
 
             print('Network Info updated:');
-            print('   Local: ${_networkInfo!.localAddress} (${_networkInfo!.localConnectionType})');
-            print('   Remote: ${_networkInfo!.remoteAddress} (${_networkInfo!.remoteConnectionType})');
-            print('   Transport: ${_networkInfo!.transport}, RTT: ${_networkInfo!.rtt}ms');
+            print(
+              '   Local: ${_networkInfo!.localAddress} (${_networkInfo!.localConnectionType})',
+            );
+            print(
+              '   Remote: ${_networkInfo!.remoteAddress} (${_networkInfo!.remoteConnectionType})',
+            );
+            print(
+              '   Transport: ${_networkInfo!.transport}, RTT: ${_networkInfo!.rtt}ms',
+            );
           }
         }
       }
@@ -1098,8 +1160,6 @@ class _CallScreenState extends State<CallScreen> {
       print('Error parsing network info: $e');
     }
   }
-
-
 
   void _startDurationTimer() {
     _durationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -1111,8 +1171,13 @@ class _CallScreenState extends State<CallScreen> {
 
   void _startAudioLevelMonitoring() async {
     // Мониторинг уровня звука через WebRTC Stats API
-    _audioLevelTimer = Timer.periodic(const Duration(milliseconds: 200), (timer) async {
-      if (_peerConnection != null && _remoteStream != null && _callState == CallState.connected && mounted) {
+    _audioLevelTimer = Timer.periodic(const Duration(milliseconds: 200), (
+      timer,
+    ) async {
+      if (_peerConnection != null &&
+          _remoteStream != null &&
+          _callState == CallState.connected &&
+          mounted) {
         try {
           // Получаем статистику WebRTC
           final stats = await _peerConnection!.getStats();
@@ -1121,7 +1186,8 @@ class _CallScreenState extends State<CallScreen> {
 
           // Ищем inbound-rtp аудио трек (входящий звук от собеседника)
           for (final report in stats) {
-            if (report.type == 'inbound-rtp' && report.values['kind'] == 'audio') {
+            if (report.type == 'inbound-rtp' &&
+                report.values['kind'] == 'audio') {
               // audioLevel в диапазоне 0.0 - 1.0
               final audioLevel = report.values['audioLevel'];
               if (audioLevel != null && audioLevel is num) {
@@ -1164,7 +1230,8 @@ class _CallScreenState extends State<CallScreen> {
 
           // Ищем outbound-rtp аудио трек (исходящий звук - наш микрофон)
           for (final report in stats) {
-            if (report.type == 'media-source' && report.values['kind'] == 'audio') {
+            if (report.type == 'media-source' &&
+                report.values['kind'] == 'audio') {
               final audioLevel = report.values['audioLevel'];
               if (audioLevel != null && audioLevel is num) {
                 maxAudioLevel = audioLevel.toDouble();
@@ -1194,7 +1261,9 @@ class _CallScreenState extends State<CallScreen> {
 
   void _startConnectionCheck() {
     _lastConnectionCheck = DateTime.now();
-    _connectionCheckTimer = Timer.periodic(const Duration(seconds: 5), (timer) async {
+    _connectionCheckTimer = Timer.periodic(const Duration(seconds: 5), (
+      timer,
+    ) async {
       if (!mounted) {
         timer.cancel();
         return;
@@ -1206,8 +1275,8 @@ class _CallScreenState extends State<CallScreen> {
 
         // Если соединение потеряно
         if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed ||
-            state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
-
+            state ==
+                RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
           // Даём 30 секунд на переподключение (было 15)
           final now = DateTime.now();
           if (_lastConnectionCheck != null &&
@@ -1236,7 +1305,9 @@ class _CallScreenState extends State<CallScreen> {
         barrierDismissible: false,
         builder: (context) => AlertDialog(
           title: const Text('Соединение потеряно'),
-          content: const Text('Не удалось поддерживать соединение. Звонок завершён.'),
+          content: const Text(
+            'Не удалось поддерживать соединение. Звонок завершён.',
+          ),
           actions: [
             TextButton(
               onPressed: () {
@@ -1270,7 +1341,7 @@ class _CallScreenState extends State<CallScreen> {
           'isFastScreenSharingEnabled': false,
           'isAudioSharingEnabled': false,
           'isAnimojiEnabled': false,
-        }
+        },
       });
     }
   }
@@ -1305,7 +1376,7 @@ class _CallScreenState extends State<CallScreen> {
             'isFastScreenSharingEnabled': false,
             'isAudioSharingEnabled': false,
             'isAnimojiEnabled': false,
-          }
+          },
         });
       } else {
         // Включаем видео
@@ -1322,7 +1393,7 @@ class _CallScreenState extends State<CallScreen> {
 
         // Получаем видео поток
         final videoStream = await navigator.mediaDevices.getUserMedia({
-          'video': {'facingMode': 'user'}
+          'video': {'facingMode': 'user'},
         });
 
         if (_localStream == null || _isCleaningUp || !mounted) {
@@ -1359,10 +1430,7 @@ class _CallScreenState extends State<CallScreen> {
             'sequence': _sequenceNumber++,
             'participantId': recipientId,
             'data': {
-              'sdp': {
-                'type': offer.type,
-                'sdp': offer.sdp,
-              }
+              'sdp': {'type': offer.type, 'sdp': offer.sdp},
             },
             'participantType': 'USER',
           });
@@ -1380,7 +1448,7 @@ class _CallScreenState extends State<CallScreen> {
             'isFastScreenSharingEnabled': false,
             'isAudioSharingEnabled': false,
             'isAnimojiEnabled': false,
-          }
+          },
         });
       }
     } catch (e) {
@@ -1388,7 +1456,9 @@ class _CallScreenState extends State<CallScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Не удалось ${_isVideoEnabled ? 'выключить' : 'включить'} видео'),
+            content: Text(
+              'Не удалось ${_isVideoEnabled ? 'выключить' : 'включить'} видео',
+            ),
             backgroundColor: Colors.red,
           ),
         );
@@ -1411,10 +1481,11 @@ class _CallScreenState extends State<CallScreen> {
     _soundpadOverlay = OverlayEntry(
       builder: (context) {
         // Получаем позицию кнопки микрофона
-        final RenderBox? renderBox = _micButtonKey.currentContext?.findRenderObject() as RenderBox?;
+        final RenderBox? renderBox =
+            _micButtonKey.currentContext?.findRenderObject() as RenderBox?;
         if (renderBox == null) {
           // Если не удалось получить позицию, используем дефолтную
-          return Positioned(
+          return const Positioned(
             bottom: 134,
             left: 16,
             child: SizedBox.shrink(),
@@ -1422,93 +1493,95 @@ class _CallScreenState extends State<CallScreen> {
         }
 
         final position = renderBox.localToGlobal(Offset.zero);
-        final size = renderBox.size;
         final screenHeight = MediaQuery.of(context).size.height;
 
-        // Позиционируем панель прямо над кнопкой микрофона
-        final panelHeight = 300.0;
-        final panelWidth = 200.0;
-
         return Positioned(
-          bottom: screenHeight - position.dy + 10, // Над кнопкой с отступом 10px
+          bottom:
+              screenHeight - position.dy + 10, // Над кнопкой с отступом 10px
           left: position.dx, // На той же горизонтальной позиции
           child: Material(
-          elevation: 8,
-          borderRadius: BorderRadius.circular(12),
-          color: Theme.of(context).colorScheme.surface,
-          child: Container(
-            width: 200,
-            constraints: BoxConstraints(maxHeight: 300),
-            padding: EdgeInsets.all(8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Заголовок
-                Padding(
-                  padding: EdgeInsets.all(8),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Саундпад',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      IconButton(
-                        icon: Icon(Icons.close, size: 20),
-                        padding: EdgeInsets.zero,
-                        constraints: BoxConstraints(),
-                        onPressed: () {
-                          _soundpadOverlay?.remove();
-                          _soundpadOverlay = null;
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-                Divider(height: 1),
-
-                // Список звуков
-                Flexible(
-                  child: _soundpadSounds.isEmpty
-                      ? Padding(
-                          padding: EdgeInsets.all(16),
-                          child: Text(
-                            'Нет сохранённых звуков',
-                            style: Theme.of(context).textTheme.bodySmall,
-                            textAlign: TextAlign.center,
-                          ),
-                        )
-                      : ListView.builder(
-                          shrinkWrap: true,
-                          itemCount: _soundpadSounds.length,
-                          itemBuilder: (context, index) {
-                            final sound = _soundpadSounds[index];
-                            return ListTile(
-                              dense: true,
-                              leading: Icon(Icons.music_note, size: 20),
-                              title: Text(
-                                sound['name'] ?? 'Звук ${index + 1}',
-                                style: TextStyle(fontSize: 14),
-                              ),
-                              onTap: () => _playSoundpadSound(sound['path'] ?? ''),
-                              onLongPress: () => _deleteSoundFromSoundpad(index),
-                              trailing: Icon(Icons.delete_outline, size: 16, color: Colors.red.withOpacity(0.5)),
-                            );
+            elevation: 8,
+            borderRadius: BorderRadius.circular(12),
+            color: Theme.of(context).colorScheme.surface,
+            child: Container(
+              width: 200,
+              constraints: BoxConstraints(maxHeight: 300),
+              padding: EdgeInsets.all(8),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Заголовок
+                  Padding(
+                    padding: EdgeInsets.all(8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Саундпад',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        IconButton(
+                          icon: Icon(Icons.close, size: 20),
+                          padding: EdgeInsets.zero,
+                          constraints: BoxConstraints(),
+                          onPressed: () {
+                            _soundpadOverlay?.remove();
+                            _soundpadOverlay = null;
                           },
                         ),
-                ),
+                      ],
+                    ),
+                  ),
+                  Divider(height: 1),
 
-                // Кнопка добавления звука
-                Divider(height: 1),
-                TextButton.icon(
-                  icon: Icon(Icons.add, size: 18),
-                  label: Text('Добавить звук'),
-                  onPressed: _addSoundToSoundpad,
-                ),
-              ],
+                  // Список звуков
+                  Flexible(
+                    child: _soundpadSounds.isEmpty
+                        ? Padding(
+                            padding: EdgeInsets.all(16),
+                            child: Text(
+                              'Нет сохранённых звуков',
+                              style: Theme.of(context).textTheme.bodySmall,
+                              textAlign: TextAlign.center,
+                            ),
+                          )
+                        : ListView.builder(
+                            shrinkWrap: true,
+                            itemCount: _soundpadSounds.length,
+                            itemBuilder: (context, index) {
+                              final sound = _soundpadSounds[index];
+                              return ListTile(
+                                dense: true,
+                                leading: Icon(Icons.music_note, size: 20),
+                                title: Text(
+                                  sound['name'] ?? 'Звук ${index + 1}',
+                                  style: TextStyle(fontSize: 14),
+                                ),
+                                onTap: () =>
+                                    _playSoundpadSound(sound['path'] ?? ''),
+                                onLongPress: () =>
+                                    _deleteSoundFromSoundpad(index),
+                                trailing: Icon(
+                                  Icons.delete_outline,
+                                  size: 16,
+                                  color: Colors.red.withOpacity(0.5),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+
+                  // Кнопка добавления звука
+                  Divider(height: 1),
+                  TextButton.icon(
+                    icon: Icon(Icons.add, size: 18),
+                    label: Text('Добавить звук'),
+                    onPressed: _addSoundToSoundpad,
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
         );
       },
     );
@@ -1523,7 +1596,9 @@ class _CallScreenState extends State<CallScreen> {
       if (soundsJson != null) {
         final List<dynamic> decoded = jsonDecode(soundsJson);
         setState(() {
-          _soundpadSounds = decoded.map((e) => Map<String, String>.from(e)).toList();
+          _soundpadSounds = decoded
+              .map((e) => Map<String, String>.from(e))
+              .toList();
         });
       } else {
         // Если нет сохранённых звуков, добавляем пример
@@ -1554,9 +1629,9 @@ class _CallScreenState extends State<CallScreen> {
     } catch (e) {
       print('Error playing sound: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка воспроизведения: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Ошибка воспроизведения: $e')));
       }
     }
   }
@@ -1578,83 +1653,61 @@ class _CallScreenState extends State<CallScreen> {
             _soundpadSounds.add({'name': name, 'path': path});
           });
           await _saveSoundpadSounds();
-
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Звук "$name" добавлен')),
-            );
-          }
         }
       }
     } catch (e) {
       print('Error adding sound: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка добавления звука: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Ошибка добавления звука: $e')));
       }
     }
   }
 
   Future<void> _deleteSoundFromSoundpad(int index) async {
-    final sound = _soundpadSounds[index];
     setState(() {
       _soundpadSounds.removeAt(index);
     });
     await _saveSoundpadSounds();
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Звук "${sound['name']}" удалён'),
-          action: SnackBarAction(
-            label: 'Отменить',
-            onPressed: () {
-              setState(() {
-                _soundpadSounds.insert(index, sound);
-              });
-              _saveSoundpadSounds();
-            },
-          ),
-        ),
-      );
-    }
   }
 
   // Шифрование DataChannel чата
   void _showChatEncryptionDialog() {
-    final controller = TextEditingController(text: _chatEncryptionPassword ?? '');
-    
+    final controller = TextEditingController(
+      text: _chatEncryptionPassword ?? '',
+    );
+
     // Создаём Overlay Entry для показа поверх экрана звонка
     OverlayEntry? overlayEntry;
-    
+
     overlayEntry = OverlayEntry(
       builder: (context) => Material(
         color: Colors.black54,
         child: Center(
           child: AlertDialog(
-        title: Text('🔐 Шифрование чата'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              _chatEncryptionPassword == null
-                  ? 'Установите пароль для шифрования сообщений'
-                  : 'Изменить пароль шифрования',
-              style: TextStyle(fontSize: 14),
+            title: Text('🔐 Шифрование чата'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _chatEncryptionPassword == null
+                      ? 'Установите пароль для шифрования сообщений'
+                      : 'Изменить пароль шифрования',
+                  style: TextStyle(fontSize: 14),
+                ),
+                SizedBox(height: 16),
+                TextField(
+                  controller: controller,
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    labelText: 'Пароль',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.lock),
+                  ),
+                ),
+              ],
             ),
-            SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              obscureText: true,
-              decoration: InputDecoration(
-                labelText: 'Пароль',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.lock),
-              ),
-            ),
-          ],
-        ),
             actions: [
               if (_chatEncryptionPassword != null)
                 TextButton(
@@ -1672,9 +1725,6 @@ class _CallScreenState extends State<CallScreen> {
                 onPressed: () {
                   final password = controller.text.trim();
                   if (password.isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Пароль не может быть пустым')),
-                    );
                     return;
                   }
                   overlayEntry?.remove();
@@ -1687,10 +1737,10 @@ class _CallScreenState extends State<CallScreen> {
         ),
       ),
     );
-    
+
     Overlay.of(context).insert(overlayEntry);
   }
-  
+
   void _setChatEncryptionPassword(String? password) {
     if (password == null || password.isEmpty) {
       // Отключаем шифрование
@@ -1699,51 +1749,45 @@ class _CallScreenState extends State<CallScreen> {
         _chatEncrypter = null;
         _chatIV = null;
       });
-      
+
       // Уведомляем собеседника
-      if (_dataChannel != null && _dataChannel!.state == RTCDataChannelState.RTCDataChannelOpen) {
+      if (_dataChannel != null &&
+          _dataChannel!.state == RTCDataChannelState.RTCDataChannelOpen) {
         _sendDataChannelMessage('Encrypt: false❌️❌️❌️');
       }
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('🔓 Шифрование отключено')),
-      );
     } else {
       // Включаем шифрование
       _setupChatEncryption(password);
-      
+
       // Уведомляем собеседника
-      if (_dataChannel != null && _dataChannel!.state == RTCDataChannelState.RTCDataChannelOpen) {
+      if (_dataChannel != null &&
+          _dataChannel!.state == RTCDataChannelState.RTCDataChannelOpen) {
         _sendDataChannelMessage('Encrypt: true✅️');
       }
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('🔐 Пароль установлен')),
-      );
     }
   }
-  
+
   void _setupChatEncryption(String password) {
     // Генерируем ключ из пароля через SHA-256
     final keyBytes = sha256.convert(utf8.encode(password)).bytes;
     final key = encrypt_lib.Key(Uint8List.fromList(keyBytes));
-    
+
     // Используем фиксированный IV (в продакшене лучше генерировать случайный и передавать)
     final iv = encrypt_lib.IV.fromLength(16);
-    
+
     setState(() {
       _chatEncryptionPassword = password;
       _chatEncrypter = encrypt_lib.Encrypter(encrypt_lib.AES(key));
       _chatIV = iv;
     });
   }
-  
+
   String _encryptMessage(String text) {
     if (_chatEncrypter == null || _chatIV == null) return text;
     final encrypted = _chatEncrypter!.encrypt(text, iv: _chatIV!);
     return encrypted.base64;
   }
-  
+
   String _decryptMessage(String encryptedText) {
     if (_chatEncrypter == null || _chatIV == null) return encryptedText;
     final encrypted = encrypt_lib.Encrypted.fromBase64(encryptedText);
@@ -1818,14 +1862,6 @@ class _CallScreenState extends State<CallScreen> {
         contactName: widget.contactName,
         contactId: widget.contactId,
       );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('🎙️ Запись звонка начата'),
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
     } catch (e) {
       print('❌ Ошибка начала записи: $e');
       if (mounted) {
@@ -1842,15 +1878,7 @@ class _CallScreenState extends State<CallScreen> {
   /// Остановить запись звонка
   Future<void> _stopRecording() async {
     try {
-      final path = await _recordingService.stopRecording();
-      if (mounted && path != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('✅ Запись сохранена: ${path.split('/').last}'),
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
+      await _recordingService.stopRecording();
     } catch (e) {
       print('❌ Ошибка остановки записи: $e');
       if (mounted) {
@@ -1890,7 +1918,9 @@ class _CallScreenState extends State<CallScreen> {
 
       setState(() => _callState = CallState.ended);
 
-      final hangupType = _callState == CallState.connected ? 'HUNGUP' : 'CANCELED';
+      final hangupType = _callState == CallState.connected
+          ? 'HUNGUP'
+          : 'CANCELED';
 
       if (_signalingChannel != null) {
         try {
@@ -1908,11 +1938,13 @@ class _CallScreenState extends State<CallScreen> {
 
       // REST API hangup с таймаутом
       try {
-        await ApiService.instance.hangupCall(
-          conversationId: widget.callData.conversationId,
-          hangupType: hangupType,
-          duration: _callDuration * 1000,
-        ).timeout(const Duration(seconds: 3));
+        await ApiService.instance
+            .hangupCall(
+              conversationId: widget.callData.conversationId,
+              hangupType: hangupType,
+              duration: _callDuration * 1000,
+            )
+            .timeout(const Duration(seconds: 3));
       } catch (e) {
         print('⚠️ Ошибка REST API hangup (продолжаем cleanup): $e');
       }
@@ -1950,10 +1982,7 @@ class _CallScreenState extends State<CallScreen> {
     if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-      ),
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
     );
 
     Future.delayed(const Duration(seconds: 2), () {
@@ -1968,7 +1997,10 @@ class _CallScreenState extends State<CallScreen> {
       final RTCDataChannelInit config = RTCDataChannelInit();
       config.ordered = true;
 
-      _dataChannel = await _peerConnection!.createDataChannel('komet-data', config);
+      _dataChannel = await _peerConnection!.createDataChannel(
+        'komet-data',
+        config,
+      );
       _setupDataChannel(_dataChannel!);
 
       print('✅ DataChannel создан: ${_dataChannel!.label}');
@@ -1989,7 +2021,9 @@ class _CallScreenState extends State<CallScreen> {
     Timer(const Duration(seconds: 5), () {
       if (mounted && _dataChannel != null && !_isDataChannelOpen) {
         _dataChannelStatus = '❌ Не поддерживается собеседником';
-        _addDataChannelLog('⏰ Таймаут 5 сек: собеседник не поддерживает DataChannel');
+        _addDataChannelLog(
+          '⏰ Таймаут 5 сек: собеседник не поддерживает DataChannel',
+        );
         if (mounted) setState(() {});
       }
     });
@@ -2040,7 +2074,7 @@ class _CallScreenState extends State<CallScreen> {
         if (type == 'chat') {
           String? text = data['text'] as String?;
           final isEncrypted = data['encrypted'] as bool? ?? false;
-          
+
           if (text != null) {
             // Дешифруем если сообщение зашифровано
             if (isEncrypted && _chatEncrypter != null && _chatIV != null) {
@@ -2055,13 +2089,17 @@ class _CallScreenState extends State<CallScreen> {
               // Получили зашифрованное, но у нас нет пароля
               text = '[Зашифрованное сообщение - установите пароль]';
             }
-            
-            final newMessages = List<TemporaryChatMessage>.from(_temporaryChatMessages);
-            newMessages.add(TemporaryChatMessage(
-              text: text,
-              time: DateTime.now(),
-              isMine: false,
-            ));
+
+            final newMessages = List<TemporaryChatMessage>.from(
+              _temporaryChatMessages,
+            );
+            newMessages.add(
+              TemporaryChatMessage(
+                text: text,
+                time: DateTime.now(),
+                isMine: false,
+              ),
+            );
             _temporaryChatMessagesNotifier.value = newMessages;
             _addDataChannelLog('📩 Получено: $text');
             if (mounted) setState(() {});
@@ -2092,7 +2130,7 @@ class _CallScreenState extends State<CallScreen> {
         textToSend = _encryptMessage(text);
         print('🔐 Сообщение зашифровано');
       }
-      
+
       final message = json.encode({
         'type': 'chat',
         'text': textToSend,
@@ -2104,18 +2142,20 @@ class _CallScreenState extends State<CallScreen> {
       print('✅ Сообщение отправлено через DataChannel');
 
       // Добавляем в список через ValueNotifier
-      final newMessages = List<TemporaryChatMessage>.from(_temporaryChatMessages);
-      newMessages.add(TemporaryChatMessage(
-        text: text,
-        time: DateTime.now(),
-        isMine: true,
-      ));
+      final newMessages = List<TemporaryChatMessage>.from(
+        _temporaryChatMessages,
+      );
+      newMessages.add(
+        TemporaryChatMessage(text: text, time: DateTime.now(), isMine: true),
+      );
       _temporaryChatMessagesNotifier.value = newMessages;
       _addDataChannelLog('📤 Отправлено: $text');
 
       if (mounted) setState(() {});
 
-      print('📤 Сообщение добавлено в список, всего: ${_temporaryChatMessages.length}');
+      print(
+        '📤 Сообщение добавлено в список, всего: ${_temporaryChatMessages.length}',
+      );
     } catch (e) {
       print('❌ Ошибка отправки через DataChannel: $e');
       _addDataChannelLog('❌ Ошибка отправки: $e');
@@ -2200,9 +2240,14 @@ class _CallScreenState extends State<CallScreen> {
 
         // Inbound RTP (получаемые данные)
         if (type == 'inbound-rtp') {
-          if (values['mediaType'] == 'audio' || values['mediaType'] == 'video') {
-            bytesReceived = (bytesReceived ?? 0) + ((values['bytesReceived'] as num?)?.toInt() ?? 0);
-            packetsReceived = (packetsReceived ?? 0) + ((values['packetsReceived'] as num?)?.toInt() ?? 0);
+          if (values['mediaType'] == 'audio' ||
+              values['mediaType'] == 'video') {
+            bytesReceived =
+                (bytesReceived ?? 0) +
+                ((values['bytesReceived'] as num?)?.toInt() ?? 0);
+            packetsReceived =
+                (packetsReceived ?? 0) +
+                ((values['packetsReceived'] as num?)?.toInt() ?? 0);
             jitter = (values['jitter'] as num?)?.toDouble();
 
             // Codec
@@ -2219,15 +2264,22 @@ class _CallScreenState extends State<CallScreen> {
 
         // Outbound RTP (отправляемые данные)
         if (type == 'outbound-rtp') {
-          if (values['mediaType'] == 'audio' || values['mediaType'] == 'video') {
-            bytesSent = (bytesSent ?? 0) + ((values['bytesSent'] as num?)?.toInt() ?? 0);
-            packetsSent = (packetsSent ?? 0) + ((values['packetsSent'] as num?)?.toInt() ?? 0);
+          if (values['mediaType'] == 'audio' ||
+              values['mediaType'] == 'video') {
+            bytesSent =
+                (bytesSent ?? 0) +
+                ((values['bytesSent'] as num?)?.toInt() ?? 0);
+            packetsSent =
+                (packetsSent ?? 0) +
+                ((values['packetsSent'] as num?)?.toInt() ?? 0);
           }
         }
 
         // Candidate pair (RTT и packet loss)
         if (type == 'candidate-pair' && values['state'] == 'succeeded') {
-          rtt = ((values['currentRoundTripTime'] as num?)?.toDouble() ?? 0 * 1000).toInt();
+          rtt =
+              ((values['currentRoundTripTime'] as num?)?.toDouble() ?? 0 * 1000)
+                  .toInt();
         }
       }
 
@@ -2242,7 +2294,9 @@ class _CallScreenState extends State<CallScreen> {
       if (packetsReceived != null && _networkInfo!.packetsReceived != null) {
         final packetsExpected = packetsSent ?? packetsReceived;
         final packetsLost = packetsExpected - packetsReceived;
-        final loss = packetsExpected > 0 ? (packetsLost / packetsExpected * 100) : 0.0;
+        final loss = packetsExpected > 0
+            ? (packetsLost / packetsExpected * 100)
+            : 0.0;
         _networkInfo!.packetLoss = loss;
       }
 
@@ -2253,12 +2307,16 @@ class _CallScreenState extends State<CallScreen> {
           _networkInfo!.bytesSent = bytesSent;
           _networkInfo!.packetsReceived = packetsReceived;
           _networkInfo!.packetsSent = packetsSent;
-          _networkInfo!.jitter = jitter != null ? (jitter * 1000).toInt() : null; // в мс
+          _networkInfo!.jitter = jitter != null
+              ? (jitter * 1000).toInt()
+              : null; // в мс
           _networkInfo!.rtt = rtt;
           _networkInfo!.codec = codec;
         });
 
-        print('📊 Stats updated: bitrate=${_networkInfo!.bitrate}, jitter=${_networkInfo!.jitter}, loss=${_networkInfo!.packetLoss?.toStringAsFixed(2)}%, rtt=${_networkInfo!.rtt}, codec=$codec');
+        print(
+          '📊 Stats updated: bitrate=${_networkInfo!.bitrate}, jitter=${_networkInfo!.jitter}, loss=${_networkInfo!.packetLoss?.toStringAsFixed(2)}%, rtt=${_networkInfo!.rtt}, codec=$codec',
+        );
       }
     } catch (e) {
       print('⚠️ Ошибка получения статистики: $e');
@@ -2269,9 +2327,7 @@ class _CallScreenState extends State<CallScreen> {
   Future<GeoLocationInfo?> _getGeoLocationByIp(String ip) async {
     try {
       final url = Uri.parse('http://ip-api.com/json/$ip');
-      final response = await http.get(url).timeout(
-        const Duration(seconds: 10),
-      );
+      final response = await http.get(url).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final jsonData = json.decode(response.body);
@@ -2282,7 +2338,9 @@ class _CallScreenState extends State<CallScreen> {
           return null;
         }
       } else {
-        print('⚠️ Ошибка HTTP при получении геолокации: ${response.statusCode}');
+        print(
+          '⚠️ Ошибка HTTP при получении геолокации: ${response.statusCode}',
+        );
         return null;
       }
     } catch (e) {
@@ -2346,14 +2404,15 @@ class _CallScreenState extends State<CallScreen> {
     await cleanupFuture.timeout(
       const Duration(seconds: 5),
       onTimeout: () {
-        print('⚠️ КРИТИЧНО: Таймаут всего cleanup (5 сек), принудительно завершаем');
+        print(
+          '⚠️ КРИТИЧНО: Таймаут всего cleanup (5 сек), принудительно завершаем',
+        );
         _isCleaningUp = false;
       },
     );
   }
 
   Future<void> _performCleanup() async {
-
     try {
       // 1. Останавливаем таймеры
       _durationTimer?.cancel();
@@ -2532,400 +2591,471 @@ class _CallScreenState extends State<CallScreen> {
           offset: Offset(0, _dragOffset),
           child: Scaffold(
             backgroundColor: colors.surface,
-          body: SafeArea(
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: AnimatedMeshGradient(
-                  accentColor: colors.primary,
-                ),
-              ),
-
-              if (_dragOffset > 0)
-                Positioned(
-                  top: 8,
-                  left: 0,
-                  right: 0,
-                  child: Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: colors.onSurface.withOpacity(0.3),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
-                    ),
+            body: SafeArea(
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: AnimatedMeshGradient(accentColor: colors.primary),
                   ),
-                ),
 
-              // Кнопка настроек в левом верхнем углу (на одной высоте с кнопкой инфо)
-              Positioned(
-                top: 24,
-                left: 8,
-                child: IconButton(
-                  icon: Icon(
-                    Icons.settings_outlined,
-                    color: colors.primary,
-                  ),
-                  onPressed: _showCallSettings,
-                ),
-              ),
-
-              Column(
-              children: [
-                // Заголовок
-                Padding(
-                  padding: const EdgeInsets.all(24.0),
-                  child: Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const SizedBox(width: 40), // Spacer for symmetry
-                          Expanded(
-                            child: Text(
-                              widget.contactName,
-                              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
+                  if (_dragOffset > 0)
+                    Positioned(
+                      top: 8,
+                      left: 0,
+                      right: 0,
+                      child: Center(
+                        child: Container(
+                          width: 40,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: colors.onSurface.withOpacity(0.3),
+                            borderRadius: BorderRadius.circular(2),
                           ),
-                          Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: Icon(
-                                  _showNetworkInfo ? Icons.info : Icons.info_outline,
-                                  color: colors.primary,
-                                ),
-                                onPressed: () {
-                                  setState(() => _showNetworkInfo = !_showNetworkInfo);
-                                },
-                              ),
-                              // Кнопка записи
-                              IconButton(
-                                icon: Icon(
-                                  _isRecording ? Icons.fiber_manual_record : Icons.radio_button_off,
-                                  color: _isRecording ? colors.error : colors.primary,
-                                  size: 20,
-                                ),
-                                onPressed: _toggleRecording,
-                                tooltip: _isRecording ? 'Остановить запись' : 'Начать запись',
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        _getCallStateText(),
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          color: colors.onSurfaceVariant,
                         ),
                       ),
-                      if (_callState == CallState.connected)
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                    ),
+
+                  // Кнопка настроек в левом верхнем углу (на одной высоте с кнопкой инфо)
+                  Positioned(
+                    top: 24,
+                    left: 8,
+                    child: IconButton(
+                      icon: Icon(
+                        Icons.settings_outlined,
+                        color: colors.primary,
+                      ),
+                      onPressed: _showCallSettings,
+                    ),
+                  ),
+
+                  Column(
+                    children: [
+                      // Заголовок
+                      Padding(
+                        padding: const EdgeInsets.all(24.0),
+                        child: Column(
                           children: [
-                            Text(
-                              _formatDuration(_callDuration),
-                              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                color: colors.primary,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            if (_isRecording) ...[
-                              const SizedBox(width: 12),
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.fiber_manual_record,
-                                    size: 16,
-                                    color: colors.error,
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                const SizedBox(
+                                  width: 40,
+                                ), // Spacer for symmetry
+                                Expanded(
+                                  child: Text(
+                                    widget.contactName,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .headlineMedium
+                                        ?.copyWith(fontWeight: FontWeight.bold),
+                                    textAlign: TextAlign.center,
                                   ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    _formatRecordingDuration(_recordingDuration),
-                                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                      color: colors.error,
-                                      fontWeight: FontWeight.bold,
+                                ),
+                                Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: Icon(
+                                        _showNetworkInfo
+                                            ? Icons.info
+                                            : Icons.info_outline,
+                                        color: colors.primary,
+                                      ),
+                                      onPressed: () {
+                                        setState(
+                                          () => _showNetworkInfo =
+                                              !_showNetworkInfo,
+                                        );
+                                      },
                                     ),
+                                    // Кнопка записи
+                                    IconButton(
+                                      icon: Icon(
+                                        _isRecording
+                                            ? Icons.fiber_manual_record
+                                            : Icons.radio_button_off,
+                                        color: _isRecording
+                                            ? colors.error
+                                            : colors.primary,
+                                        size: 20,
+                                      ),
+                                      onPressed: _toggleRecording,
+                                      tooltip: _isRecording
+                                          ? 'Остановить запись'
+                                          : 'Начать запись',
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              _getCallStateText(),
+                              style: Theme.of(context).textTheme.bodyLarge
+                                  ?.copyWith(color: colors.onSurfaceVariant),
+                            ),
+                            if (_callState == CallState.connected)
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    _formatDuration(_callDuration),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleLarge
+                                        ?.copyWith(
+                                          color: colors.primary,
+                                          fontWeight: FontWeight.bold,
+                                        ),
                                   ),
+                                  if (_isRecording) ...[
+                                    const SizedBox(width: 12),
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.fiber_manual_record,
+                                          size: 16,
+                                          color: colors.error,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          _formatRecordingDuration(
+                                            _recordingDuration,
+                                          ),
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .bodyMedium
+                                              ?.copyWith(
+                                                color: colors.error,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
                                 ],
                               ),
-                            ],
-                          ],
-                        ),
-                    ],
-                  ),
-                ),
-
-
-            if (_isVideoEnabled || (_isRemoteVideoEnabled && _remoteStream != null)) ...[
-              Expanded(
-                child: Stack(
-                  children: [
-                    // Удаленное видео (на весь экран) или аватар если видео выключено
-                    if (_remoteStream != null && _isRemoteVideoEnabled)
-                      Positioned.fill(
-                        child: RTCVideoView(_remoteRenderer, mirror: false, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
-                      )
-                    else
-                      // Показываем аватар когда нет видео от собеседника
-                      Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            // Аватар
-                            CircleAvatar(
-                                  radius: 60,
-                                  backgroundImage: widget.contactAvatarUrl != null
-                                      ? NetworkImage(widget.contactAvatarUrl!)
-                                      : null,
-                                  child: widget.contactAvatarUrl == null
-                                      ? Text(
-                                          widget.contactName.isNotEmpty
-                                              ? widget.contactName[0].toUpperCase()
-                                              : '?',
-                                          style: TextStyle(
-                                            fontSize: 48,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.white,
-                                          ),
-                                        )
-                                      : null,
-                                ),
-                            const SizedBox(height: 16),
-                            if (_callState == CallState.connecting || _remoteStream == null)
-                              CircularProgressIndicator(color: colors.primary),
                           ],
                         ),
                       ),
 
-                    // Локальное видео (в углу) - показываем только если у нас включено видео
-                    if (_localStream != null && _isVideoEnabled)
-                      Positioned(
-                        top: 16,
-                        right: 16,
-                        width: 120,
-                        height: 160,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              border: Border.all(color: Colors.white, width: 2),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: RTCVideoView(_localRenderer, mirror: true, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
-                          ),
-                        ),
-                      ),
-
-                    // Иконка отключенного микрофона собеседника (справа внизу)
-                    if (_isRemoteMuted && _callState == CallState.connected)
-                      Positioned(
-                        bottom: 24,
-                        right: 24,
-                        child: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.6),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            Icons.mic_off,
-                            color: Colors.white,
-                            size: 24,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ] else ...[
-              // Аватар для аудио звонка с анимированным фоном
-              Expanded(
-                child: Stack(
-                  children: [
-                    // Анимированный фон с волнами
-                    _AnimatedCallBackground(
-                      isConnected: _callState == CallState.connected,
-                      accentColor: colors.primary,
-                    ),
-
-                    // Аватар контакта поверх
-                    Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          // Аватар контакта с обводкой при разговоре
-                          Stack(
-                            alignment: Alignment.center,
+                      if (_isVideoEnabled ||
+                          (_isRemoteVideoEnabled && _remoteStream != null)) ...[
+                        Expanded(
+                          child: Stack(
                             children: [
-                              // Зелёная обводка когда собеседник говорит
-                              if (_isRemoteSpeaking && _callState == CallState.connected)
-                                _SpeakingIndicator(
-                                  size: 140,
-                                  color: Colors.green,
+                              // Удаленное видео (на весь экран) или аватар если видео выключено
+                              if (_remoteStream != null &&
+                                  _isRemoteVideoEnabled)
+                                Positioned.fill(
+                                  child: RTCVideoView(
+                                    _remoteRenderer,
+                                    mirror: false,
+                                    objectFit: RTCVideoViewObjectFit
+                                        .RTCVideoViewObjectFitCover,
+                                  ),
+                                )
+                              else
+                                // Показываем аватар когда нет видео от собеседника
+                                Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      // Аватар
+                                      CircleAvatar(
+                                        radius: 60,
+                                        backgroundImage:
+                                            widget.contactAvatarUrl != null
+                                            ? NetworkImage(
+                                                widget.contactAvatarUrl!,
+                                              )
+                                            : null,
+                                        child: widget.contactAvatarUrl == null
+                                            ? Text(
+                                                widget.contactName.isNotEmpty
+                                                    ? widget.contactName[0]
+                                                          .toUpperCase()
+                                                    : '?',
+                                                style: TextStyle(
+                                                  fontSize: 48,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.white,
+                                                ),
+                                              )
+                                            : null,
+                                      ),
+                                      const SizedBox(height: 16),
+                                      if (_callState == CallState.connecting ||
+                                          _remoteStream == null)
+                                        CircularProgressIndicator(
+                                          color: colors.primary,
+                                        ),
+                                    ],
+                                  ),
                                 ),
 
-                              // Сам аватар
-                              ContactAvatarWidget(
-                                contactId: widget.contactId,
-                                originalAvatarUrl: widget.contactAvatarUrl,
-                                radius: 60,
-                                fallbackText: widget.contactName.isNotEmpty
-                                    ? widget.contactName[0].toUpperCase()
-                                    : '?',
-                              ),
-
-                              // Иконка отключенного микрофона собеседника (справа снизу на аватаре)
-                              if (_isRemoteMuted && _callState == CallState.connected)
+                              // Локальное видео (в углу) - показываем только если у нас включено видео
+                              if (_localStream != null && _isVideoEnabled)
                                 Positioned(
-                                  bottom: 0,
-                                  right: 0,
+                                  top: 16,
+                                  right: 16,
+                                  width: 120,
+                                  height: 160,
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        border: Border.all(
+                                          color: Colors.white,
+                                          width: 2,
+                                        ),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
+                                      child: RTCVideoView(
+                                        _localRenderer,
+                                        mirror: true,
+                                        objectFit: RTCVideoViewObjectFit
+                                            .RTCVideoViewObjectFitCover,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+
+                              // Иконка отключенного микрофона собеседника (справа внизу)
+                              if (_isRemoteMuted &&
+                                  _callState == CallState.connected)
+                                Positioned(
+                                  bottom: 24,
+                                  right: 24,
                                   child: Container(
-                                    padding: const EdgeInsets.all(6),
+                                    padding: const EdgeInsets.all(8),
                                     decoration: BoxDecoration(
-                                      color: Colors.red,
+                                      color: Colors.black.withOpacity(0.6),
                                       shape: BoxShape.circle,
-                                      border: Border.all(color: Colors.white, width: 2),
                                     ),
                                     child: Icon(
                                       Icons.mic_off,
                                       color: Colors.white,
-                                      size: 20,
+                                      size: 24,
                                     ),
                                   ),
                                 ),
                             ],
                           ),
-                          const SizedBox(height: 24),
-                          if (_callState == CallState.connecting)
-                            CircularProgressIndicator(color: colors.primary),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-
-
-            Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  // Микрофон с саундпадом
-                  Stack(
-                    key: _micButtonKey,
-                    clipBehavior: Clip.none,
-                    children: [
-                      _CallButton(
-                        iconWidget: _AnimatedMicIcon(
-                          isMuted: _isMuted,
-                          audioLevel: _localAudioLevel,
-                          size: 24,
                         ),
-                        label: _isMuted ? 'Откл' : 'Микрофон',
-                        onPressed: _toggleMute,
-                        backgroundColor: _isMuted ? colors.error : colors.surfaceContainerHighest,
-                        foregroundColor: _isMuted ? colors.onError : colors.onSurface,
-                      ),
-
-                      // Маленькая кнопка саундпада (серая, справа сверху)
-                      Positioned(
-                        right: 4,
-                        top: 4,
-                        child: GestureDetector(
-                          onTap: _showSoundpad,
-                          child: Container(
-                            width: 24,
-                            height: 24,
-                            decoration: BoxDecoration(
-                              color: Colors.grey.shade600,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: colors.surface,
-                                width: 2,
+                      ] else ...[
+                        // Аватар для аудио звонка с анимированным фоном
+                        Expanded(
+                          child: Stack(
+                            children: [
+                              // Анимированный фон с волнами
+                              _AnimatedCallBackground(
+                                isConnected: _callState == CallState.connected,
+                                accentColor: colors.primary,
                               ),
-                            ),
-                            child: Icon(
-                              Icons.arrow_drop_up,
-                              size: 16,
-                              color: Colors.white,
-                            ),
+
+                              // Аватар контакта поверх
+                              Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    // Аватар контакта с обводкой при разговоре
+                                    Stack(
+                                      alignment: Alignment.center,
+                                      children: [
+                                        // Зелёная обводка когда собеседник говорит
+                                        if (_isRemoteSpeaking &&
+                                            _callState == CallState.connected)
+                                          _SpeakingIndicator(
+                                            size: 140,
+                                            color: Colors.green,
+                                          ),
+
+                                        // Сам аватар
+                                        ContactAvatarWidget(
+                                          contactId: widget.contactId,
+                                          originalAvatarUrl:
+                                              widget.contactAvatarUrl,
+                                          radius: 60,
+                                          fallbackText:
+                                              widget.contactName.isNotEmpty
+                                              ? widget.contactName[0]
+                                                    .toUpperCase()
+                                              : '?',
+                                        ),
+
+                                        // Иконка отключенного микрофона собеседника (справа снизу на аватаре)
+                                        if (_isRemoteMuted &&
+                                            _callState == CallState.connected)
+                                          Positioned(
+                                            bottom: 0,
+                                            right: 0,
+                                            child: Container(
+                                              padding: const EdgeInsets.all(6),
+                                              decoration: BoxDecoration(
+                                                color: Colors.red,
+                                                shape: BoxShape.circle,
+                                                border: Border.all(
+                                                  color: Colors.white,
+                                                  width: 2,
+                                                ),
+                                              ),
+                                              child: Icon(
+                                                Icons.mic_off,
+                                                color: Colors.white,
+                                                size: 20,
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 24),
+                                    if (_callState == CallState.connecting)
+                                      CircularProgressIndicator(
+                                        color: colors.primary,
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
+                        ),
+                      ],
+
+                      Padding(
+                        padding: const EdgeInsets.all(24.0),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            // Микрофон с саундпадом
+                            Stack(
+                              key: _micButtonKey,
+                              clipBehavior: Clip.none,
+                              children: [
+                                _CallButton(
+                                  iconWidget: _AnimatedMicIcon(
+                                    isMuted: _isMuted,
+                                    audioLevel: _localAudioLevel,
+                                    size: 24,
+                                  ),
+                                  label: _isMuted ? 'Откл' : 'Микрофон',
+                                  onPressed: _toggleMute,
+                                  backgroundColor: _isMuted
+                                      ? colors.error
+                                      : colors.surfaceContainerHighest,
+                                  foregroundColor: _isMuted
+                                      ? colors.onError
+                                      : colors.onSurface,
+                                ),
+
+                                // Маленькая кнопка саундпада (серая, справа сверху)
+                                Positioned(
+                                  right: 4,
+                                  top: 4,
+                                  child: GestureDetector(
+                                    onTap: _showSoundpad,
+                                    child: Container(
+                                      width: 24,
+                                      height: 24,
+                                      decoration: BoxDecoration(
+                                        color: Colors.grey.shade600,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: colors.surface,
+                                          width: 2,
+                                        ),
+                                      ),
+                                      child: Icon(
+                                        Icons.arrow_drop_up,
+                                        size: 16,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            // Видео (показываем всегда, можно включить в любом звонке)
+                            _CallButton(
+                              icon: _isVideoEnabled
+                                  ? Icons.videocam
+                                  : Icons.videocam_off,
+                              label: _isVideoEnabled ? 'Видео' : 'Камера',
+                              onPressed: _toggleVideo,
+                              backgroundColor: _isVideoEnabled
+                                  ? colors.primary
+                                  : colors.surfaceContainerHighest,
+                              foregroundColor: _isVideoEnabled
+                                  ? colors.onPrimary
+                                  : colors.onSurface,
+                            ),
+
+                            // Завершить звонок
+                            _CallButton(
+                              icon: Icons.call_end,
+                              label: 'Завершить',
+                              onPressed: _isCleaningUp ? () {} : _endCall,
+                              backgroundColor: colors.error,
+                              foregroundColor: colors.onError,
+                              isLarge: true,
+                            ),
+
+                            // Динамик
+                            _CallButton(
+                              icon: _isSpeakerOn
+                                  ? Icons.volume_up
+                                  : Icons.volume_down,
+                              label: _isSpeakerOn ? 'Динамик' : 'Обычный',
+                              onPressed: _toggleSpeaker,
+                              backgroundColor: _isSpeakerOn
+                                  ? colors.primary
+                                  : colors.surfaceContainerHighest,
+                              foregroundColor: _isSpeakerOn
+                                  ? colors.onPrimary
+                                  : colors.onSurface,
+                            ),
+
+                            // DataChannel (только если включен)
+                            if (widget.enableDataChannel)
+                              _CallButton(
+                                icon: Icons.chat_bubble_outline,
+                                label: 'DATA_CH',
+                                onPressed: _showDataChannelPanel,
+                                backgroundColor: _isDataChannelOpen
+                                    ? colors.primary
+                                    : colors.surfaceContainerHighest,
+                                foregroundColor: _isDataChannelOpen
+                                    ? colors.onPrimary
+                                    : colors.onSurface,
+                              ),
+                          ],
                         ),
                       ),
                     ],
                   ),
 
-                  // Видео (показываем всегда, можно включить в любом звонке)
-                  _CallButton(
-                    icon: _isVideoEnabled ? Icons.videocam : Icons.videocam_off,
-                    label: _isVideoEnabled ? 'Видео' : 'Камера',
-                    onPressed: _toggleVideo,
-                    backgroundColor: _isVideoEnabled ? colors.primary : colors.surfaceContainerHighest,
-                    foregroundColor: _isVideoEnabled ? colors.onPrimary : colors.onSurface,
-                  ),
-
-                  // Завершить звонок
-                  _CallButton(
-                    icon: Icons.call_end,
-                    label: 'Завершить',
-                    onPressed: _isCleaningUp ? () {} : _endCall,
-                    backgroundColor: colors.error,
-                    foregroundColor: colors.onError,
-                    isLarge: true,
-                  ),
-
-                  // Динамик
-                  _CallButton(
-                    icon: _isSpeakerOn ? Icons.volume_up : Icons.volume_down,
-                    label: _isSpeakerOn ? 'Динамик' : 'Обычный',
-                    onPressed: _toggleSpeaker,
-                    backgroundColor: _isSpeakerOn ? colors.primary : colors.surfaceContainerHighest,
-                    foregroundColor: _isSpeakerOn ? colors.onPrimary : colors.onSurface,
-                  ),
-
-                  // DataChannel (только если включен)
-                  if (widget.enableDataChannel)
-                    _CallButton(
-                      icon: Icons.chat_bubble_outline,
-                      label: 'DATA_CH',
-                      onPressed: _showDataChannelPanel,
-                      backgroundColor: _isDataChannelOpen ? colors.primary : colors.surfaceContainerHighest,
-                      foregroundColor: _isDataChannelOpen ? colors.onPrimary : colors.onSurface,
+                  if (_showNetworkInfo && _networkInfo != null)
+                    Positioned(
+                      top: 100,
+                      left: 16,
+                      right: 16,
+                      child: _NetworkInfoPanel(
+                        networkInfo: _networkInfo!,
+                        onFetchGeoLocation: _fetchGeoLocation,
+                      ),
                     ),
+
+                  // Кнопка чата (DataChannel) - размещаем в ряд с другими кнопками
+                  // (убрано отсюда, перенесено в основной ряд кнопок)
                 ],
               ),
             ),
-          ],
-        ),
-
-        if (_showNetworkInfo && _networkInfo != null)
-          Positioned(
-            top: 100,
-            left: 16,
-            right: 16,
-            child: _NetworkInfoPanel(
-              networkInfo: _networkInfo!,
-              onFetchGeoLocation: _fetchGeoLocation,
-            ),
-          ),
-
-        // Кнопка чата (DataChannel) - размещаем в ряд с другими кнопками
-        // (убрано отсюда, перенесено в основной ряд кнопок)
-      ],
-    ),
           ),
         ),
       ),
-    ));
+    );
   }
 
   String _getCallStateText() {
@@ -2978,16 +3108,22 @@ class _CallScreenState extends State<CallScreen> {
     if (widget.onMinimize == null) {
       // Старый режим через Navigator - делаем cleanup
       if (!FloatingCallManager.instance.isMinimized) {
-        _cleanup().then((_) {
-          print('✅ Cleanup в dispose завершён');
-        }).catchError((e) {
-          print('❌ Ошибка в cleanup при dispose: $e');
-        });
+        _cleanup()
+            .then((_) {
+              print('✅ Cleanup в dispose завершён');
+            })
+            .catchError((e) {
+              print('❌ Ошибка в cleanup при dispose: $e');
+            });
       } else {
-        print('⏸️ CallScreen закрыт, но звонок минимизирован - cleanup пропущен');
+        print(
+          '⏸️ CallScreen закрыт, но звонок минимизирован - cleanup пропущен',
+        );
       }
     } else {
-      print('🎯 CallScreen dispose в Overlay режиме - cleanup управляется CallOverlayService');
+      print(
+        '🎯 CallScreen dispose в Overlay режиме - cleanup управляется CallOverlayService',
+      );
     }
 
     super.dispose();
@@ -2995,12 +3131,7 @@ class _CallScreenState extends State<CallScreen> {
 }
 
 /// Состояние звонка
-enum CallState {
-  connecting,
-  ringing,
-  connected,
-  ended,
-}
+enum CallState { connecting, ringing, connected, ended }
 
 /// Кнопка управления звонком
 // Виджет анимированной иконки микрофона с заливкой по уровню громкости
@@ -3035,11 +3166,7 @@ class _AnimatedMicIcon extends StatelessWidget {
               child: Align(
                 alignment: Alignment.bottomCenter,
                 heightFactor: audioLevel.clamp(0.0, 1.0),
-                child: Icon(
-                  Icons.mic,
-                  size: size,
-                  color: Colors.white,
-                ),
+                child: Icon(Icons.mic, size: size, color: Colors.white),
               ),
             ),
         ],
@@ -3065,7 +3192,10 @@ class _CallButton extends StatelessWidget {
     required this.backgroundColor,
     required this.foregroundColor,
     this.isLarge = false,
-  }) : assert(icon != null || iconWidget != null, 'Either icon or iconWidget must be provided');
+  }) : assert(
+         icon != null || iconWidget != null,
+         'Either icon or iconWidget must be provided',
+       );
 
   @override
   Widget build(BuildContext context) {
@@ -3085,11 +3215,9 @@ class _CallButton extends StatelessWidget {
               width: size,
               height: size,
               alignment: Alignment.center,
-              child: iconWidget ?? Icon(
-                icon!,
-                size: iconSize,
-                color: foregroundColor,
-              ),
+              child:
+                  iconWidget ??
+                  Icon(icon!, size: iconSize, color: foregroundColor),
             ),
           ),
         ),
@@ -3240,10 +3368,14 @@ class IceCandidate {
 
   String get typeLabel {
     switch (type) {
-      case 'host': return 'Прямое (host)';
-      case 'srflx': return 'STUN (srflx)';
-      case 'relay': return 'TURN (relay)';
-      default: return type;
+      case 'host':
+        return 'Прямое (host)';
+      case 'srflx':
+        return 'STUN (srflx)';
+      case 'relay':
+        return 'TURN (relay)';
+      default:
+        return type;
     }
   }
 
@@ -3283,352 +3415,390 @@ class _NetworkInfoPanelState extends State<_NetworkInfoPanel> {
       borderRadius: BorderRadius.circular(16),
       color: colors.surface.withValues(alpha: 0.95),
       child: Container(
-        constraints: const BoxConstraints(maxHeight: 500), // Ограничиваем высоту
+        constraints: const BoxConstraints(
+          maxHeight: 500,
+        ), // Ограничиваем высоту
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
-            Row(
-              children: [
-                Icon(Icons.network_check, color: colors.primary, size: 20),
-                const SizedBox(width: 8),
-                Text(
-                  'Сетевая информация',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: colors.primary,
+              Row(
+                children: [
+                  Icon(Icons.network_check, color: colors.primary, size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Сетевая информация',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: colors.primary,
+                    ),
                   ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // Ваш IP
+              if (networkInfo.localAddress != null) ...[
+                _InfoRow(
+                  icon: Icons.smartphone,
+                  label: 'Ваш IP',
+                  value: networkInfo.localAddress!,
+                  valueColor: colors.primary,
                 ),
+                if (networkInfo.localConnectionType != null)
+                  _InfoRow(
+                    icon: Icons.link,
+                    label: 'Тип соединения',
+                    value: _formatConnectionType(
+                      networkInfo.localConnectionType!,
+                    ),
+                    indent: true,
+                  ),
               ],
-            ),
-            const SizedBox(height: 12),
 
-            // Ваш IP
-            if (networkInfo.localAddress != null) ...[
-              _InfoRow(
-                icon: Icons.smartphone,
-                label: 'Ваш IP',
-                value: networkInfo.localAddress!,
-                valueColor: colors.primary,
-              ),
-              if (networkInfo.localConnectionType != null)
+              const SizedBox(height: 8),
+
+              // IP собеседника
+              if (networkInfo.remoteAddress != null) ...[
                 _InfoRow(
-                  icon: Icons.link,
-                  label: 'Тип соединения',
-                  value: _formatConnectionType(networkInfo.localConnectionType!),
-                  indent: true,
+                  icon: Icons.person,
+                  label: 'IP собеседника',
+                  value: networkInfo.remoteAddress!,
+                  valueColor: colors.secondary,
                 ),
-            ],
-
-            const SizedBox(height: 8),
-
-            // IP собеседника
-            if (networkInfo.remoteAddress != null) ...[
-              _InfoRow(
-                icon: Icons.person,
-                label: 'IP собеседника',
-                value: networkInfo.remoteAddress!,
-                valueColor: colors.secondary,
-              ),
-              if (networkInfo.remoteConnectionType != null)
-                _InfoRow(
-                  icon: Icons.link,
-                  label: 'Тип соединения',
-                  value: _formatConnectionType(networkInfo.remoteConnectionType!),
-                  indent: true,
-                ),
-            ],
-
-            const SizedBox(height: 8),
-
-            // Дополнительная информация
-            if (networkInfo.transport != null)
-              _InfoRow(
-                icon: Icons.swap_horiz,
-                label: 'Транспорт',
-                value: networkInfo.transport!.toUpperCase(),
-              ),
-
-            if (networkInfo.networkType != null)
-              _InfoRow(
-                icon: Icons.wifi,
-                label: 'Сеть',
-                value: _formatNetworkType(networkInfo.networkType!),
-              ),
-
-            if (networkInfo.rtt != null)
-              _InfoRow(
-                icon: Icons.speed,
-                label: 'Задержка (RTT)',
-                value: '${networkInfo.rtt} мс',
-                valueColor: _getRttColor(networkInfo.rtt!, colors),
-              ),
-
-            // Геолокация
-            const SizedBox(height: 12),
-            const Divider(),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Text(
-                  'Геолокация',
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: colors.primary,
+                if (networkInfo.remoteConnectionType != null)
+                  _InfoRow(
+                    icon: Icons.link,
+                    label: 'Тип соединения',
+                    value: _formatConnectionType(
+                      networkInfo.remoteConnectionType!,
+                    ),
+                    indent: true,
                   ),
+              ],
+
+              const SizedBox(height: 8),
+
+              // Дополнительная информация
+              if (networkInfo.transport != null)
+                _InfoRow(
+                  icon: Icons.swap_horiz,
+                  label: 'Транспорт',
+                  value: networkInfo.transport!.toUpperCase(),
                 ),
-                const Spacer(),
-                ElevatedButton.icon(
-                  onPressed: _isLoadingGeo || (networkInfo.localAddress == null && networkInfo.remoteAddress == null)
-                      ? null
-                      : () async {
-                          setState(() {
-                            _isLoadingGeo = true;
-                          });
-                          try {
-                            await widget.onFetchGeoLocation();
-                          } finally {
-                            if (mounted) {
-                              setState(() {
-                                _isLoadingGeo = false;
-                              });
+
+              if (networkInfo.networkType != null)
+                _InfoRow(
+                  icon: Icons.wifi,
+                  label: 'Сеть',
+                  value: _formatNetworkType(networkInfo.networkType!),
+                ),
+
+              if (networkInfo.rtt != null)
+                _InfoRow(
+                  icon: Icons.speed,
+                  label: 'Задержка (RTT)',
+                  value: '${networkInfo.rtt} мс',
+                  valueColor: _getRttColor(networkInfo.rtt!, colors),
+                ),
+
+              // Геолокация
+              const SizedBox(height: 12),
+              const Divider(),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Text(
+                    'Геолокация',
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: colors.primary,
+                    ),
+                  ),
+                  const Spacer(),
+                  ElevatedButton.icon(
+                    onPressed:
+                        _isLoadingGeo ||
+                            (networkInfo.localAddress == null &&
+                                networkInfo.remoteAddress == null)
+                        ? null
+                        : () async {
+                            setState(() {
+                              _isLoadingGeo = true;
+                            });
+                            try {
+                              await widget.onFetchGeoLocation();
+                            } finally {
+                              if (mounted) {
+                                setState(() {
+                                  _isLoadingGeo = false;
+                                });
+                              }
                             }
-                          }
-                        },
-                  icon: _isLoadingGeo
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.location_on, size: 18),
-                  label: Text(_isLoadingGeo ? 'Загрузка...' : 'Get geo'),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          },
+                    icon: _isLoadingGeo
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.location_on, size: 18),
+                    label: Text(_isLoadingGeo ? 'Загрузка...' : 'Get geo'),
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                    ),
                   ),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              // Геолокация локального IP
+              if (networkInfo.localGeoInfo != null) ...[
+                _InfoRow(
+                  icon: Icons.my_location,
+                  label: 'Ваше расположение',
+                  value: networkInfo.localGeoInfo!.locationString,
+                  valueColor: colors.primary,
+                ),
+                if (networkInfo.localGeoInfo!.city.isNotEmpty)
+                  _InfoRow(
+                    icon: Icons.location_city,
+                    label: 'Город',
+                    value: networkInfo.localGeoInfo!.city,
+                    indent: true,
+                  ),
+                if (networkInfo.localGeoInfo!.regionName.isNotEmpty)
+                  _InfoRow(
+                    icon: Icons.map,
+                    label: 'Регион',
+                    value: networkInfo.localGeoInfo!.regionName,
+                    indent: true,
+                  ),
+                if (networkInfo.localGeoInfo!.country.isNotEmpty)
+                  _InfoRow(
+                    icon: Icons.flag,
+                    label: 'Страна',
+                    value:
+                        '${networkInfo.localGeoInfo!.country} (${networkInfo.localGeoInfo!.countryCode})',
+                    indent: true,
+                  ),
+                if (networkInfo.localGeoInfo!.lat != 0.0 &&
+                    networkInfo.localGeoInfo!.lon != 0.0)
+                  _InfoRow(
+                    icon: Icons.explore,
+                    label: 'Координаты',
+                    value:
+                        '${networkInfo.localGeoInfo!.lat.toStringAsFixed(4)}, ${networkInfo.localGeoInfo!.lon.toStringAsFixed(4)}',
+                    indent: true,
+                  ),
+                if (networkInfo.localGeoInfo!.isp.isNotEmpty)
+                  _InfoRow(
+                    icon: Icons.business,
+                    label: 'ISP',
+                    value: networkInfo.localGeoInfo!.isp,
+                    indent: true,
+                  ),
+                const SizedBox(height: 8),
+              ] else if (networkInfo.localAddress != null) ...[
+                _InfoRow(
+                  icon: Icons.my_location,
+                  label: 'Ваше расположение',
+                  value: 'Не определено',
+                  valueColor: colors.onSurfaceVariant,
+                ),
+                const SizedBox(height: 8),
+              ],
+
+              // Геолокация удаленного IP
+              if (networkInfo.remoteGeoInfo != null) ...[
+                _InfoRow(
+                  icon: Icons.person_pin,
+                  label: 'Расположение собеседника',
+                  value: networkInfo.remoteGeoInfo!.locationString,
+                  valueColor: colors.secondary,
+                ),
+                if (networkInfo.remoteGeoInfo!.city.isNotEmpty)
+                  _InfoRow(
+                    icon: Icons.location_city,
+                    label: 'Город',
+                    value: networkInfo.remoteGeoInfo!.city,
+                    indent: true,
+                  ),
+                if (networkInfo.remoteGeoInfo!.regionName.isNotEmpty)
+                  _InfoRow(
+                    icon: Icons.map,
+                    label: 'Регион',
+                    value: networkInfo.remoteGeoInfo!.regionName,
+                    indent: true,
+                  ),
+                if (networkInfo.remoteGeoInfo!.country.isNotEmpty)
+                  _InfoRow(
+                    icon: Icons.flag,
+                    label: 'Страна',
+                    value:
+                        '${networkInfo.remoteGeoInfo!.country} (${networkInfo.remoteGeoInfo!.countryCode})',
+                    indent: true,
+                  ),
+                if (networkInfo.remoteGeoInfo!.lat != 0.0 &&
+                    networkInfo.remoteGeoInfo!.lon != 0.0)
+                  _InfoRow(
+                    icon: Icons.explore,
+                    label: 'Координаты',
+                    value:
+                        '${networkInfo.remoteGeoInfo!.lat.toStringAsFixed(4)}, ${networkInfo.remoteGeoInfo!.lon.toStringAsFixed(4)}',
+                    indent: true,
+                  ),
+                if (networkInfo.remoteGeoInfo!.isp.isNotEmpty)
+                  _InfoRow(
+                    icon: Icons.business,
+                    label: 'ISP',
+                    value: networkInfo.remoteGeoInfo!.isp,
+                    indent: true,
+                  ),
+              ] else if (networkInfo.remoteAddress != null) ...[
+                _InfoRow(
+                  icon: Icons.person_pin,
+                  label: 'Расположение собеседника',
+                  value: 'Не определено',
+                  valueColor: colors.onSurfaceVariant,
                 ),
               ],
-            ),
-            const SizedBox(height: 8),
 
-            // Геолокация локального IP
-            if (networkInfo.localGeoInfo != null) ...[
-              _InfoRow(
-                icon: Icons.my_location,
-                label: 'Ваше расположение',
-                value: networkInfo.localGeoInfo!.locationString,
-                valueColor: colors.primary,
-              ),
-              if (networkInfo.localGeoInfo!.city.isNotEmpty)
-                _InfoRow(
-                  icon: Icons.location_city,
-                  label: 'Город',
-                  value: networkInfo.localGeoInfo!.city,
-                  indent: true,
-                ),
-              if (networkInfo.localGeoInfo!.regionName.isNotEmpty)
-                _InfoRow(
-                  icon: Icons.map,
-                  label: 'Регион',
-                  value: networkInfo.localGeoInfo!.regionName,
-                  indent: true,
-                ),
-              if (networkInfo.localGeoInfo!.country.isNotEmpty)
-                _InfoRow(
-                  icon: Icons.flag,
-                  label: 'Страна',
-                  value: '${networkInfo.localGeoInfo!.country} (${networkInfo.localGeoInfo!.countryCode})',
-                  indent: true,
-                ),
-              if (networkInfo.localGeoInfo!.lat != 0.0 && networkInfo.localGeoInfo!.lon != 0.0)
-                _InfoRow(
-                  icon: Icons.explore,
-                  label: 'Координаты',
-                  value: '${networkInfo.localGeoInfo!.lat.toStringAsFixed(4)}, ${networkInfo.localGeoInfo!.lon.toStringAsFixed(4)}',
-                  indent: true,
-                ),
-              if (networkInfo.localGeoInfo!.isp.isNotEmpty)
-                _InfoRow(
-                  icon: Icons.business,
-                  label: 'ISP',
-                  value: networkInfo.localGeoInfo!.isp,
-                  indent: true,
-                ),
-              const SizedBox(height: 8),
-            ] else if (networkInfo.localAddress != null) ...[
-              _InfoRow(
-                icon: Icons.my_location,
-                label: 'Ваше расположение',
-                value: 'Не определено',
-                valueColor: colors.onSurfaceVariant,
-              ),
-              const SizedBox(height: 8),
-            ],
-
-            // Геолокация удаленного IP
-            if (networkInfo.remoteGeoInfo != null) ...[
-              _InfoRow(
-                icon: Icons.person_pin,
-                label: 'Расположение собеседника',
-                value: networkInfo.remoteGeoInfo!.locationString,
-                valueColor: colors.secondary,
-              ),
-              if (networkInfo.remoteGeoInfo!.city.isNotEmpty)
-                _InfoRow(
-                  icon: Icons.location_city,
-                  label: 'Город',
-                  value: networkInfo.remoteGeoInfo!.city,
-                  indent: true,
-                ),
-              if (networkInfo.remoteGeoInfo!.regionName.isNotEmpty)
-                _InfoRow(
-                  icon: Icons.map,
-                  label: 'Регион',
-                  value: networkInfo.remoteGeoInfo!.regionName,
-                  indent: true,
-                ),
-              if (networkInfo.remoteGeoInfo!.country.isNotEmpty)
-                _InfoRow(
-                  icon: Icons.flag,
-                  label: 'Страна',
-                  value: '${networkInfo.remoteGeoInfo!.country} (${networkInfo.remoteGeoInfo!.countryCode})',
-                  indent: true,
-                ),
-              if (networkInfo.remoteGeoInfo!.lat != 0.0 && networkInfo.remoteGeoInfo!.lon != 0.0)
-                _InfoRow(
-                  icon: Icons.explore,
-                  label: 'Координаты',
-                  value: '${networkInfo.remoteGeoInfo!.lat.toStringAsFixed(4)}, ${networkInfo.remoteGeoInfo!.lon.toStringAsFixed(4)}',
-                  indent: true,
-                ),
-              if (networkInfo.remoteGeoInfo!.isp.isNotEmpty)
-                _InfoRow(
-                  icon: Icons.business,
-                  label: 'ISP',
-                  value: networkInfo.remoteGeoInfo!.isp,
-                  indent: true,
-                ),
-            ] else if (networkInfo.remoteAddress != null) ...[
-              _InfoRow(
-                icon: Icons.person_pin,
-                label: 'Расположение собеседника',
-                value: 'Не определено',
-                valueColor: colors.onSurfaceVariant,
-              ),
-            ],
-
-            // Качество соединения
-            const SizedBox(height: 12),
-            const Divider(),
-            const SizedBox(height: 8),
-            Text(
-              'Качество соединения',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: colors.primary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            _InfoRow(
-              icon: Icons.equalizer,
-              label: 'Битрейт',
-              value: networkInfo.bitrate != null ? '${networkInfo.bitrate} Кбит/с' : 'Сервер пожалел данных',
-              valueColor: networkInfo.bitrate != null ? colors.onSurface : Colors.red,
-            ),
-            _InfoRow(
-              icon: Icons.graphic_eq,
-              label: 'Jitter',
-              value: networkInfo.jitter != null ? '${networkInfo.jitter} мс' : 'Сервер пожалел данных',
-              valueColor: networkInfo.jitter != null ? colors.onSurface : Colors.red,
-            ),
-            _InfoRow(
-              icon: Icons.cloud_off,
-              label: 'Потеря пакетов',
-              value: networkInfo.packetLoss != null ? '${networkInfo.packetLoss!.toStringAsFixed(2)}%' : 'Сервер пожалел данных',
-              valueColor: networkInfo.packetLoss != null
-                ? (networkInfo.packetLoss! < 1 ? Colors.green : networkInfo.packetLoss! < 5 ? Colors.orange : Colors.red)
-                : Colors.red,
-            ),
-            if (networkInfo.packetsReceived != null || networkInfo.packetsSent != null) ...[
+              // Качество соединения
               const SizedBox(height: 12),
               const Divider(),
               const SizedBox(height: 8),
               Text(
-                'Статистика пакетов',
+                'Качество соединения',
                 style: Theme.of(context).textTheme.titleSmall?.copyWith(
                   fontWeight: FontWeight.bold,
                   color: colors.primary,
                 ),
               ),
               const SizedBox(height: 8),
-              if (networkInfo.packetsReceived != null)
-                _InfoRow(
-                  icon: Icons.download,
-                  label: 'Получено пакетов',
-                  value: networkInfo.packetsReceived.toString(),
-                  valueColor: colors.onSurface,
-                ),
-              if (networkInfo.packetsSent != null)
-                _InfoRow(
-                  icon: Icons.upload,
-                  label: 'Отправлено пакетов',
-                  value: networkInfo.packetsSent.toString(),
-                  valueColor: colors.onSurface,
-                ),
-              if (networkInfo.bytesReceived != null)
-                _InfoRow(
-                  icon: Icons.download,
-                  label: 'Получено данных',
-                  value: _formatBytes(networkInfo.bytesReceived!),
-                  valueColor: colors.onSurface,
-                ),
-              if (networkInfo.bytesSent != null)
-                _InfoRow(
-                  icon: Icons.upload,
-                  label: 'Отправлено данных',
-                  value: _formatBytes(networkInfo.bytesSent!),
-                  valueColor: colors.onSurface,
-                ),
-            ],
-
-            // Детальная информация о кандидатах
-            if (networkInfo.localCandidates.isNotEmpty || networkInfo.remoteCandidates.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Divider(color: colors.outline.withOpacity(0.3)),
-              const SizedBox(height: 8),
-
-              // Локальные кандидаты
-              if (networkInfo.localCandidates.isNotEmpty) ...[
+              _InfoRow(
+                icon: Icons.equalizer,
+                label: 'Битрейт',
+                value: networkInfo.bitrate != null
+                    ? '${networkInfo.bitrate} Кбит/с'
+                    : 'Сервер пожалел данных',
+                valueColor: networkInfo.bitrate != null
+                    ? colors.onSurface
+                    : Colors.red,
+              ),
+              _InfoRow(
+                icon: Icons.graphic_eq,
+                label: 'Jitter',
+                value: networkInfo.jitter != null
+                    ? '${networkInfo.jitter} мс'
+                    : 'Сервер пожалел данных',
+                valueColor: networkInfo.jitter != null
+                    ? colors.onSurface
+                    : Colors.red,
+              ),
+              _InfoRow(
+                icon: Icons.cloud_off,
+                label: 'Потеря пакетов',
+                value: networkInfo.packetLoss != null
+                    ? '${networkInfo.packetLoss!.toStringAsFixed(2)}%'
+                    : 'Сервер пожалел данных',
+                valueColor: networkInfo.packetLoss != null
+                    ? (networkInfo.packetLoss! < 1
+                          ? Colors.green
+                          : networkInfo.packetLoss! < 5
+                          ? Colors.orange
+                          : Colors.red)
+                    : Colors.red,
+              ),
+              if (networkInfo.packetsReceived != null ||
+                  networkInfo.packetsSent != null) ...[
+                const SizedBox(height: 12),
+                const Divider(),
+                const SizedBox(height: 8),
                 Text(
-                  '📍 Ваши кандидаты соединения (${networkInfo.localCandidates.length})',
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  'Статистика пакетов',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: colors.primary,
                   ),
                 ),
                 const SizedBox(height: 8),
-                ...networkInfo.localCandidates.map((c) => _CandidateRow(candidate: c, isLocal: true)),
+                if (networkInfo.packetsReceived != null)
+                  _InfoRow(
+                    icon: Icons.download,
+                    label: 'Получено пакетов',
+                    value: networkInfo.packetsReceived.toString(),
+                    valueColor: colors.onSurface,
+                  ),
+                if (networkInfo.packetsSent != null)
+                  _InfoRow(
+                    icon: Icons.upload,
+                    label: 'Отправлено пакетов',
+                    value: networkInfo.packetsSent.toString(),
+                    valueColor: colors.onSurface,
+                  ),
+                if (networkInfo.bytesReceived != null)
+                  _InfoRow(
+                    icon: Icons.download,
+                    label: 'Получено данных',
+                    value: _formatBytes(networkInfo.bytesReceived!),
+                    valueColor: colors.onSurface,
+                  ),
+                if (networkInfo.bytesSent != null)
+                  _InfoRow(
+                    icon: Icons.upload,
+                    label: 'Отправлено данных',
+                    value: _formatBytes(networkInfo.bytesSent!),
+                    valueColor: colors.onSurface,
+                  ),
               ],
 
-              const SizedBox(height: 12),
-
-              // Удаленные кандидаты
-              if (networkInfo.remoteCandidates.isNotEmpty) ...[
-                Text(
-                  '🌐 Кандидаты собеседника (${networkInfo.remoteCandidates.length})',
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: colors.secondary,
-                  ),
-                ),
+              // Детальная информация о кандидатах
+              if (networkInfo.localCandidates.isNotEmpty ||
+                  networkInfo.remoteCandidates.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                Divider(color: colors.outline.withOpacity(0.3)),
                 const SizedBox(height: 8),
-                ...networkInfo.remoteCandidates.map((c) => _CandidateRow(candidate: c, isLocal: false)),
+
+                // Локальные кандидаты
+                if (networkInfo.localCandidates.isNotEmpty) ...[
+                  Text(
+                    '📍 Ваши кандидаты соединения (${networkInfo.localCandidates.length})',
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: colors.primary,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ...networkInfo.localCandidates.map(
+                    (c) => _CandidateRow(candidate: c, isLocal: true),
+                  ),
+                ],
+
+                const SizedBox(height: 12),
+
+                // Удаленные кандидаты
+                if (networkInfo.remoteCandidates.isNotEmpty) ...[
+                  Text(
+                    '🌐 Кандидаты собеседника (${networkInfo.remoteCandidates.length})',
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: colors.secondary,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ...networkInfo.remoteCandidates.map(
+                    (c) => _CandidateRow(candidate: c, isLocal: false),
+                  ),
+                ],
               ],
             ],
-          ],
-        ),
+          ),
         ),
       ),
     );
@@ -3667,7 +3837,8 @@ class _NetworkInfoPanelState extends State<_NetworkInfoPanel> {
   String _formatBytes(int bytes) {
     if (bytes < 1024) return '$bytes Б';
     if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(2)} КБ';
-    if (bytes < 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(2)} МБ';
+    if (bytes < 1024 * 1024 * 1024)
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(2)} МБ';
     return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} ГБ';
   }
 }
@@ -3683,7 +3854,8 @@ class _AnimatedCallBackground extends StatefulWidget {
   });
 
   @override
-  State<_AnimatedCallBackground> createState() => _AnimatedCallBackgroundState();
+  State<_AnimatedCallBackground> createState() =>
+      _AnimatedCallBackgroundState();
 }
 
 class _AnimatedCallBackgroundState extends State<_AnimatedCallBackground>
@@ -3760,9 +3932,7 @@ class _WavesPainter extends CustomPainter {
     required this.accentColor,
     required this.isConnected,
     required this.avatarCenter,
-  }) : super(
-          repaint: Listenable.merge([animation1, animation2, animation3]),
-        );
+  }) : super(repaint: Listenable.merge([animation1, animation2, animation3]));
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -3774,8 +3944,14 @@ class _WavesPainter extends CustomPainter {
     _drawWave(canvas, avatarCenter, maxRadius, animation3.value, 0.08, 0.4);
   }
 
-  void _drawWave(Canvas canvas, Offset center, double maxRadius,
-      double progress, double opacity, double scale) {
+  void _drawWave(
+    Canvas canvas,
+    Offset center,
+    double maxRadius,
+    double progress,
+    double opacity,
+    double scale,
+  ) {
     final radius = maxRadius * progress * scale;
 
     // Прозрачность уменьшается по мере расширения волны
@@ -3802,10 +3978,7 @@ class _SpeakingIndicator extends StatefulWidget {
   final double size;
   final Color color;
 
-  const _SpeakingIndicator({
-    required this.size,
-    required this.color,
-  });
+  const _SpeakingIndicator({required this.size, required this.color});
 
   @override
   State<_SpeakingIndicator> createState() => _SpeakingIndicatorState();
@@ -3824,9 +3997,10 @@ class _SpeakingIndicatorState extends State<_SpeakingIndicator>
       duration: const Duration(milliseconds: 800),
     )..repeat(reverse: true);
 
-    _animation = Tween<double>(begin: 0.8, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
+    _animation = Tween<double>(
+      begin: 0.8,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
   }
 
   @override
@@ -3886,9 +4060,9 @@ class _InfoRow extends StatelessWidget {
           ],
           Text(
             '$label: ',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: colors.onSurfaceVariant,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
           ),
           Expanded(
             child: Text(
@@ -3912,10 +4086,7 @@ class _CandidateRow extends StatelessWidget {
   final IceCandidate candidate;
   final bool isLocal;
 
-  const _CandidateRow({
-    required this.candidate,
-    required this.isLocal,
-  });
+  const _CandidateRow({required this.candidate, required this.isLocal});
 
   @override
   Widget build(BuildContext context) {
@@ -3925,7 +4096,8 @@ class _CandidateRow extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: (isLocal ? colors.primaryContainer : colors.secondaryContainer).withOpacity(0.3),
+        color: (isLocal ? colors.primaryContainer : colors.secondaryContainer)
+            .withOpacity(0.3),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: (isLocal ? colors.primary : colors.secondary).withOpacity(0.3),
@@ -3938,8 +4110,11 @@ class _CandidateRow extends StatelessWidget {
           Row(
             children: [
               Icon(
-                candidate.type == 'relay' ? Icons.router :
-                candidate.type == 'srflx' ? Icons.public : Icons.computer,
+                candidate.type == 'relay'
+                    ? Icons.router
+                    : candidate.type == 'srflx'
+                    ? Icons.public
+                    : Icons.computer,
                 size: 16,
                 color: isLocal ? colors.primary : colors.secondary,
               ),
@@ -3961,7 +4136,11 @@ class _CandidateRow extends StatelessWidget {
                 ),
                 child: Text(
                   candidate.typeLabel,
-                  style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             ],
@@ -3971,18 +4150,36 @@ class _CandidateRow extends StatelessWidget {
             spacing: 8,
             runSpacing: 4,
             children: [
-              _chip(context, Icons.priority_high, 'Priority: ${candidate.priority}'),
-              if (candidate.networkLabel.isNotEmpty) _chip(context, Icons.wifi, candidate.networkLabel),
-              if (candidate.networkId != null) _chip(context, Icons.tag, 'ID: ${candidate.networkId}'),
+              _chip(
+                context,
+                Icons.priority_high,
+                'Priority: ${candidate.priority}',
+              ),
+              if (candidate.networkLabel.isNotEmpty)
+                _chip(context, Icons.wifi, candidate.networkLabel),
+              if (candidate.networkId != null)
+                _chip(context, Icons.tag, 'ID: ${candidate.networkId}'),
             ],
           ),
           if (candidate.relayServer != null) ...[
             const SizedBox(height: 4),
-            _serverRow(context, Icons.dns, 'TURN', candidate.relayServer!, colors),
+            _serverRow(
+              context,
+              Icons.dns,
+              'TURN',
+              candidate.relayServer!,
+              colors,
+            ),
           ],
           if (candidate.stunServer != null) ...[
             const SizedBox(height: 4),
-            _serverRow(context, Icons.vpn_lock, 'STUN', candidate.stunServer!, colors),
+            _serverRow(
+              context,
+              Icons.vpn_lock,
+              'STUN',
+              candidate.stunServer!,
+              colors,
+            ),
           ],
         ],
       ),
@@ -4002,13 +4199,22 @@ class _CandidateRow extends StatelessWidget {
         children: [
           Icon(icon, size: 11, color: colors.onSurfaceVariant),
           const SizedBox(width: 3),
-          Text(label, style: TextStyle(fontSize: 10, color: colors.onSurfaceVariant)),
+          Text(
+            label,
+            style: TextStyle(fontSize: 10, color: colors.onSurfaceVariant),
+          ),
         ],
       ),
     );
   }
 
-  Widget _serverRow(BuildContext context, IconData icon, String label, String value, ColorScheme colors) {
+  Widget _serverRow(
+    BuildContext context,
+    IconData icon,
+    String label,
+    String value,
+    ColorScheme colors,
+  ) {
     return Row(
       children: [
         Icon(icon, size: 11, color: colors.tertiary),
@@ -4017,7 +4223,11 @@ class _CandidateRow extends StatelessWidget {
         Expanded(
           child: Text(
             value,
-            style: TextStyle(fontSize: 10, fontFamily: 'monospace', color: colors.tertiary),
+            style: TextStyle(
+              fontSize: 10,
+              fontFamily: 'monospace',
+              color: colors.tertiary,
+            ),
             overflow: TextOverflow.ellipsis,
           ),
         ),
@@ -4027,14 +4237,17 @@ class _CandidateRow extends StatelessWidget {
 
   Color _getTypeColor(String type) {
     switch (type) {
-      case 'host': return Colors.blue;
-      case 'srflx': return Colors.green;
-      case 'relay': return Colors.orange;
-      default: return Colors.grey;
+      case 'host':
+        return Colors.blue;
+      case 'srflx':
+        return Colors.green;
+      case 'relay':
+        return Colors.orange;
+      default:
+        return Colors.grey;
     }
   }
 }
-
 
 // Модель для temporary chat сообщений
 class TemporaryChatMessage {
@@ -4073,7 +4286,8 @@ class _DataChannelPanel extends StatefulWidget {
   State<_DataChannelPanel> createState() => _DataChannelPanelState();
 }
 
-class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerProviderStateMixin {
+class _DataChannelPanelState extends State<_DataChannelPanel>
+    with SingleTickerProviderStateMixin {
   late final TabController _tabController;
   final TextEditingController _messageController = TextEditingController();
 
@@ -4109,7 +4323,9 @@ class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerP
                 return Container(
                   decoration: BoxDecoration(
                     color: colors.surface,
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(16),
+                    ),
                   ),
                   child: Column(
                     children: [
@@ -4117,7 +4333,11 @@ class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerP
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          border: Border(bottom: BorderSide(color: colors.outline.withOpacity(0.2))),
+                          border: Border(
+                            bottom: BorderSide(
+                              color: colors.outline.withOpacity(0.2),
+                            ),
+                          ),
                         ),
                         child: Column(
                           children: [
@@ -4137,28 +4357,29 @@ class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerP
                                 const SizedBox(width: 8),
                                 Text(
                                   'DATA_CHANNEL',
-                                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                                  style: Theme.of(context).textTheme.titleLarge
+                                      ?.copyWith(fontWeight: FontWeight.bold),
                                 ),
                                 const Spacer(),
                                 IconButton(
                                   icon: Icon(
-                                    widget.encryptionPassword != null 
-                                        ? Icons.lock 
+                                    widget.encryptionPassword != null
+                                        ? Icons.lock
                                         : Icons.lock_open,
-                                    color: widget.encryptionPassword != null 
-                                        ? Colors.green 
+                                    color: widget.encryptionPassword != null
+                                        ? Colors.green
                                         : Colors.red,
                                   ),
                                   onPressed: widget.onShowEncryptionDialog,
-                                  tooltip: widget.encryptionPassword != null 
-                                      ? 'Шифрование включено' 
+                                  tooltip: widget.encryptionPassword != null
+                                      ? 'Шифрование включено'
                                       : 'Установить пароль',
                                 ),
                                 Chip(
                                   label: Text(status),
-                                  backgroundColor: isOpen ? colors.primaryContainer : colors.errorContainer,
+                                  backgroundColor: isOpen
+                                      ? colors.primaryContainer
+                                      : colors.errorContainer,
                                 ),
                               ],
                             ),
@@ -4166,14 +4387,14 @@ class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerP
                         ),
                       ),
 
-              // Tabs
-              TabBar(
-                controller: _tabController,
-                tabs: const [
-                  Tab(text: 'Chat', icon: Icon(Icons.chat)),
-                  Tab(text: 'Logs', icon: Icon(Icons.list)),
-                ],
-              ),
+                      // Tabs
+                      TabBar(
+                        controller: _tabController,
+                        tabs: const [
+                          Tab(text: 'Chat', icon: Icon(Icons.chat)),
+                          Tab(text: 'Logs', icon: Icon(Icons.list)),
+                        ],
+                      ),
 
                       // Content
                       Expanded(
@@ -4198,7 +4419,11 @@ class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerP
     );
   }
 
-  Widget _buildChatTab(ColorScheme colors, ScrollController scrollController, bool isOpen) {
+  Widget _buildChatTab(
+    ColorScheme colors,
+    ScrollController scrollController,
+    bool isOpen,
+  ) {
     return ValueListenableBuilder<List<TemporaryChatMessage>>(
       valueListenable: widget.messagesNotifier,
       builder: (context, messages, _) {
@@ -4231,7 +4456,9 @@ class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerP
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: colors.surfaceContainerHighest,
-                border: Border(top: BorderSide(color: colors.outline.withOpacity(0.2))),
+                border: Border(
+                  top: BorderSide(color: colors.outline.withOpacity(0.2)),
+                ),
               ),
               child: Row(
                 children: [
@@ -4240,11 +4467,16 @@ class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerP
                       controller: _messageController,
                       enabled: isOpen,
                       decoration: InputDecoration(
-                        hintText: isOpen ? 'Сообщение...' : 'DataChannel отключен',
+                        hintText: isOpen
+                            ? 'Сообщение...'
+                            : 'DataChannel отключен',
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(24),
                         ),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 8,
+                        ),
                       ),
                       onSubmitted: isOpen ? _sendMessage : null,
                     ),
@@ -4268,8 +4500,10 @@ class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerP
     // Расшифровка сообщения если нужно
     String displayText = message.text;
     bool isEncrypted = ChatEncryptionService.isEncryptedMessage(message.text);
-    
-    if (isEncrypted && widget.encryptionPassword != null && widget.encryptionPassword!.isNotEmpty) {
+
+    if (isEncrypted &&
+        widget.encryptionPassword != null &&
+        widget.encryptionPassword!.isNotEmpty) {
       final decrypted = ChatEncryptionService.decryptWithPassword(
         widget.encryptionPassword!,
         message.text,
@@ -4278,14 +4512,16 @@ class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerP
         displayText = decrypted;
       }
     }
-    
+
     return Align(
       alignment: message.isMine ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: message.isMine ? colors.primaryContainer : colors.surfaceContainerHighest,
+          color: message.isMine
+              ? colors.primaryContainer
+              : colors.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(16),
         ),
         child: Column(
@@ -4298,18 +4534,29 @@ class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerP
                   Icon(
                     Icons.lock,
                     size: 14,
-                    color: (message.isMine ? colors.onPrimaryContainer : colors.onSurface).withOpacity(0.7),
+                    color:
+                        (message.isMine
+                                ? colors.onPrimaryContainer
+                                : colors.onSurface)
+                            .withOpacity(0.7),
                   ),
                   const SizedBox(width: 4),
                 ],
                 Flexible(
                   child: Text(
-                    isEncrypted && (widget.encryptionPassword == null || widget.encryptionPassword!.isEmpty)
+                    isEncrypted &&
+                            (widget.encryptionPassword == null ||
+                                widget.encryptionPassword!.isEmpty)
                         ? '🔒 Зашифрованное сообщение'
                         : displayText,
                     style: TextStyle(
-                      color: message.isMine ? colors.onPrimaryContainer : colors.onSurface,
-                      fontStyle: isEncrypted && (widget.encryptionPassword == null || widget.encryptionPassword!.isEmpty)
+                      color: message.isMine
+                          ? colors.onPrimaryContainer
+                          : colors.onSurface,
+                      fontStyle:
+                          isEncrypted &&
+                              (widget.encryptionPassword == null ||
+                                  widget.encryptionPassword!.isEmpty)
                           ? FontStyle.italic
                           : FontStyle.normal,
                     ),
@@ -4322,7 +4569,11 @@ class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerP
               '${message.time.hour.toString().padLeft(2, '0')}:${message.time.minute.toString().padLeft(2, '0')}',
               style: TextStyle(
                 fontSize: 10,
-                color: (message.isMine ? colors.onPrimaryContainer : colors.onSurface).withOpacity(0.6),
+                color:
+                    (message.isMine
+                            ? colors.onPrimaryContainer
+                            : colors.onSurface)
+                        .withOpacity(0.6),
               ),
             ),
           ],
@@ -4415,10 +4666,7 @@ class _CallSettingsPanel extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 const Spacer(),
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  onPressed: onClose,
-                ),
+                IconButton(icon: const Icon(Icons.close), onPressed: onClose),
               ],
             ),
           ),
@@ -4439,9 +4687,6 @@ class _CallSettingsPanel extends StatelessWidget {
             trailing: const Icon(Icons.arrow_forward_ios, size: 16),
             onTap: () {
               // TODO: Показать список доступных аудио устройств
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Выбор аудио устройств - в разработке')),
-              );
             },
           ),
           ListTile(
@@ -4451,9 +4696,6 @@ class _CallSettingsPanel extends StatelessWidget {
             trailing: const Icon(Icons.arrow_forward_ios, size: 16),
             onTap: () {
               // TODO: Показать список доступных аудио устройств
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Выбор аудио устройств - в разработке')),
-              );
             },
           ),
           ListTile(
@@ -4463,9 +4705,6 @@ class _CallSettingsPanel extends StatelessWidget {
             trailing: const Icon(Icons.arrow_forward_ios, size: 16),
             onTap: () {
               // TODO: Показать список доступных камер
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Выбор камеры - в разработке')),
-              );
             },
           ),
           const SizedBox(height: 16),

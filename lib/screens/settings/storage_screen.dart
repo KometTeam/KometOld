@@ -28,13 +28,13 @@ class _StorageScreenState extends State<StorageScreen>
   // Настройки кэша
   final CacheSettingsService _cacheSettings = CacheSettingsService();
   final CacheAutoCleanupService _autoCleanup = CacheAutoCleanupService();
-  
+
   bool _isCacheSettingsLoading = true;
   CacheTTLLevel _currentTTLLevel = CacheTTLLevel.balanced;
   bool _autoCleanupEnabled = true;
   int _autoCleanupInterval = 24;
   int _maxCacheSizeMB = 500;
-  
+
   CacheSizeInfo? _cacheSizeInfo;
   CleanupStats? _lastCleanupStats;
 
@@ -157,15 +157,6 @@ class _StorageScreenState extends State<StorageScreen>
     setState(() {
       _currentTTLLevel = level;
     });
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Уровень кэша: ${CacheSettingsService.getLevelName(level)}'),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 2),
-        ),
-      );
-    }
   }
 
   // Переключение автоочистки
@@ -196,7 +187,10 @@ class _StorageScreenState extends State<StorageScreen>
     int totalSize = 0;
     try {
       if (await dir.exists()) {
-        await for (final entity in dir.list(recursive: false, followLinks: false)) {
+        await for (final entity in dir.list(
+          recursive: false,
+          followLinks: false,
+        )) {
           if (entity is File) {
             try {
               totalSize += await entity.length();
@@ -256,15 +250,6 @@ class _StorageScreenState extends State<StorageScreen>
       // Обновляем всю статистику
       await _loadStorageInfo();
       await _loadCacheSettings();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Кэш успешно очищен'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -315,15 +300,6 @@ class _StorageScreenState extends State<StorageScreen>
         }
 
         await _loadStorageInfo();
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Все данные успешно удалены'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -577,7 +553,10 @@ class _StorageScreenState extends State<StorageScreen>
             _formatBytes(_storageInfo!.messagesSize),
             Icons.message_outlined,
             colors.primary,
-            _calculatePercentage(_storageInfo!.messagesSize, _storageInfo!.totalSize),
+            _calculatePercentage(
+              _storageInfo!.messagesSize,
+              _storageInfo!.totalSize,
+            ),
           ),
 
           _buildStorageItem(
@@ -585,7 +564,10 @@ class _StorageScreenState extends State<StorageScreen>
             _formatBytes(_storageInfo!.mediaSize),
             Icons.photo_library_outlined,
             colors.secondary,
-            _calculatePercentage(_storageInfo!.mediaSize, _storageInfo!.totalSize),
+            _calculatePercentage(
+              _storageInfo!.mediaSize,
+              _storageInfo!.totalSize,
+            ),
           ),
 
           _buildStorageItem(
@@ -593,7 +575,10 @@ class _StorageScreenState extends State<StorageScreen>
             _formatBytes(_storageInfo!.cacheSize),
             Icons.cached,
             colors.tertiary,
-            _calculatePercentage(_storageInfo!.cacheSize, _storageInfo!.totalSize),
+            _calculatePercentage(
+              _storageInfo!.cacheSize,
+              _storageInfo!.totalSize,
+            ),
           ),
 
           _buildStorageItem(
@@ -601,7 +586,10 @@ class _StorageScreenState extends State<StorageScreen>
             _formatBytes(_storageInfo!.otherSize),
             Icons.folder_outlined,
             colors.outline,
-            _calculatePercentage(_storageInfo!.otherSize, _storageInfo!.totalSize),
+            _calculatePercentage(
+              _storageInfo!.otherSize,
+              _storageInfo!.totalSize,
+            ),
           ),
         ],
       ),
@@ -693,13 +681,6 @@ class _StorageScreenState extends State<StorageScreen>
       if (selectedDirectory != null && selectedDirectory.isNotEmpty) {
         await DownloadPathHelper.setDownloadDirectory(selectedDirectory);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Папка загрузки установлена: $selectedDirectory'),
-              backgroundColor: Colors.green,
-              duration: const Duration(seconds: 3),
-            ),
-          );
           setState(() {});
         }
       }
@@ -737,12 +718,6 @@ class _StorageScreenState extends State<StorageScreen>
     if (confirmed == true) {
       await DownloadPathHelper.setDownloadDirectory(null);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Папка загрузки сброшена к значению по умолчанию'),
-            backgroundColor: Colors.green,
-          ),
-        );
         setState(() {});
       }
     }
@@ -946,7 +921,10 @@ class _StorageScreenState extends State<StorageScreen>
               ),
               if (_cacheSizeInfo != null)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: colors.primaryContainer,
                     borderRadius: BorderRadius.circular(12),
@@ -1066,7 +1044,9 @@ class _StorageScreenState extends State<StorageScreen>
                     Text(
                       CacheSettingsService.getLevelName(level),
                       style: TextStyle(
-                        fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                        fontWeight: isSelected
+                            ? FontWeight.w600
+                            : FontWeight.normal,
                       ),
                     ),
                   ],
@@ -1181,14 +1161,28 @@ class _StorageScreenState extends State<StorageScreen>
           min: 0,
           max: 2000,
           divisions: 20,
-          label: _maxCacheSizeMB == 0 ? 'Без ограничений' : '$_maxCacheSizeMB MB',
+          label: _maxCacheSizeMB == 0
+              ? 'Без ограничений'
+              : '$_maxCacheSizeMB MB',
           onChanged: (value) => _setMaxCacheSize(value.round()),
         ),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text('Без ограничений', style: TextStyle(fontSize: 12, color: colors.onSurface.withValues(alpha: 0.6))),
-            Text('2 GB', style: TextStyle(fontSize: 12, color: colors.onSurface.withValues(alpha: 0.6))),
+            Text(
+              'Без ограничений',
+              style: TextStyle(
+                fontSize: 12,
+                color: colors.onSurface.withValues(alpha: 0.6),
+              ),
+            ),
+            Text(
+              '2 GB',
+              style: TextStyle(
+                fontSize: 12,
+                color: colors.onSurface.withValues(alpha: 0.6),
+              ),
+            ),
           ],
         ),
       ],
@@ -1222,7 +1216,7 @@ class _StorageScreenState extends State<StorageScreen>
             ],
           ),
           const SizedBox(height: 12),
-          
+
           // TTL для чатов
           _buildCustomTTLSlider(
             colors: colors,
@@ -1232,9 +1226,10 @@ class _StorageScreenState extends State<StorageScreen>
             min: 15,
             max: 1440, // 24 часа
             divisions: 20,
-            onChanged: (value) => _updateCustomTTL(chatsTTL: Duration(minutes: value.round())),
+            onChanged: (value) =>
+                _updateCustomTTL(chatsTTL: Duration(minutes: value.round())),
           ),
-          
+
           // TTL для контактов
           _buildCustomTTLSlider(
             colors: colors,
@@ -1245,9 +1240,10 @@ class _StorageScreenState extends State<StorageScreen>
             max: 72, // 3 дня
             divisions: 18,
             unit: 'ч',
-            onChanged: (value) => _updateCustomTTL(contactsTTL: Duration(hours: value.round())),
+            onChanged: (value) =>
+                _updateCustomTTL(contactsTTL: Duration(hours: value.round())),
           ),
-          
+
           // TTL для сообщений
           _buildCustomTTLSlider(
             colors: colors,
@@ -1257,9 +1253,10 @@ class _StorageScreenState extends State<StorageScreen>
             min: 15,
             max: 720, // 12 часов
             divisions: 15,
-            onChanged: (value) => _updateCustomTTL(messagesTTL: Duration(minutes: value.round())),
+            onChanged: (value) =>
+                _updateCustomTTL(messagesTTL: Duration(minutes: value.round())),
           ),
-          
+
           // TTL для аватарок
           _buildCustomTTLSlider(
             colors: colors,
@@ -1270,9 +1267,10 @@ class _StorageScreenState extends State<StorageScreen>
             max: 30, // 30 дней
             divisions: 15,
             unit: 'дн',
-            onChanged: (value) => _updateCustomTTL(avatarsTTL: Duration(days: value.round())),
+            onChanged: (value) =>
+                _updateCustomTTL(avatarsTTL: Duration(days: value.round())),
           ),
-          
+
           // TTL для файлов
           _buildCustomTTLSlider(
             colors: colors,
@@ -1283,7 +1281,8 @@ class _StorageScreenState extends State<StorageScreen>
             max: 168, // 7 дней
             divisions: 20,
             unit: 'ч',
-            onChanged: (value) => _updateCustomTTL(filesTTL: Duration(hours: value.round())),
+            onChanged: (value) =>
+                _updateCustomTTL(filesTTL: Duration(hours: value.round())),
           ),
         ],
       ),
@@ -1322,7 +1321,11 @@ class _StorageScreenState extends State<StorageScreen>
         children: [
           Row(
             children: [
-              Icon(icon, size: 16, color: colors.onSurface.withValues(alpha: 0.7)),
+              Icon(
+                icon,
+                size: 16,
+                color: colors.onSurface.withValues(alpha: 0.7),
+              ),
               const SizedBox(width: 6),
               Text(
                 label,

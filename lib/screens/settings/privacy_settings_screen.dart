@@ -70,14 +70,6 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
       await _savePrivacySetting('privacy_hidden', hidden);
       if (mounted) {
         setState(() => _isHidden = hidden);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              hidden ? 'Статус онлайн скрыт' : 'Статус онлайн виден',
-            ),
-            backgroundColor: Colors.green,
-          ),
-        );
       }
     } catch (e) {
       _showErrorSnackBar(e);
@@ -118,15 +110,6 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
           contentLevelAccess,
         );
         if (mounted) setState(() => _contentLevelAccess = contentLevelAccess);
-      }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Настройки приватности обновлены'),
-            backgroundColor: Colors.green,
-          ),
-        );
       }
     } catch (e) {
       _showErrorSnackBar(e);

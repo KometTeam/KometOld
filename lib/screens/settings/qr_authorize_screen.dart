@@ -306,10 +306,6 @@ class _QrAuthorizeScreenState extends State<QrAuthorizeScreen>
       await api.sendRawRequest(1, {"interactive": true});
       await api.sendRawRequest(96, {});
       await api.sendRawRequest(290, {"qrLink": qrLink});
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Запрос авторизации отправлен')),
-      );
       return true;
     } catch (e) {
       if (mounted) {

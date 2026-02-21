@@ -438,22 +438,22 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
 
   void _openChannelInfo(BuildContext context) async {
     Navigator.of(context).pop(); // Закрываем профиль
-    
+
     // Показываем индикатор загрузки
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => const Center(
-        child: CircularProgressIndicator(),
-      ),
+      builder: (context) => const Center(child: CircularProgressIndicator()),
     );
-    
+
     try {
-      final channelDetails = await ApiService.instance.getChannelDetails(widget.contact.id);
-      
+      final channelDetails = await ApiService.instance.getChannelDetails(
+        widget.contact.id,
+      );
+
       if (!context.mounted) return;
       Navigator.of(context).pop(); // Закрываем индикатор загрузки
-      
+
       if (channelDetails == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -463,7 +463,7 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
         );
         return;
       }
-      
+
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (context) => ChannelSettingsScreen(
@@ -523,24 +523,13 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
         _ProfileActionButton(
           icon: Icons.call,
           label: 'Позвонить',
-          onPressed: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Звонки скоро будут доступны')),
-            );
-          },
+          onPressed: () {},
           colors: colors,
         ),
         _ProfileActionButton(
           icon: Icons.info_outline,
           label: 'Подробнее',
-          onPressed: () {
-            // TODO: Показать полную информацию о контакте
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Подробная информация скоро будет доступна'),
-              ),
-            );
-          },
+          onPressed: () {},
           colors: colors,
         ),
       ],

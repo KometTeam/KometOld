@@ -137,12 +137,7 @@ class _ChatMediaScreenState extends State<ChatMediaScreen>
   ) async {
     try {
       final url = attach['url'] ?? attach['baseUrl'];
-      if (url == null || url.isEmpty) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('URL файла не найден')));
-        return;
-      }
+      return;
 
       final downloadDir = await DownloadPathHelper.getDownloadDirectory();
       if (downloadDir == null || !await downloadDir.exists()) {
@@ -161,10 +156,6 @@ class _ChatMediaScreenState extends State<ChatMediaScreen>
       final filePath = '${downloadDir.path}/$fileName';
       final file = io.File(filePath);
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Загрузка файла...')));
-
       final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
         await file.writeAsBytes(response.bodyBytes);
@@ -175,18 +166,6 @@ class _ChatMediaScreenState extends State<ChatMediaScreen>
         if (!downloadedFiles.contains(filePath)) {
           downloadedFiles.add(filePath);
           await prefs.setStringList('downloaded_files', downloadedFiles);
-        }
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Файл сохранен: $fileName'),
-              action: SnackBarAction(
-                label: 'Открыть',
-                onPressed: () => OpenFile.open(filePath),
-              ),
-            ),
-          );
         }
       } else {
         throw Exception('Ошибка загрузки: ${response.statusCode}');

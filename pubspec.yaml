@@ -3,7 +3,7 @@ name: gwid
 description: Альтернативный FOSS клиент для мессенджера MAX.
 
 # Версия приложения и номер сборки
-version: 0.4.2+10
+version: 0.4.2+119
 
 repository: https://github.com/KometTeam/Komet
 

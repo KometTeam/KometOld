@@ -284,16 +284,6 @@ class DebugScreen extends StatelessWidget {
         Navigator.of(context).pop();
       }
 
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Все данные очищены. Приложение будет закрыто.'),
-            backgroundColor: Colors.green,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
-
       await Future.delayed(const Duration(seconds: 2));
 
       if (context.mounted) {
@@ -379,13 +369,6 @@ class DebugScreen extends StatelessWidget {
           FilledButton(
             onPressed: () {
               Navigator.of(context).pop();
-              ApiService.instance.clearAllCaches();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Кэш очищен'),
-                  backgroundColor: Colors.green,
-                ),
-              );
             },
             child: const Text('Очистить кэш'),
           ),
@@ -395,11 +378,9 @@ class DebugScreen extends StatelessWidget {
   }
 
   void _showCallsTestScreen(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => const CallsTestScreen(),
-      ),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (context) => const CallsTestScreen()));
   }
 }
 
@@ -776,7 +757,7 @@ class _CallsTestScreenState extends State<CallsTestScreen> {
   final TextEditingController _codeController = TextEditingController();
   final TextEditingController _userIdController = TextEditingController();
   final TextEditingController _tokenController = TextEditingController();
-  
+
   String _verificationToken = '';
   bool _isLoggedIn = false;
   String _status = 'Не авторизован';
@@ -787,23 +768,18 @@ class _CallsTestScreenState extends State<CallsTestScreen> {
   void initState() {
     super.initState();
     _addLog('Инициализирован Calls клиент (debug mode)');
-    
-    // Слушаем входящие звонки
+
     _calls.onIncomingCall.listen((incomingCall) {
       _addLog('📞 Входящий звонок от: ${incomingCall.callerId}');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Входящий звонок от ${incomingCall.callerId}'),
-          backgroundColor: Colors.green,
-          duration: const Duration(seconds: 5),
-        ),
-      );
     });
   }
 
   void _addLog(String message) {
     setState(() {
-      _logs.insert(0, '[${DateTime.now().toString().substring(11, 19)}] $message');
+      _logs.insert(
+        0,
+        '[${DateTime.now().toString().substring(11, 19)}] $message',
+      );
       if (_logs.length > 50) _logs.removeLast();
     });
   }
@@ -817,18 +793,15 @@ class _CallsTestScreenState extends State<CallsTestScreen> {
     try {
       _addLog('📱 Запрос кода для ${_phoneController.text}...');
       setState(() => _status = 'Запрос кода...');
-      
-      _verificationToken = await _calls.requestVerification(_phoneController.text);
-      
-      _addLog('✅ Код отправлен! Token: ${_verificationToken.substring(0, 20)}...');
-      setState(() => _status = 'Код отправлен');
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Код верификации отправлен!'),
-          backgroundColor: Colors.green,
-        ),
+
+      _verificationToken = await _calls.requestVerification(
+        _phoneController.text,
       );
+
+      _addLog(
+        '✅ Код отправлен! Token: ${_verificationToken.substring(0, 20)}...',
+      );
+      setState(() => _status = 'Код отправлен');
     } catch (e) {
       _addLog('❌ Ошибка: $e');
       setState(() => _status = 'Ошибка');
@@ -844,22 +817,15 @@ class _CallsTestScreenState extends State<CallsTestScreen> {
     try {
       _addLog('🔐 Ввод кода...');
       setState(() => _status = 'Авторизация...');
-      
+
       await _calls.enterCode(_verificationToken, _codeController.text);
-      
+
       _addLog('✅ Авторизация успешна!');
       _addLog('🆔 External User ID: ${_calls.externalUserId}');
       setState(() {
         _status = 'Авторизован';
         _isLoggedIn = true;
       });
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Успешная авторизация!'),
-          backgroundColor: Colors.green,
-        ),
-      );
     } catch (e) {
       _addLog('❌ Ошибка: $e');
       setState(() => _status = 'Ошибка авторизации');
@@ -875,22 +841,15 @@ class _CallsTestScreenState extends State<CallsTestScreen> {
     try {
       _addLog('🔑 Вход с токеном...');
       setState(() => _status = 'Вход...');
-      
+
       await _calls.loginWithToken(_tokenController.text);
-      
+
       _addLog('✅ Вход успешен!');
       _addLog('🆔 External User ID: ${_calls.externalUserId}');
       setState(() {
         _status = 'Авторизован';
         _isLoggedIn = true;
       });
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Успешный вход!'),
-          backgroundColor: Colors.green,
-        ),
-      );
     } catch (e) {
       _addLog('❌ Ошибка: $e');
       setState(() => _status = 'Ошибка входа');
@@ -911,20 +870,13 @@ class _CallsTestScreenState extends State<CallsTestScreen> {
     try {
       _addLog('📞 Звоним на ${_userIdController.text}...');
       setState(() => _status = 'Звоним...');
-      
+
       _activeConnection = await _calls.call(_userIdController.text);
-      
+
       _addLog('✅ Звонок установлен!');
       _addLog('🎙️ Local stream: ${_activeConnection?.localStream}');
       _addLog('🔊 Remote stream: ${_activeConnection?.remoteStream}');
       setState(() => _status = 'В звонке');
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Звонок установлен!'),
-          backgroundColor: Colors.green,
-        ),
-      );
     } catch (e) {
       _addLog('❌ Ошибка звонка: $e');
       setState(() => _status = 'Ошибка звонка');
@@ -940,20 +892,13 @@ class _CallsTestScreenState extends State<CallsTestScreen> {
     try {
       _addLog('⏳ Ожидание входящего звонка...');
       setState(() => _status = 'Ожидание звонка...');
-      
+
       _activeConnection = await _calls.waitForCall();
-      
+
       _addLog('✅ Входящий звонок принят!');
       _addLog('🎙️ Local stream: ${_activeConnection?.localStream}');
       _addLog('🔊 Remote stream: ${_activeConnection?.remoteStream}');
       setState(() => _status = 'В звонке');
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Входящий звонок принят!'),
-          backgroundColor: Colors.green,
-        ),
-      );
     } catch (e) {
       _addLog('❌ Ошибка: $e');
       setState(() => _status = 'Ошибка');
@@ -994,7 +939,9 @@ class _CallsTestScreenState extends State<CallsTestScreen> {
         children: [
           // Статус
           Card(
-            color: _isLoggedIn ? colors.primaryContainer : colors.surfaceContainerHighest,
+            color: _isLoggedIn
+                ? colors.primaryContainer
+                : colors.surfaceContainerHighest,
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
@@ -1004,7 +951,9 @@ class _CallsTestScreenState extends State<CallsTestScreen> {
                     children: [
                       Icon(
                         _isLoggedIn ? Icons.check_circle : Icons.info_outline,
-                        color: _isLoggedIn ? colors.primary : colors.onSurfaceVariant,
+                        color: _isLoggedIn
+                            ? colors.primary
+                            : colors.onSurfaceVariant,
                       ),
                       const SizedBox(width: 8),
                       Text(
@@ -1012,7 +961,9 @@ class _CallsTestScreenState extends State<CallsTestScreen> {
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
-                          color: _isLoggedIn ? colors.onPrimaryContainer : colors.onSurfaceVariant,
+                          color: _isLoggedIn
+                              ? colors.onPrimaryContainer
+                              : colors.onSurfaceVariant,
                         ),
                       ),
                     ],
@@ -1207,9 +1158,7 @@ class _CallsTestScreenState extends State<CallsTestScreen> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: _logs.isEmpty
-                      ? const Center(
-                          child: Text('Логи появятся здесь'),
-                        )
+                      ? const Center(child: Text('Логи появятся здесь'))
                       : ListView.builder(
                           itemCount: _logs.length,
                           itemBuilder: (context, index) {

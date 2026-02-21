@@ -5,7 +5,7 @@ export 'app_colors.dart';
 
 import 'package:flutter/material.dart';
 
-const String appVersion = "0.4.1";
+const String appVersion = "0.4.2(119)";
 const String appName = "Komet";
 
 /// Windows Toast notifications require a stable AppUserModelID (AUMID)

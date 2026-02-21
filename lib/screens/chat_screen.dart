@@ -76,8 +76,8 @@ bool get _isMobilePlatform =>
 
 // Настройки позиции mention панели
 class MentionPanelPosition {
-  static const double left = 20.0;   // Отступ слева (можете изменить)
-  static const double right = 20.0;  // Отступ справа (можете изменить)
+  static const double left = 20.0; // Отступ слева (можете изменить)
+  static const double right = 20.0; // Отступ справа (можете изменить)
   static const double bottom = 70.0; // Высота над input bar (можете изменить)
 }
 
@@ -352,13 +352,13 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     super.initState();
     // Set active chat as early as possible to keep notifications/unread in sync.
     ApiService.instance.currentActiveChatId = widget.chatId;
-    
+
     // Уведомляем FloatingCallManager что мы в чате
     // Используем postFrameCallback чтобы избежать вызова notifyListeners во время build
     SchedulerBinding.instance.addPostFrameCallback((_) {
       FloatingCallManager.instance.setInChatScreen(true);
     });
-    
+
     _currentContact = widget.contact;
     _pinnedMessage = widget.pinnedMessage;
     _pinnedMessageNotifier.value = widget.pinnedMessage;
@@ -403,9 +403,13 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     _textFocusNode.addListener(_onTextFocusChanged);
 
     // Подписываемся на обновления статусов прочитанности
-    _readStatusSubscription = MessageReadStatusService().statusUpdates.listen((update) {
+    _readStatusSubscription = MessageReadStatusService().statusUpdates.listen((
+      update,
+    ) {
       if (update.chatId == widget.chatId && mounted) {
-        print('✨ [opcode 130] Обновление статуса в UI для чата ${widget.chatId}');
+        print(
+          '✨ [opcode 130] Обновление статуса в UI для чата ${widget.chatId}',
+        );
         setState(() {
           // Триггерим анимацию для обновленных сообщений
           _messagesToAnimate.clear();
@@ -416,7 +420,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
             }
           }
         });
-        
+
         // Убираем анимацию через 1 секунду
         Future.delayed(const Duration(seconds: 1), () {
           if (mounted) {
@@ -459,10 +463,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   void dispose() {
     print('🗑️ dispose() вызван для чата ${widget.chatId}');
     print('📝 Текст перед dispose: "${_textController.text}"');
-    
+
     // Всегда вызываем onDraftChanged - либо с данными, либо с null для очистки
     final textTrimmed = _textController.text.trim();
-    
+
     if (textTrimmed.isNotEmpty) {
       print('💾 Сохраняем черновик в dispose()');
       // Синхронное сохранение
@@ -470,29 +474,33 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         widget.chatId,
         text: _textController.text,
         elements: _textController.elements,
-        replyingToMessage: _replyingToMessage != null ? {
-          'id': _replyingToMessage!.id,
-          'sender': _replyingToMessage!.senderId,
-          'text': _replyingToMessage!.text,
-          'time': _replyingToMessage!.time,
-          'type': 'USER',
-          'cid': _replyingToMessage!.cid,
-          'attaches': _replyingToMessage!.attaches,
-        } : null,
+        replyingToMessage: _replyingToMessage != null
+            ? {
+                'id': _replyingToMessage!.id,
+                'sender': _replyingToMessage!.senderId,
+                'text': _replyingToMessage!.text,
+                'time': _replyingToMessage!.time,
+                'type': 'USER',
+                'cid': _replyingToMessage!.cid,
+                'attaches': _replyingToMessage!.attaches,
+              }
+            : null,
       );
-      
+
       final draftData = {
         'text': _textController.text,
         'elements': _textController.elements,
-        'replyingToMessage': _replyingToMessage != null ? {
-          'id': _replyingToMessage!.id,
-          'sender': _replyingToMessage!.senderId,
-          'text': _replyingToMessage!.text,
-          'time': _replyingToMessage!.time,
-          'type': 'USER',
-          'cid': _replyingToMessage!.cid,
-          'attaches': _replyingToMessage!.attaches,
-        } : null,
+        'replyingToMessage': _replyingToMessage != null
+            ? {
+                'id': _replyingToMessage!.id,
+                'sender': _replyingToMessage!.senderId,
+                'text': _replyingToMessage!.text,
+                'time': _replyingToMessage!.time,
+                'type': 'USER',
+                'cid': _replyingToMessage!.cid,
+                'attaches': _replyingToMessage!.attaches,
+              }
+            : null,
         'timestamp': DateTime.now().millisecondsSinceEpoch,
       };
       // Вызываем callback через microtask чтобы UI успел обновиться
@@ -515,7 +523,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
       });
       print('✅ Черновик очищен в dispose()');
     }
-    
+
     _isDisposed = true;
     _apiSubscription?.cancel();
     _readStatusSubscription?.cancel();
@@ -540,13 +548,13 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     if (ApiService.instance.currentActiveChatId == widget.chatId) {
       ApiService.instance.currentActiveChatId = null;
     }
-    
+
     // Уведомляем FloatingCallManager что мы вышли из чата
     // Используем postFrameCallback чтобы избежать вызова notifyListeners во время dispose
     SchedulerBinding.instance.addPostFrameCallback((_) {
       FloatingCallManager.instance.setInChatScreen(false);
     });
-    
+
     super.dispose();
   }
 
@@ -558,14 +566,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     );
   }
 
-  // Helper method to show info snackbar
-  void _showInfoSnackBar(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
-  }
-
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -574,10 +574,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         if (didPop) {
           print('🔄 PopScope: выход из чата ${widget.chatId}');
           print('📝 Текущий текст: "${_textController.text}"');
-          
+
           // Сохраняем черновик перед выходом
           _saveInputState();
-          
+
           // Проверяем секретный текст после выхода
           if (_textController.text.trim() == 'ЯЗНАЮТВОЙТЕЛЕФОН') {
             print('🎬 Обнаружен секретный текст!');
@@ -592,10 +592,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
         onHorizontalDragStart: _handleSwipeStart,
         onHorizontalDragUpdate: _handleSwipeUpdate,
         onHorizontalDragEnd: _handleSwipeEnd,
-        child: Scaffold(
-          appBar: _buildAppBar(),
-          body: _buildBody(),
-        ),
+        child: Scaffold(appBar: _buildAppBar(), body: _buildBody()),
       ),
     );
   }
@@ -610,26 +607,26 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   void _handleSwipeUpdate(DragUpdateDetails details) {
     if (!_isSwiping) return;
     _swipeCurrentX = details.globalPosition.dx;
-    
+
     // Можно добавить визуальную обратную связь здесь
     // Например, setState для анимации свайпа
   }
 
   void _handleSwipeEnd(DragEndDetails details) {
     if (!_isSwiping) return;
-    
+
     final swipeDistance = _swipeCurrentX - _swipeStartX;
     final screenWidth = MediaQuery.of(context).size.width;
-    
+
     // Если свайп больше 30% ширины экрана ИЛИ скорость достаточная - возвращаемся
     final threshold = screenWidth * 0.3;
     final velocity = details.velocity.pixelsPerSecond.dx;
-    
+
     if (swipeDistance > threshold || velocity > 500) {
       print('👈 Свайп назад: distance=$swipeDistance, velocity=$velocity');
       Navigator.of(context).pop();
     }
-    
+
     _isSwiping = false;
     _swipeStartX = 0.0;
     _swipeCurrentX = 0.0;
@@ -638,18 +635,18 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   // Проверка секретного текста и показ видео
   void _checkSecretText() {
     if (!mounted) return;
-    
+
     // Мгновенный переход без анимации
     Navigator.of(context).push(
       PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) => 
-          const YAZNAYTVOYTELEFON(videoPath: 'ЯЗНАЮТВОЙТЕЛЕФОН.mp4'),
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            const YAZNAYTVOYTELEFON(videoPath: 'ЯЗНАЮТВОЙТЕЛЕФОН.mp4'),
         transitionDuration: Duration.zero, // Без анимации
         reverseTransitionDuration: Duration.zero,
       ),
     );
   }
-  
+
   // Placeholder methods that will be implemented in part files
   // These methods are implemented in chat_screen_logic.dart via extension
 
@@ -672,7 +669,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 /// Диалог для исходящего звонка с опцией DATA_CHANNEL
 class _OutgoingCallDialog extends StatefulWidget {
   final String contactName;
-  
+
   const _OutgoingCallDialog({required this.contactName});
 
   @override
@@ -691,7 +688,8 @@ class _OutgoingCallDialogState extends State<_OutgoingCallDialog> {
         children: [
           CheckboxListTile(
             value: _enableDataChannel,
-            onChanged: (value) => setState(() => _enableDataChannel = value ?? false),
+            onChanged: (value) =>
+                setState(() => _enableDataChannel = value ?? false),
             title: const Text('Enable DATA_CHANNEL'),
             subtitle: const Text('Для temporary chat и других функций'),
             controlAffinity: ListTileControlAffinity.leading,

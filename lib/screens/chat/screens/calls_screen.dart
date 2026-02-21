@@ -28,19 +28,19 @@ class _CallsScreenState extends State<CallsScreen> {
 
     try {
       final apiService = context.read<ApiService>();
-      
+
       // Получаем все чаты - используем специальный chatId = 0 для "Избранное"
       await apiService.loadChatData(0);
-      
+
       // Ждем немного чтобы данные загрузились
       await Future.delayed(const Duration(milliseconds: 500));
-      
+
       // Получаем сообщения из стрима
       final messages = <Map<String, dynamic>>[];
-      
+
       // TODO: Здесь нужно получить сообщения из кэша или стрима
       // Пока просто показываем пустой список
-      
+
       setState(() {
         _callMessages = messages;
         _isLoading = false;
@@ -87,7 +87,11 @@ class _CallsScreenState extends State<CallsScreen> {
             children: [
               Icon(Icons.error_outline, size: 64, color: colors.error),
               const SizedBox(height: 16),
-              Text(_error!, style: theme.textTheme.bodyLarge, textAlign: TextAlign.center),
+              Text(
+                _error!,
+                style: theme.textTheme.bodyLarge,
+                textAlign: TextAlign.center,
+              ),
               const SizedBox(height: 16),
               ElevatedButton.icon(
                 onPressed: _loadCallHistory,
@@ -105,7 +109,11 @@ class _CallsScreenState extends State<CallsScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.phone_disabled, size: 64, color: colors.onSurface.withOpacity(0.5)),
+            Icon(
+              Icons.phone_disabled,
+              size: 64,
+              color: colors.onSurface.withOpacity(0.5),
+            ),
             const SizedBox(height: 16),
             Text(
               'История звонков пуста',
@@ -130,37 +138,47 @@ class _CallsScreenState extends State<CallsScreen> {
     );
   }
 
-  Widget _buildCallItem(Map<String, dynamic> message, ThemeData theme, ColorScheme colors) {
+  Widget _buildCallItem(
+    Map<String, dynamic> message,
+    ThemeData theme,
+    ColorScheme colors,
+  ) {
     final apiService = context.read<ApiService>();
     final myId = apiService.myUserId ?? 0;
     final senderId = message['sender'] as int? ?? 0;
     final isIncoming = senderId != myId;
-    
+
     // Получаем attach звонка
     final attaches = message['attaches'] as List? ?? [];
-    final callAttach = attaches.firstWhere(
-      (a) => a is Map && a['_type'] == 'CALL',
-      orElse: () => <String, dynamic>{},
-    ) as Map<String, dynamic>;
-    
+    final callAttach =
+        attaches.firstWhere(
+              (a) => a is Map && a['_type'] == 'CALL',
+              orElse: () => <String, dynamic>{},
+            )
+            as Map<String, dynamic>;
+
     if (callAttach.isEmpty) {
       return const SizedBox.shrink();
     }
-    final hangupType = (callAttach['hangupType'] as String? ?? 'unknown').toLowerCase();
+    final hangupType = (callAttach['hangupType'] as String? ?? 'unknown')
+        .toLowerCase();
     final duration = callAttach['duration'] as int? ?? 0;
-    final callType = (callAttach['callType'] as String? ?? 'audio').toLowerCase();
-    
+    final callType = (callAttach['callType'] as String? ?? 'audio')
+        .toLowerCase();
+
     // DEBUG: Проверим что приходит
     if (hangupType == 'rejected' || hangupType == 'canceled') {
-      print('🔍 [CallsScreen] hangupType=$hangupType, duration=$duration, callAttach=$callAttach');
+      print(
+        '🔍 [CallsScreen] hangupType=$hangupType, duration=$duration, callAttach=$callAttach',
+      );
     }
     final contactIds = callAttach['contactIds'] as List? ?? [];
     final time = message['time'] as int? ?? 0;
-    
+
     // Определяем иконку и цвет
     IconData icon;
     Color iconColor;
-    
+
     if (hangupType == 'missed') {
       icon = Icons.call_missed;
       iconColor = Colors.red;
@@ -171,7 +189,7 @@ class _CallsScreenState extends State<CallsScreen> {
       icon = Icons.call_made;
       iconColor = Colors.blue;
     }
-    
+
     // Статус звонка
     String statusText;
     if (hangupType == 'missed') {
@@ -186,14 +204,16 @@ class _CallsScreenState extends State<CallsScreen> {
     } else {
       statusText = 'Звонок';
     }
-    
+
     // Имя контакта - используем senderId если входящий, иначе contactIds
-    final contactId = isIncoming ? senderId : (contactIds.isNotEmpty ? contactIds.first as int? : null);
+    final contactId = isIncoming
+        ? senderId
+        : (contactIds.isNotEmpty ? contactIds.first as int? : null);
     final contactName = contactId != null ? 'Контакт $contactId' : 'Неизвестно';
-    
+
     // Время
     final timeStr = _formatTime(DateTime.fromMillisecondsSinceEpoch(time));
-    
+
     return ListTile(
       leading: CircleAvatar(
         backgroundColor: iconColor.withOpacity(0.1),
@@ -202,7 +222,9 @@ class _CallsScreenState extends State<CallsScreen> {
       title: Text(
         contactName,
         style: theme.textTheme.bodyLarge?.copyWith(
-          fontWeight: hangupType == 'missed' && isIncoming ? FontWeight.bold : FontWeight.normal,
+          fontWeight: hangupType == 'missed' && isIncoming
+              ? FontWeight.bold
+              : FontWeight.normal,
         ),
       ),
       subtitle: Row(
@@ -254,7 +276,7 @@ class _CallsScreenState extends State<CallsScreen> {
   String _formatTime(DateTime time) {
     final now = DateTime.now();
     final diff = now.difference(time);
-    
+
     if (diff.inDays == 0) {
       return '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
     } else if (diff.inDays == 1) {
@@ -276,10 +298,7 @@ class _CallsScreenState extends State<CallsScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              contactName,
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
+            Text(contactName, style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 16),
             ListTile(
               leading: const Icon(Icons.phone),
@@ -305,24 +324,16 @@ class _CallsScreenState extends State<CallsScreen> {
 
   void _makeCall(Map<String, dynamic> message) {
     final attaches = message['attaches'] as List? ?? [];
-    final callAttach = attaches.firstWhere(
-      (a) => a is Map && a['_type'] == 'CALL',
-      orElse: () => <String, dynamic>{},
-    ) as Map<String, dynamic>;
-    
+    final callAttach =
+        attaches.firstWhere(
+              (a) => a is Map && a['_type'] == 'CALL',
+              orElse: () => <String, dynamic>{},
+            )
+            as Map<String, dynamic>;
+
     final contactIds = callAttach['contactIds'] as List? ?? [];
     final contactId = contactIds.isNotEmpty ? contactIds.first : null;
-    
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Звонок контакту $contactId...'),
-        action: SnackBarAction(
-          label: 'Отмена',
-          onPressed: () {},
-        ),
-      ),
-    );
-    
+
     // TODO: Интеграция с CallsService для реального звонка
   }
 }

@@ -48,18 +48,6 @@ class _SearchChannelsScreenState extends State<SearchChannelsScreen> {
               .map((channelJson) => Channel.fromJson(channelJson))
               .toList();
         }
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Найдено каналов: ${_foundChannels.length}'),
-            backgroundColor: Colors.green,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            behavior: SnackBarBehavior.floating,
-            margin: const EdgeInsets.all(10),
-          ),
-        );
       }
 
       if (message['type'] == 'channels_not_found') {
@@ -487,36 +475,12 @@ class _ChannelDetailsScreenState extends State<ChannelDetailsScreen> {
 
         final payload = message['payload'];
         _webAppUrl = payload['url'] as String?;
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Канал открыт'),
-            backgroundColor: Colors.green,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            behavior: SnackBarBehavior.floating,
-            margin: const EdgeInsets.all(10),
-          ),
-        );
       }
 
       if (message['type'] == 'channel_subscribed') {
         setState(() {
           _isLoading = false;
         });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Подписка на канал успешна!'),
-            backgroundColor: Colors.green,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            behavior: SnackBarBehavior.floating,
-            margin: const EdgeInsets.all(10),
-          ),
-        );
       }
 
       if (message['type'] == 'channel_error') {
@@ -844,21 +808,7 @@ class _ChannelDetailsScreenState extends State<ChannelDetailsScreen> {
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton.icon(
-                            onPressed: () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: const Text(
-                                    'Открытие веб-приложения...',
-                                  ),
-                                  backgroundColor: Colors.blue,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  behavior: SnackBarBehavior.floating,
-                                  margin: const EdgeInsets.all(10),
-                                ),
-                              );
-                            },
+                            onPressed: () {},
                             icon: const Icon(Icons.open_in_browser),
                             label: const Text('Открыть веб-приложение'),
                             style: ElevatedButton.styleFrom(

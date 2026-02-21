@@ -8,7 +8,7 @@ class ChatInputBar extends StatelessWidget {
   final VoidCallback? onAttachTap;
   final VoidCallback? onCameraTap;
   final VoidCallback? onVoiceTap;
-  
+
   const ChatInputBar({
     super.key,
     this.onAttachTap,
@@ -19,7 +19,7 @@ class ChatInputBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     return Consumer<ChatInputController>(
       builder: (context, controller, child) {
         return Container(
@@ -41,7 +41,7 @@ class ChatInputBar extends StatelessWidget {
                     message: controller.replyingToMessage!,
                     onCancel: controller.clearReply,
                   ),
-                
+
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
@@ -55,7 +55,7 @@ class ChatInputBar extends StatelessWidget {
                         minHeight: 40,
                       ),
                     ),
-                    
+
                     Expanded(
                       child: TextField(
                         controller: controller.textController,
@@ -88,9 +88,63 @@ class ChatInputBar extends StatelessWidget {
                         minLines: 1,
                         textCapitalization: TextCapitalization.sentences,
                         onSubmitted: (_) => controller.sendMessage(),
+                        contextMenuBuilder: (context, editableTextState) {
+                          final List<ContextMenuButtonItem> buttonItems =
+                              editableTextState.contextMenuButtonItems;
+
+                          buttonItems.insertAll(0, [
+                            ContextMenuButtonItem(
+                              label: 'Жирный',
+                              onPressed: () {
+                                editableTextState.hideToolbar();
+                                controller.toggleStyle('STRONG');
+                              },
+                            ),
+                            ContextMenuButtonItem(
+                              label: 'Курсив',
+                              onPressed: () {
+                                editableTextState.hideToolbar();
+                                controller.toggleStyle('EMPHASIZED');
+                              },
+                            ),
+                            ContextMenuButtonItem(
+                              label: 'Зачеркнуть',
+                              onPressed: () {
+                                editableTextState.hideToolbar();
+                                controller.toggleStyle('STRIKETHROUGH');
+                              },
+                            ),
+                            ContextMenuButtonItem(
+                              label: 'Подчеркнуть',
+                              onPressed: () {
+                                editableTextState.hideToolbar();
+                                controller.toggleStyle('UNDERLINE');
+                              },
+                            ),
+                            ContextMenuButtonItem(
+                              label: 'Цитата',
+                              onPressed: () {
+                                editableTextState.hideToolbar();
+                                controller.toggleStyle('QUOTE');
+                              },
+                            ),
+                            ContextMenuButtonItem(
+                              label: 'Убрать стили',
+                              onPressed: () {
+                                editableTextState.hideToolbar();
+                                controller.clearSelectionStyles();
+                              },
+                            ),
+                          ]);
+
+                          return AdaptiveTextSelectionToolbar.buttonItems(
+                            anchors: editableTextState.contextMenuAnchors,
+                            buttonItems: buttonItems,
+                          );
+                        },
                       ),
                     ),
-                    
+
                     if (controller.hasText)
                       _SendButton(
                         isSending: controller.isSending,
@@ -116,15 +170,12 @@ class ChatInputBar extends StatelessWidget {
 class _ReplyIndicator extends StatelessWidget {
   final Message message;
   final VoidCallback onCancel;
-  
-  const _ReplyIndicator({
-    required this.message,
-    required this.onCancel,
-  });
+
+  const _ReplyIndicator({required this.message, required this.onCancel});
 
   String? _getPhotoUrl() {
     if (message.attaches.isEmpty) return null;
-    
+
     for (final attach in message.attaches) {
       final type = attach['_type'] ?? attach['type'];
       if (type == 'PHOTO' || type == 'IMAGE') {
@@ -143,7 +194,7 @@ class _ReplyIndicator extends StatelessWidget {
         final type = a['_type'] ?? a['type'];
         return type == 'PHOTO' || type == 'IMAGE';
       });
-      
+
       if (hasPhoto && message.text.isEmpty) {
         return 'Фото';
       }
@@ -155,7 +206,7 @@ class _ReplyIndicator extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final photoUrl = _getPhotoUrl();
-    
+
     return Container(
       margin: EdgeInsets.zero,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -163,10 +214,7 @@ class _ReplyIndicator extends StatelessWidget {
         color: theme.colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(8),
         border: Border(
-          left: BorderSide(
-            color: theme.colorScheme.primary,
-            width: 3,
-          ),
+          left: BorderSide(color: theme.colorScheme.primary, width: 3),
         ),
       ),
       child: Row(
@@ -205,7 +253,7 @@ class _ReplyIndicator extends StatelessWidget {
                           strokeWidth: 2,
                           value: loadingProgress.expectedTotalBytes != null
                               ? loadingProgress.cumulativeBytesLoaded /
-                                  loadingProgress.expectedTotalBytes!
+                                    loadingProgress.expectedTotalBytes!
                               : null,
                         ),
                       ),
@@ -216,7 +264,7 @@ class _ReplyIndicator extends StatelessWidget {
             ),
             const SizedBox(width: 8),
           ],
-          
+
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -258,16 +306,13 @@ class _ReplyIndicator extends StatelessWidget {
 class _SendButton extends StatelessWidget {
   final bool isSending;
   final VoidCallback onPressed;
-  
-  const _SendButton({
-    required this.isSending,
-    required this.onPressed,
-  });
+
+  const _SendButton({required this.isSending, required this.onPressed});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    
+
     if (isSending) {
       return Padding(
         padding: const EdgeInsets.all(8),
@@ -281,13 +326,10 @@ class _SendButton extends StatelessWidget {
         ),
       );
     }
-    
+
     return IconButton(
       onPressed: onPressed,
-      icon: Icon(
-        Icons.send,
-        color: theme.colorScheme.primary,
-      ),
+      icon: Icon(Icons.send, color: theme.colorScheme.primary),
     );
   }
 }

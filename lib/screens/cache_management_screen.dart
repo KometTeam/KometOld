@@ -120,15 +120,6 @@ class _CacheManagementScreenState extends State<CacheManagementScreen> {
         await chatService.clearAllChatCache();
 
         await _loadCacheStats();
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Весь кэш очищен'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -173,15 +164,6 @@ class _CacheManagementScreenState extends State<CacheManagementScreen> {
 
         await Future.delayed(const Duration(milliseconds: 50));
         await _loadCacheStats();
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Кэш аватарок очищен'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -269,8 +251,7 @@ class _CacheManagementScreenState extends State<CacheManagementScreen> {
 
   String _getTTLDescription() {
     final settings = _settingsService.currentSettings;
-    return 
-        "• Чаты: ${_formatDuration(settings.chatsTTL)}\n"
+    return "• Чаты: ${_formatDuration(settings.chatsTTL)}\n"
         "• Контакты: ${_formatDuration(settings.contactsTTL)}\n"
         "• Сообщения: ${_formatDuration(settings.messagesTTL)}\n"
         "• Аватарки: ${_formatDuration(settings.avatarsTTL)}\n"
@@ -457,7 +438,9 @@ class _CacheManagementScreenState extends State<CacheManagementScreen> {
                           Container(
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: colors.secondaryContainer.withValues(alpha: 0.5),
+                              color: colors.secondaryContainer.withValues(
+                                alpha: 0.5,
+                              ),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Row(

@@ -5,6 +5,28 @@ class FormattedTextController extends TextEditingController {
 
   FormattedTextController({super.text});
 
+  void refresh() {
+    notifyListeners();
+  }
+
+  void clearStylesForSelection(TextSelection selection) {
+    if (selection.isCollapsed) return;
+
+    final start = selection.start;
+    final end = selection.end;
+
+    elements.removeWhere((el) {
+      final elFrom = (el['from'] as int?) ?? 0;
+      final elLen = (el['length'] as int?) ?? 0;
+      final elEnd = elFrom + elLen;
+
+      // Удаляем, если есть пересечение с выделением
+      return (elFrom < end && elEnd > start);
+    });
+
+    refresh();
+  }
+
   @override
   set value(TextEditingValue newValue) {
     final oldValue = super.value;
@@ -20,16 +42,17 @@ class FormattedTextController extends TextEditingController {
     final minLen = oldText.length < newText.length
         ? oldText.length
         : newText.length;
-    while (prefix < minLen && oldText.codeUnitAt(prefix) == newText.codeUnitAt(prefix)) {
+    while (prefix < minLen &&
+        oldText.codeUnitAt(prefix) == newText.codeUnitAt(prefix)) {
       prefix++;
     }
 
     int oldSuffix = oldText.length;
     int newSuffix = newText.length;
-    while (
-        oldSuffix > prefix &&
+    while (oldSuffix > prefix &&
         newSuffix > prefix &&
-        oldText.codeUnitAt(oldSuffix - 1) == newText.codeUnitAt(newSuffix - 1)) {
+        oldText.codeUnitAt(oldSuffix - 1) ==
+            newText.codeUnitAt(newSuffix - 1)) {
       oldSuffix--;
       newSuffix--;
     }
@@ -79,7 +102,7 @@ class FormattedTextController extends TextEditingController {
 
       if (pos < from) {
         el['from'] = from + insertLen;
-      } else if (pos <= end) {
+      } else if (pos < end) {
         el['length'] = length + insertLen;
       }
     }
@@ -216,7 +239,9 @@ class FormattedTextController extends TextEditingController {
       if (quote[i]) {
         final theme = Theme.of(context);
         s = s.copyWith(
-          backgroundColor: theme.colorScheme.surfaceVariant.withValues(alpha: 0.55),
+          backgroundColor: theme.colorScheme.surfaceVariant.withValues(
+            alpha: 0.55,
+          ),
         );
       }
       return s;

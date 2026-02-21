@@ -478,9 +478,6 @@ class _SocketLogScreenState extends State<SocketLogScreen>
         )
         .join('\n\n');
     Clipboard.setData(ClipboardData(text: logText));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Отфильтрованный журнал скопирован')),
-    );
   }
 
   void _shareLogs() async {
@@ -512,19 +509,7 @@ class _SocketLogScreenState extends State<SocketLogScreen>
 
       await file.writeAsString(logText);
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Логи сохранены: ${file.path}'),
-            action: SnackBarAction(
-              label: 'Открыть',
-              onPressed: () => SharePlus.instance.share(
-                ShareParams(files: [XFile(file.path)]),
-              ),
-            ),
-          ),
-        );
-      }
+      if (mounted) {}
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -1077,9 +1062,6 @@ class _AnimatedLogEntryCardState extends State<AnimatedLogEntryCard>
             TextButton.icon(
               onPressed: () {
                 Clipboard.setData(ClipboardData(text: prettyJson));
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('JSON скопирован')),
-                );
               },
               icon: const Icon(Icons.copy),
               label: const Text("Копировать"),

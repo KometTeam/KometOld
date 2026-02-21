@@ -1433,21 +1433,21 @@ class ChatMessageBubble extends StatelessWidget {
   Widget _buildSystemMessage(BuildContext context) {
     final control = message.attaches.firstWhere((a) => a['_type'] == 'CONTROL');
     final shortMessage = control['shortMessage'] as String? ?? '';
-    
+
     if (shortMessage.isEmpty) {
       return const SizedBox.shrink();
     }
 
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
-    
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
       child: Center(
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
-            color: isDarkMode 
-                ? Colors.white.withOpacity(0.1) 
+            color: isDarkMode
+                ? Colors.white.withOpacity(0.1)
                 : Colors.black.withOpacity(0.05),
             borderRadius: BorderRadius.circular(12),
           ),
@@ -2581,9 +2581,11 @@ class ChatMessageBubble extends StatelessWidget {
     for (final control in controls) {
       final event = control['event'] as String?;
       final shortMessage = control['shortMessage'] as String?;
-      
+
       // Отображаем системные сообщения (звонки, и т.д.)
-      if (event == 'system' && shortMessage != null && shortMessage.isNotEmpty) {
+      if (event == 'system' &&
+          shortMessage != null &&
+          shortMessage.isNotEmpty) {
         widgets.add(
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 2),
@@ -2600,7 +2602,9 @@ class ChatMessageBubble extends StatelessWidget {
                   child: Text(
                     shortMessage,
                     style: TextStyle(
-                      color: textColor.withValues(alpha: 0.8 * messageTextOpacity),
+                      color: textColor.withValues(
+                        alpha: 0.8 * messageTextOpacity,
+                      ),
                       fontSize: 13,
                       fontStyle: FontStyle.italic,
                     ),
@@ -2689,13 +2693,7 @@ class ChatMessageBubble extends StatelessWidget {
         children: [
           Icon(callIcon, size: 18, color: callColor),
           const SizedBox(width: 6),
-          Text(
-            callText,
-            style: TextStyle(
-              color: callColor,
-              fontSize: 14,
-            ),
-          ),
+          Text(callText, style: TextStyle(color: callColor, fontSize: 14)),
         ],
       ),
     );
@@ -3653,10 +3651,10 @@ class ChatMessageBubble extends StatelessWidget {
           ? (audio['count'] as num).toInt()
           : (audio['duration'] is num)
           ? (audio['duration'] as num).toInt()
-          : int.tryParse(audio['count']?.toString() ?? '') 
-          ?? int.tryParse(audio['duration']?.toString() ?? '') 
-          ?? 0;
-      
+          : int.tryParse(audio['count']?.toString() ?? '') ??
+                int.tryParse(audio['duration']?.toString() ?? '') ??
+                0;
+
       // Конвертируем миллисекунды в секунды
       final durationSeconds = durationMs ~/ 1000;
       final audioId = (audio['audioId'] is num)
@@ -3866,15 +3864,6 @@ class ChatMessageBubble extends StatelessWidget {
       token: token,
       chatId: chatId,
     );
-
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Начато скачивание файла...'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-    }
   }
 
   void _startBackgroundDownload(
@@ -3973,16 +3962,6 @@ class ChatMessageBubble extends StatelessWidget {
           musicMetadata[fileId] = track.toJson();
           await prefs.setString('music_metadata', jsonEncode(musicMetadata));
         }
-      }
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Файл сохранен: $fileName'),
-            duration: const Duration(seconds: 3),
-            action: SnackBarAction(label: 'OK', onPressed: () {}),
-          ),
-        );
       }
     } catch (e) {
       FileDownloadProgressService().clearProgress(fileId);
@@ -4932,7 +4911,13 @@ class ChatMessageBubble extends StatelessWidget {
       if (markerType == null) {
         if (index < text.length) {
           segments.add(
-            KometSegment(text.substring(index), KometSegmentType.normal),
+            KometSegment(
+              text.substring(index),
+              KometSegmentType.normal,
+              absStart: index,
+              absEnd: text.length,
+              contentStart: index,
+            ),
           );
         }
         break;
@@ -4943,6 +4928,9 @@ class ChatMessageBubble extends StatelessWidget {
           KometSegment(
             text.substring(index, nextMarker),
             KometSegmentType.normal,
+            absStart: index,
+            absEnd: nextMarker,
+            contentStart: index,
           ),
         );
       }
@@ -4958,10 +4946,18 @@ class ChatMessageBubble extends StatelessWidget {
           if (secondQuote != -1) {
             final segmentText = afterHash.substring(textStart, secondQuote);
             final color = _parseKometHexColor(hexStr, null);
+            final segmentAbsEnd = nextMarker + prefix.length + secondQuote + 1;
             segments.add(
-              KometSegment(segmentText, KometSegmentType.pulse, color: color),
+              KometSegment(
+                segmentText,
+                KometSegmentType.pulse,
+                color: color,
+                absStart: nextMarker,
+                absEnd: segmentAbsEnd,
+                contentStart: nextMarker + prefix.length + textStart,
+              ),
             );
-            index = nextMarker + prefix.length + secondQuote + 2;
+            index = segmentAbsEnd;
             continue;
           }
         }
@@ -4972,27 +4968,51 @@ class ChatMessageBubble extends StatelessWidget {
           KometSegment(
             text.substring(nextMarker, safeEnd),
             KometSegmentType.normal,
+            absStart: nextMarker,
+            absEnd: safeEnd,
+            contentStart: nextMarker,
           ),
         );
         index = safeEnd;
       } else if (markerType == "galaxy") {
-        const prefix = "komet.cosmetic.galaxy''";
+        final bool isDouble = text.startsWith(
+          "komet.cosmetic.galaxy''",
+          nextMarker,
+        );
+        final String prefix = isDouble
+            ? "komet.cosmetic.galaxy''"
+            : "komet.cosmetic.galaxy'";
+        final String delimiter = isDouble ? "''" : "'";
+
         final textStart = nextMarker + prefix.length;
-        final quoteIndex = text.indexOf("''", textStart);
+        final quoteIndex = text.indexOf(delimiter, textStart);
         if (quoteIndex != -1) {
           final segmentText = text.substring(textStart, quoteIndex);
-          segments.add(KometSegment(segmentText, KometSegmentType.galaxy));
-          index = quoteIndex + 2;
+          final segmentAbsEnd = quoteIndex + delimiter.length;
+          segments.add(
+            KometSegment(
+              segmentText,
+              KometSegmentType.galaxy,
+              absStart: nextMarker,
+              absEnd: segmentAbsEnd,
+              contentStart: textStart,
+            ),
+          );
+          index = segmentAbsEnd;
           continue;
         }
 
+        final safeEnd = (textStart + 10).clamp(0, text.length);
         segments.add(
           KometSegment(
-            text.substring(nextMarker, textStart + 10),
+            text.substring(nextMarker, safeEnd),
             KometSegmentType.normal,
+            absStart: nextMarker,
+            absEnd: safeEnd,
+            contentStart: nextMarker,
           ),
         );
-        index = textStart + 10;
+        index = safeEnd == nextMarker ? text.length : safeEnd;
       } else if (markerType == "color") {
         const marker = 'komet.color_';
         final colorStart = nextMarker + marker.length;
@@ -5004,21 +5024,33 @@ class ChatMessageBubble extends StatelessWidget {
           if (secondQuote != -1) {
             final segmentText = text.substring(textStart, secondQuote);
             final color = _parseKometHexColor(colorStr, null);
+            final segmentAbsEnd = secondQuote + 1;
             segments.add(
-              KometSegment(segmentText, KometSegmentType.colored, color: color),
+              KometSegment(
+                segmentText,
+                KometSegmentType.colored,
+                color: color,
+                absStart: nextMarker,
+                absEnd: segmentAbsEnd,
+                contentStart: textStart,
+              ),
             );
-            index = secondQuote + 1;
+            index = segmentAbsEnd;
             continue;
           }
         }
 
+        final safeEnd = (colorStart + 10).clamp(0, text.length);
         segments.add(
           KometSegment(
-            text.substring(nextMarker, colorStart + 10),
+            text.substring(nextMarker, safeEnd),
             KometSegmentType.normal,
+            absStart: nextMarker,
+            absEnd: safeEnd,
+            contentStart: nextMarker,
           ),
         );
-        index = colorStart + 10;
+        index = safeEnd == nextMarker ? text.length : safeEnd;
       }
     }
 
@@ -5049,6 +5081,32 @@ class ChatMessageBubble extends StatelessWidget {
       spacing: 2.0, // Add spacing between segments
       runSpacing: 2.0, // Add spacing between lines
       children: segments.map((seg) {
+        // Slicing elements for the current segment
+        final List<Map<String, dynamic>> slicedElements = [];
+        // Content boundaries for the current segment
+        final int contentStart = seg.contentStart;
+        final int contentEnd = contentStart + seg.text.length;
+
+        for (final el in elements) {
+          final from = (el['from'] as int?) ?? 0;
+          final length = (el['length'] as int?) ?? 0;
+          if (length <= 0) continue;
+
+          final end = from + length;
+
+          // Check for overlap between segment content [contentStart, contentEnd] and element [from, end]
+          final overlapStart = from < contentStart ? contentStart : from;
+          final overlapEnd = end > contentEnd ? contentEnd : end;
+
+          if (overlapEnd > overlapStart) {
+            final mapped = Map<String, dynamic>.from(el);
+            // Translate original from to segment-relative from
+            mapped['from'] = overlapStart - contentStart;
+            mapped['length'] = overlapEnd - overlapStart;
+            slicedElements.add(mapped);
+          }
+        }
+
         switch (seg.type) {
           case KometSegmentType.normal:
           case KometSegmentType.colored:
@@ -5056,7 +5114,7 @@ class ChatMessageBubble extends StatelessWidget {
                 ? baseStyle.copyWith(color: seg.color)
                 : baseStyle;
 
-            if (elements.isEmpty) {
+            if (slicedElements.isEmpty) {
               return Container(
                 constraints: const BoxConstraints(maxWidth: double.infinity),
                 child: Linkify(
@@ -5078,7 +5136,7 @@ class ChatMessageBubble extends StatelessWidget {
                   context,
                   seg.text,
                   baseForSeg,
-                  elements,
+                  slicedElements,
                 ),
               );
             }
