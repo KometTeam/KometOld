@@ -1633,4 +1633,124 @@ extension ApiServiceChats on ApiService {
       }
     }
   }
+
+  Future<void> sendVideoMessage(
+      int chatId, {
+        required String localPath,
+        required int durationSeconds,
+        required int fileSize,
+        required int width,
+        required int height,
+        String? thumbnail,
+        int? senderId,
+        int maxNotReadyRetries = 6,
+        Function(double)? onProgress,
+      }) async {
+    await waitUntilOnline();
+
+    final int cid = DateTime.now().millisecondsSinceEpoch;
+
+    final resp82 = await sendRequest(82, {'type': 1, 'count': 1});
+    final infoList = resp82['payload']?['info'];
+    if (infoList is! List || infoList.isEmpty) {
+      throw Exception('Неверный ответ на opcode 82: отсутствует info');
+    }
+
+    final uploadInfo = infoList.first;
+    final String uploadUrl = uploadInfo['url'];
+    final dynamic idCandidate =
+        uploadInfo['id'] ?? uploadInfo['audioId'] ?? uploadInfo['videoId'];
+    if (idCandidate == null || idCandidate is! num) {
+      throw Exception('Неверный ответ на opcode 82: отсутствует id/audioId/videoId');
+    }
+
+    final videoId = idCandidate.toInt();
+
+    final request = http.MultipartRequest('POST', Uri.parse(uploadUrl));
+    request.files.add(await http.MultipartFile.fromPath('file', localPath));
+    final streamed = await request.send();
+    onProgress?.call(0.0);
+    final httpResp = await http.Response.fromStream(streamed);
+    onProgress?.call(1.0);
+    if (httpResp.statusCode != 200) {
+      throw Exception(
+        'Ошибка загрузки видео: ${httpResp.statusCode} ${httpResp.body}',
+      );
+    }
+
+    String? token;
+    try {
+      final decoded = jsonDecode(httpResp.body);
+      if (decoded is Map) {
+        token = decoded['token']?.toString();
+      }
+    } catch (e) {
+      print('⚠️ Ошибка парсинга токена из ответа: $e');
+    }
+
+    token ??= uploadInfo['token']?.toString();
+
+    if (token == null || token.isEmpty) {
+      throw Exception('Не получен token после загрузки видео');
+    }
+
+    Future<void> trySendWithToken() async {
+      final attachment = {
+        'videoType': 1,
+        '_type': 'VIDEO',
+        'token': token,
+        'duration': durationSeconds,
+        'size': fileSize,
+        'width': width,
+        'height': height,
+        'videoId': videoId,
+        'sender': senderId ?? 0,
+      };
+
+      if (thumbnail != null && thumbnail.isNotEmpty) {
+        attachment['thumbnail'] = thumbnail;
+      }
+
+      final payload = {
+        'chatId': chatId,
+        'message': {
+          'isLive': false,
+          'detectShare': false,
+          'elements': [],
+          'cid': cid,
+          'attaches': [attachment],
+        },
+        'notify': true,
+      };
+
+      final resp64 = await sendRequest(64, payload);
+      final cmd = resp64['cmd'] as int?;
+      if (cmd == 0x300 || cmd == 768) {
+        final err = resp64['payload'];
+        if (err is Map && err['error'] == 'attachment.not.ready') {
+          throw err;
+        }
+        throw Exception(err?.toString() ?? 'Ошибка отправки видео');
+      }
+    }
+
+    int attempt = 0;
+    while (true) {
+      try {
+        await trySendWithToken();
+        return;
+      } catch (e) {
+        if (e is Map && e['error'] == 'attachment.not.ready') {
+          if (attempt >= maxNotReadyRetries) {
+            throw Exception('attachment.not.ready (max retries exceeded)');
+          }
+          final backoffMs = 250 * (attempt + 1);
+          await Future.delayed(Duration(milliseconds: backoffMs));
+          attempt += 1;
+          continue;
+        }
+        rethrow;
+      }
+    }
+  }
 }

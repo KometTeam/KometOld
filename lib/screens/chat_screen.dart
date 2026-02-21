@@ -179,6 +179,20 @@ class VoicePreviewItem extends ChatItem {
   });
 }
 
+class VideoPreviewItem extends ChatItem {
+  final bool isUploading;
+  final double progress;
+  final bool isFailed;
+  final VoidCallback? onRetry;
+
+  VideoPreviewItem({
+    required this.isUploading,
+    required this.progress,
+    required this.isFailed,
+    this.onRetry,
+  });
+}
+
 class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   // Core state fields
   bool _isDisposed = false;
@@ -301,6 +315,20 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   double _voiceUploadProgress = 0.0;
   String? _cachedVoicePath;
   bool _isVoiceUploadFailed = false;
+
+  // Video message recording
+  bool _isVideoRecordingUi = false;
+  String? _currentVideoRecordingPath;
+  bool _isActuallyVideoRecording = false;
+  bool _isVideoRecordingPaused = false;
+  Duration _videoRecordingDuration = Duration.zero;
+  Timer? _videoRecordingTimer;
+  bool _isVideoUploading = false;
+  double _videoUploadProgress = 0.0;
+  String? _cachedVideoPath;
+  bool _isVideoUploadFailed = false;
+  final int _videoWidth = 480;
+  final int _videoHeight = 480;
 
   static const double _recordCancelThreshold = 92.0;
   double _recordCancelDragDx = 0.0;

@@ -974,6 +974,110 @@ extension on _ChatScreenState {
     final theme = context.watch<ThemeProvider>();
     final isBlocked = _currentContact.isBlockedByMe && !theme.blockBypass;
 
+    if (_isVideoRecordingUi) {
+      final inputBar = Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 12.0,
+              vertical: 10.0,
+            ),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: SafeArea(
+              top: false,
+              bottom: false,
+              child: _buildVideoRecordingBar(
+                isBlocked: isBlocked,
+                isGlass: false,
+              ),
+            ),
+          ),
+          Positioned(
+            right: 12,
+            top: 0,
+            bottom: 0,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onHorizontalDragStart: (!isBlocked && !_isVideoRecordingPaused)
+                  ? (_) => _handleRecordCancelDragStart()
+                  : null,
+              onHorizontalDragUpdate: (!isBlocked && !_isVideoRecordingPaused)
+                  ? (details) => _handleRecordCancelDragUpdate(details)
+                  : null,
+              onHorizontalDragEnd: (!isBlocked && !_isVideoRecordingPaused)
+                  ? (_) => _handleRecordCancelDragEnd()
+                  : null,
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(24),
+                  onTap: _sendVideoMessage,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primary,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(6),
+                      child: Icon(
+                        Icons.send_rounded,
+                        color: Theme.of(context).colorScheme.onPrimary,
+                        size: 24,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            right:
+                12 +
+                _ChatScreenState._recordSendButtonSpace +
+                _ChatScreenState._recordButtonGap,
+            top: 0,
+            bottom: 0,
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: (!isBlocked) ? _toggleVideoRecordingPause : null,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primary,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(6),
+                    child: Icon(
+                      _isVideoRecordingPaused
+                          ? Icons.play_arrow_rounded
+                          : Icons.pause_rounded,
+                      color: Theme.of(context).colorScheme.onPrimary,
+                      size: 16,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+
+      return _wrapInputWithPanels(inputBar);
+    }
+
     if (_isVoiceRecordingUi) {
       final inputBar = Stack(
         clipBehavior: Clip.none,
@@ -1092,6 +1196,14 @@ extension on _ChatScreenState {
             ),
             onPressed: _onAttachPressed,
             tooltip: 'Прикрепить файл',
+          ),
+          IconButton(
+            icon: Icon(
+              Icons.videocam_rounded,
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
+            onPressed: _startVideoRecordingUi,
+            tooltip: 'Записать видеокружок',
           ),
           CompositedTransformTarget(
             link: _sparkleLayerLink,
