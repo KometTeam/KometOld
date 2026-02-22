@@ -14,3 +14,7 @@ $ flutter build [windows|linux] [--release]
 ## Хотите помочь?
 Нашли ошибку и сами её исправили? Сделайте Pull-Request.<br/>
 Часто помогаете проекту? Приглашаем вас в команду разработки.
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=KometTeam/komet&type=date&legend=bottom-right)](https://www.star-history.com/#KometTeam/komet&type=date&legend=bottom-right)
