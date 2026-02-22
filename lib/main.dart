@@ -86,9 +86,10 @@ Future<void> main() async {
     return true;
   };
 
+  WidgetsFlutterBinding.ensureInitialized();
+
   await runZonedGuarded(
     () async {
-      WidgetsFlutterBinding.ensureInitialized();
       await initializeDateFormatting();
 
       await _generateInitialAndroidSpoof();

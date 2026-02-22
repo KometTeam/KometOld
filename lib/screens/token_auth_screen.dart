@@ -140,8 +140,7 @@ class _TokenAuthScreenState extends State<TokenAuthScreen>
 
   Future<void> _loadSessionFile() async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['json', 'ksession'],
+      type: FileType.any,
     );
     if (result == null || result.files.single.path == null) return;
     final filePath = result.files.single.path!;
