@@ -38,6 +38,14 @@ class ChatInputController extends ChangeNotifier {
   VoiceRecordingState get voiceState => _voiceState;
   bool get isRecording => _voiceState == VoiceRecordingState.recording;
 
+  bool _isVideoMode = false;
+  bool get isVideoMode => _isVideoMode;
+
+  void toggleRecordMode() {
+    _isVideoMode = !_isVideoMode;
+    _notifyListenersSafe();
+  }
+
   Duration _recordingDuration = Duration.zero;
   Duration get recordingDuration => _recordingDuration;
 
@@ -235,6 +243,30 @@ class ChatInputController extends ChangeNotifier {
       ),
     );
 
+    _notifyListenersSafe();
+  }
+
+  /// Вставить спец-префикс Komet (цвет, пульсация и т.д.)
+  void insertKometPrefix(String prefix) {
+    if (_isDisposed) return;
+
+    final text = textController.text;
+    final selection = textController.selection;
+    final start = selection.start == -1 ? text.length : selection.start;
+    final end = selection.end == -1 ? text.length : selection.end;
+
+    // Вставляем только префикс до # если есть
+    final String actualPrefix = prefix.contains('#')
+        ? prefix.substring(0, prefix.indexOf('#') + 1)
+        : prefix;
+
+    final newText =
+        text.substring(0, start) + actualPrefix + text.substring(end);
+    textController.text = newText;
+    textController.selection = TextSelection.collapsed(
+      offset: start + actualPrefix.length,
+    );
+    focusNode.requestFocus();
     _notifyListenersSafe();
   }
 

@@ -8,9 +8,11 @@ import 'controllers/chat_controller.dart';
 import 'controllers/chat_input_controller.dart';
 import 'widgets/chat_message_list.dart';
 import 'widgets/input/chat_input_bar.dart';
+import '../../utils/theme_provider.dart';
+import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 
 /// Упрощенный экран чата (v2)
-/// 
+///
 /// Использует ChatController и ChatInputController для разделения
 /// логики и UI. Предназначен для постепенной замены ChatScreen.
 class ChatScreenV2 extends StatefulWidget {
@@ -21,7 +23,7 @@ class ChatScreenV2 extends StatefulWidget {
   final bool isChannel;
   final int? participantCount;
   final Message? pinnedMessage;
-  
+
   const ChatScreenV2({
     super.key,
     required this.chatId,
@@ -50,7 +52,7 @@ class _ChatScreenV2State extends State<ChatScreenV2> {
       isChannel: widget.isChannel,
     );
     _inputController = ChatInputController(chatId: widget.chatId);
-    
+
     _chatController.initialize();
   }
 
@@ -80,14 +82,16 @@ class _ChatScreenV2State extends State<ChatScreenV2> {
                 onMessageLongPress: _showMessageOptions,
                 onLoadMore: _chatController.loadMoreMessages,
                 isGroupChat: widget.isGroupChat || widget.isChannel,
-                onGoToMessage: (messageId) => _chatController.scrollToMessage(messageId),
+                onGoToMessage: (messageId) =>
+                    _chatController.scrollToMessage(messageId),
               ),
             ),
-            
+
             // Input bar
             ChatInputBar(
               onAttachTap: _showAttachMenu,
               onVoiceTap: _startVoiceRecording,
+              onSpecialTap: _showSpecialMenu,
             ),
           ],
         ),
@@ -125,7 +129,9 @@ class _ChatScreenV2State extends State<ChatScreenV2> {
                     '${widget.participantCount ?? 0} участников',
                     style: TextStyle(
                       fontSize: 12,
-                      color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withOpacity(0.6),
                     ),
                   )
                 else
@@ -142,10 +148,7 @@ class _ChatScreenV2State extends State<ChatScreenV2> {
         ],
       ),
       actions: [
-        IconButton(
-          onPressed: _showChatMenu,
-          icon: const Icon(Icons.more_vert),
-        ),
+        IconButton(onPressed: _showChatMenu, icon: const Icon(Icons.more_vert)),
       ],
     );
   }
@@ -233,23 +236,168 @@ class _ChatScreenV2State extends State<ChatScreenV2> {
     );
   }
 
+  void _showSpecialMenu() {
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    if (!themeProvider.specialMessagesEnabled) return;
+
+    final colors = Theme.of(context).colorScheme;
+
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: colors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: colors.outlineVariant,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                ),
+                const Text(
+                  'Спецэффекты',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.color_lens_outlined),
+                        label: const Text('Цветной текст'),
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          _inputController.insertKometPrefix('komet.color_#');
+                          _openColorPickerDialog();
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.animation),
+                        label: const Text('Пульсация'),
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          _inputController.insertKometPrefix(
+                            'komet.cosmetic.pulse#',
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.stars),
+                        label: const Text('Галактика'),
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          _inputController.insertKometPrefix(
+                            "komet.cosmetic.galaxy''",
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _openColorPickerDialog() {
+    Color pickedColor = Colors.white;
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('Выберите цвет'),
+          content: SingleChildScrollView(
+            child: ColorPicker(
+              pickerColor: pickedColor,
+              onColorChanged: (color) => pickedColor = color,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Отмена'),
+            ),
+            TextButton(
+              onPressed: () {
+                final hex = pickedColor.value
+                    .toRadixString(16)
+                    .padLeft(8, '0')
+                    .substring(2)
+                    .toUpperCase();
+                final text = _inputController.textController.text;
+                final offset =
+                    _inputController.textController.selection.baseOffset;
+                if (offset > 0) {
+                  _inputController.textController.text = text.replaceRange(
+                    offset,
+                    offset,
+                    hex,
+                  );
+                }
+                Navigator.pop(ctx);
+              },
+              child: const Text('Выбрать'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   void _startVoiceRecording() {
     // TODO: Voice recording
   }
 
   void _showChatMenu() {
+    final colors = Theme.of(context).colorScheme;
+    final RenderBox button = context.findRenderObject() as RenderBox;
+    final RenderBox overlay =
+        Navigator.of(context).overlay!.context.findRenderObject() as RenderBox;
+    final RelativeRect position = RelativeRect.fromRect(
+      Rect.fromPoints(
+        button.localToGlobal(Offset.zero, ancestor: overlay),
+        button.localToGlobal(
+          button.size.bottomRight(Offset.zero),
+          ancestor: overlay,
+        ),
+      ),
+      Offset.zero & overlay.size,
+    );
+
     showMenu(
       context: context,
-      position: const RelativeRect.fromLTRB(100, 80, 0, 0),
+      position: position,
       items: [
         const PopupMenuItem(
           value: 'search',
           child: Row(
-            children: [
-              Icon(Icons.search),
-              SizedBox(width: 8),
-              Text('Поиск'),
-            ],
+            children: [Icon(Icons.search), SizedBox(width: 8), Text('Поиск')],
           ),
         ),
         const PopupMenuItem(
@@ -262,13 +410,13 @@ class _ChatScreenV2State extends State<ChatScreenV2> {
             ],
           ),
         ),
-        const PopupMenuItem(
+        PopupMenuItem(
           value: 'clear',
           child: Row(
             children: [
-              Icon(Icons.delete_sweep, color: Colors.red),
-              SizedBox(width: 8),
-              Text('Очистить историю', style: TextStyle(color: Colors.red)),
+              Icon(Icons.delete_sweep, color: colors.error),
+              const SizedBox(width: 8),
+              Text('Очистить историю', style: TextStyle(color: colors.error)),
             ],
           ),
         ),

@@ -727,11 +727,16 @@ extension on _ChatScreenState {
         } else {
           // Нет текста: показываем mic или camera с анимацией переключения
           icon = AnimatedSwitcher(
-            duration: const Duration(milliseconds: 220),
-            transitionBuilder: (child, animation) => ScaleTransition(
-              scale: Tween<double>(begin: 0.75, end: 1.0).animate(animation),
-              child: FadeTransition(opacity: animation, child: child),
-            ),
+            duration: const Duration(milliseconds: 300),
+            transitionBuilder: (child, animation) {
+              return RotationTransition(
+                turns: Tween<double>(begin: 0.8, end: 1.0).animate(animation),
+                child: ScaleTransition(
+                  scale: animation,
+                  child: FadeTransition(opacity: animation, child: child),
+                ),
+              );
+            },
             child: Icon(
               recordIcon,
               key: ValueKey<bool>(_isVideoRecordMode),
@@ -1034,6 +1039,14 @@ extension on _ChatScreenState {
             onPressed: _onAttachPressed,
             tooltip: 'Прикрепить файл',
           ),
+          IconButton(
+            icon: Icon(
+              Icons.auto_awesome_rounded,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            onPressed: _toggleKometSpecialMenu,
+            tooltip: 'Спецэффекты',
+          ),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1218,6 +1231,7 @@ extension on _ChatScreenState {
                             ),
                           },
                           child: TextField(
+                            key: _textFieldKey,
                             controller: _textController,
                             maxLines: null,
                             textInputAction: TextInputAction.send,
@@ -1286,6 +1300,29 @@ extension on _ChatScreenState {
                                   onPressed: () {
                                     editableTextState.hideToolbar();
                                     _clearSelectionStyles();
+                                  },
+                                ),
+                                ContextMenuButtonItem(
+                                  label: 'Галактика',
+                                  onPressed: () {
+                                    editableTextState.hideToolbar();
+                                    final selection = _textController.selection;
+                                    if (selection.start < 0) return;
+                                    final text = _textController.text;
+                                    final selectedText = text.substring(
+                                      selection.start,
+                                      selection.end,
+                                    );
+                                    final newText = text.replaceRange(
+                                      selection.start,
+                                      selection.end,
+                                      "komet.cosmetic.galaxy'$selectedText'",
+                                    );
+                                    _textController.text = newText;
+                                    _textController.selection = TextSelection(
+                                      baseOffset: selection.start + 22,
+                                      extentOffset: selection.end + 22,
+                                    );
                                   },
                                 ),
                               ]);

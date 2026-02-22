@@ -8,12 +8,14 @@ class ChatInputBar extends StatelessWidget {
   final VoidCallback? onAttachTap;
   final VoidCallback? onCameraTap;
   final VoidCallback? onVoiceTap;
+  final VoidCallback? onSpecialTap;
 
   const ChatInputBar({
     super.key,
     this.onAttachTap,
     this.onCameraTap,
     this.onVoiceTap,
+    this.onSpecialTap,
   });
 
   @override
@@ -49,6 +51,18 @@ class ChatInputBar extends StatelessWidget {
                       onPressed: onAttachTap,
                       icon: const Icon(Icons.attach_file),
                       color: theme.colorScheme.onSurfaceVariant,
+                      padding: const EdgeInsets.all(8),
+                      constraints: const BoxConstraints(
+                        minWidth: 40,
+                        minHeight: 40,
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: onSpecialTap,
+                      icon: Icon(
+                        Icons.auto_awesome_rounded,
+                        color: theme.colorScheme.primary,
+                      ),
                       padding: const EdgeInsets.all(8),
                       constraints: const BoxConstraints(
                         minWidth: 40,
@@ -135,6 +149,16 @@ class ChatInputBar extends StatelessWidget {
                                 controller.clearSelectionStyles();
                               },
                             ),
+                            ContextMenuButtonItem(
+                              label: 'Галактика',
+                              onPressed: () {
+                                editableTextState.hideToolbar();
+                                controller.formatSelection(
+                                  "komet.cosmetic.galaxy'",
+                                  "'",
+                                );
+                              },
+                            ),
                           ]);
 
                           return AdaptiveTextSelectionToolbar.buttonItems(
@@ -151,10 +175,31 @@ class ChatInputBar extends StatelessWidget {
                         onPressed: controller.sendMessage,
                       )
                     else
-                      IconButton(
-                        onPressed: onVoiceTap,
-                        icon: const Icon(Icons.mic),
-                        color: theme.colorScheme.onSurfaceVariant,
+                      AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 300),
+                        transitionBuilder: (child, animation) {
+                          return RotationTransition(
+                            turns: Tween<double>(
+                              begin: 0.8,
+                              end: 1.0,
+                            ).animate(animation),
+                            child: ScaleTransition(
+                              scale: animation,
+                              child: FadeTransition(
+                                opacity: animation,
+                                child: child,
+                              ),
+                            ),
+                          );
+                        },
+                        child: IconButton(
+                          key: ValueKey<bool>(controller.isVideoMode),
+                          onPressed: controller.toggleRecordMode,
+                          icon: Icon(
+                            controller.isVideoMode ? Icons.videocam : Icons.mic,
+                          ),
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
                       ),
                   ],
                 ),

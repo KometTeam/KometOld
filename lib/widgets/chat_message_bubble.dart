@@ -180,6 +180,7 @@ bool isMobile =
     Platform.instance.operatingSystem.android;
 
 class ChatMessageBubble extends StatelessWidget {
+  static final Expando<List<KometSegment>> _segmentsCache = Expando();
   final Message message;
   final bool isMe;
   final MessageReadStatus? readStatus;
@@ -5074,7 +5075,9 @@ class ChatMessageBubble extends StatelessWidget {
       text = '${text.substring(0, maxTextLength)}... (сообщение обрезано)';
     }
 
-    final segments = _parseMixedMessageSegments(text);
+    final segments = _segmentsCache[message] ??= _parseMixedMessageSegments(
+      text,
+    );
 
     return Wrap(
       crossAxisAlignment: WrapCrossAlignment.center,
@@ -5141,9 +5144,11 @@ class ChatMessageBubble extends StatelessWidget {
               );
             }
           case KometSegmentType.galaxy:
-            return Container(
-              constraints: const BoxConstraints(maxWidth: double.infinity),
-              child: GalaxyAnimatedText(text: seg.text),
+            return RepaintBoundary(
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: double.infinity),
+                child: GalaxyAnimatedText(text: seg.text),
+              ),
             );
           case KometSegmentType.pulse:
             final hexStr = seg.color!
@@ -5152,10 +5157,12 @@ class ChatMessageBubble extends StatelessWidget {
                 .padLeft(8, '0')
                 .substring(2)
                 .toUpperCase();
-            return Container(
-              constraints: const BoxConstraints(maxWidth: double.infinity),
-              child: PulseAnimatedText(
-                text: "komet.cosmetic.pulse#$hexStr'${seg.text}'",
+            return RepaintBoundary(
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: double.infinity),
+                child: PulseAnimatedText(
+                  text: "komet.cosmetic.pulse#$hexStr'${seg.text}'",
+                ),
               ),
             );
         }

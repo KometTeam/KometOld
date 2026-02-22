@@ -5,7 +5,6 @@ import 'package:gwid/api/api_service.dart';
 import 'package:gwid/services/floating_call_manager.dart';
 import 'package:gwid/services/call_overlay_service.dart';
 import 'package:gwid/services/call_recording_service.dart';
-import 'package:gwid/services/chat_encryption_service.dart';
 import 'package:gwid/widgets/contact_avatar_widget.dart';
 import 'package:gwid/widgets/animated_mesh_gradient.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -2074,20 +2073,22 @@ class _CallScreenState extends State<CallScreen> {
         if (type == 'chat') {
           String? text = data['text'] as String?;
           final isEncrypted = data['encrypted'] as bool? ?? false;
+          bool decryptedOk = false;
 
           if (text != null) {
             // Дешифруем если сообщение зашифровано
             if (isEncrypted && _chatEncrypter != null && _chatIV != null) {
               try {
                 text = _decryptMessage(text);
+                decryptedOk = true;
                 print('🔓 Сообщение дешифровано');
               } catch (e) {
                 print('❌ Ошибка дешифрования: $e');
-                text = '[Ошибка дешифрования - неверный пароль?]';
+                text = '🔒 [не удалось расшифровать — верный ли пароль?]';
               }
             } else if (isEncrypted && _chatEncrypter == null) {
               // Получили зашифрованное, но у нас нет пароля
-              text = '[Зашифрованное сообщение - установите пароль]';
+              text = '🔒 [зашифрованное сообщение — установите пароль]';
             }
 
             final newMessages = List<TemporaryChatMessage>.from(
@@ -2098,6 +2099,7 @@ class _CallScreenState extends State<CallScreen> {
                 text: text,
                 time: DateTime.now(),
                 isMine: false,
+                isDecryptedSuccessfully: decryptedOk,
               ),
             );
             _temporaryChatMessagesNotifier.value = newMessages;
@@ -2146,7 +2148,13 @@ class _CallScreenState extends State<CallScreen> {
         _temporaryChatMessages,
       );
       newMessages.add(
-        TemporaryChatMessage(text: text, time: DateTime.now(), isMine: true),
+        TemporaryChatMessage(
+          text: text,
+          time: DateTime.now(),
+          isMine: true,
+          // Своё сообщение шифровалось успешно — показываем замок
+          isDecryptedSuccessfully: _chatEncrypter != null,
+        ),
       );
       _temporaryChatMessagesNotifier.value = newMessages;
       _addDataChannelLog('📤 Отправлено: $text');
@@ -4255,10 +4263,14 @@ class TemporaryChatMessage {
   final DateTime time;
   final bool isMine;
 
+  /// true — сообщение пришло зашифрованным и успешно расшифровалось
+  final bool isDecryptedSuccessfully;
+
   TemporaryChatMessage({
     required this.text,
     required this.time,
     required this.isMine,
+    this.isDecryptedSuccessfully = false,
   });
 }
 
@@ -4497,21 +4509,10 @@ class _DataChannelPanelState extends State<_DataChannelPanel>
   }
 
   Widget _buildMessageBubble(TemporaryChatMessage message, ColorScheme colors) {
-    // Расшифровка сообщения если нужно
-    String displayText = message.text;
-    bool isEncrypted = ChatEncryptionService.isEncryptedMessage(message.text);
-
-    if (isEncrypted &&
-        widget.encryptionPassword != null &&
-        widget.encryptionPassword!.isNotEmpty) {
-      final decrypted = ChatEncryptionService.decryptWithPassword(
-        widget.encryptionPassword!,
-        message.text,
-      );
-      if (decrypted != null) {
-        displayText = decrypted;
-      }
-    }
+    // Для DataChannel шифрование обрабатывается в onMessage.
+    // Используем флаг isDecryptedSuccessfully из самого сообщения.
+    final String displayText = message.text;
+    final bool showLock = message.isDecryptedSuccessfully;
 
     return Align(
       alignment: message.isMine ? Alignment.centerRight : Alignment.centerLeft,
@@ -4530,7 +4531,7 @@ class _DataChannelPanelState extends State<_DataChannelPanel>
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (isEncrypted && widget.encryptionPassword != null) ...[
+                if (showLock) ...[
                   Icon(
                     Icons.lock,
                     size: 14,
@@ -4538,27 +4539,17 @@ class _DataChannelPanelState extends State<_DataChannelPanel>
                         (message.isMine
                                 ? colors.onPrimaryContainer
                                 : colors.onSurface)
-                            .withOpacity(0.7),
+                            .withOpacity(0.8),
                   ),
                   const SizedBox(width: 4),
                 ],
                 Flexible(
                   child: Text(
-                    isEncrypted &&
-                            (widget.encryptionPassword == null ||
-                                widget.encryptionPassword!.isEmpty)
-                        ? '🔒 Зашифрованное сообщение'
-                        : displayText,
+                    displayText,
                     style: TextStyle(
                       color: message.isMine
                           ? colors.onPrimaryContainer
                           : colors.onSurface,
-                      fontStyle:
-                          isEncrypted &&
-                              (widget.encryptionPassword == null ||
-                                  widget.encryptionPassword!.isEmpty)
-                          ? FontStyle.italic
-                          : FontStyle.normal,
                     ),
                   ),
                 ),

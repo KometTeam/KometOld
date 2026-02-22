@@ -42,6 +42,10 @@ extension on _ChatScreenState {
       );
       final replyIdForServer = _replyingToMessage?.id;
       final replyMsgForLocal = _replyingToMessage;
+
+      // Trigger flying text animation
+      _animateFlyingText(originalText);
+
       _addMessage(tempMessage);
       _clearInputState();
       _sendToServer(
@@ -131,6 +135,42 @@ extension on _ChatScreenState {
 
     _textController.refresh();
     _setStateIfMounted(() {});
+  }
+
+  void _animateFlyingText(String text) {
+    if (!mounted) return;
+    final RenderBox? renderBox =
+        _textFieldKey.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox == null) return;
+
+    final Offset startOffset = renderBox.localToGlobal(Offset.zero);
+    final Size size = renderBox.size;
+
+    // Aim for the bottom-right area where the new message will appear
+    final mediaQuery = MediaQuery.of(context);
+    final Offset endOffset = Offset(
+      mediaQuery.size.width - 150, // Right side
+      mediaQuery.size.height - 180, // Slightly above input
+    );
+
+    final OverlayState overlayState = Overlay.of(context);
+    late OverlayEntry entry;
+
+    entry = OverlayEntry(
+      builder: (context) => _FlyingTextWidget(
+        text: text,
+        startOffset: startOffset,
+        endOffset: endOffset,
+        size: size,
+        onComplete: () {
+          if (entry.mounted) {
+            entry.remove();
+          }
+        },
+      ),
+    );
+
+    overlayState.insert(entry);
   }
 
   void _clearSelectionStyles() {
@@ -2337,10 +2377,7 @@ extension on _ChatScreenState {
                 ),
                 const Text(
                   'Спецэффекты',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 12),
                 Row(
