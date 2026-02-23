@@ -68,17 +68,14 @@ android {
     }
 
     buildTypes {
-        getByName("release") {
-            if (file(keyPropertiesFile).exists() ||
-                System.getenv("RELEASE_STORE_FILE") != null) {
-                signingConfig = signingConfigs.getByName("release")
-            }
+        release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 }

@@ -61,8 +61,7 @@ import 'package:gwid/services/voice_upload_service.dart';
 import 'package:gwid/widgets/yaznaytvoytelefon.dart';
 import 'package:camera/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
-import 'package:ffmpeg_kit_flutter_new/return_code.dart';
+import 'package:video_compress/video_compress.dart';
 import 'dart:math' show pi;
 
 part 'chat_screen_widgets.dart';

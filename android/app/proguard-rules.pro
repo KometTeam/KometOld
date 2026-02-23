@@ -1,79 +1,31 @@
-# Flutter-специфичные правила
+# Flutter Wrapper
 -keep class io.flutter.app.** { *; }
--keep class io.flutter.plugin.** { *; }
--keep class io.flutter.util.** { *; }
--keep class io.flutter.view.** { *; }
--keep class io.flutter.embedding.** { *; }
+-keep class io.flutter.plugin.**  { *; }
+-keep class io.flutter.util.**  { *; }
+-keep class io.flutter.view.**  { *; }
+-keep class io.flutter.**  { *; }
+-keep class io.flutter.plugins.**  { *; }
 
-# Игнорировать предупреждения о недостающих классах Play Core
--dontwarn com.google.android.play.core.splitcompat.SplitCompatApplication
--dontwarn com.google.android.play.core.splitinstall.**
--dontwarn com.google.android.play.core.tasks.**
-
-# Правила для video_player плагина
--keep class io.flutter.plugins.videoplayer.** { *; }
--keep class io.flutter.plugins.videoplayer.VideoPlayerPlugin { *; }
--keep class io.flutter.plugins.videoplayer.VideoPlayerApi { *; }
--dontwarn io.flutter.plugins.videoplayer.**
-
-# Правила для ExoPlayer (используется video_player на Android)
-# Поддержка старых версий ExoPlayer
--keep class com.google.android.exoplayer2.** { *; }
--keep interface com.google.android.exoplayer2.** { *; }
--dontwarn com.google.android.exoplayer2.**
-
-# Поддержка новых версий ExoPlayer (3.x)
--keep class androidx.media3.** { *; }
--keep interface androidx.media3.** { *; }
--dontwarn androidx.media3.**
-
-# Сохранить все классы, используемые ExoPlayer через рефлексию
+# Models used in GSON / JSON
+-keep class com.gwid.app.gwid.** { *; }
 -keepclassmembers class * {
-    @com.google.android.exoplayer2.util.UnknownNull *;
-}
--keepclassmembers class * {
-    @androidx.media3.common.util.UnknownNull *;
+    @com.google.gson.annotations.SerializedName <fields>;
 }
 
-# Правила для chewie
--keep class com.brianegan.chewie.** { *; }
--dontwarn com.brianegan.chewie.**
-
-# Сохранить все классы, используемые через рефлексию
--keepattributes *Annotation*
--keepattributes Signature
--keepattributes Exceptions
--keepattributes InnerClasses
--keepattributes EnclosingMethod
-
-# Сохранить нативные методы
--keepclasseswithmembernames class * {
-    native <methods>;
+# Keep serializers
+-keep class * implements java.io.Serializable { *; }
+-keepclassmembers class * implements java.io.Serializable {
+    static final long serialVersionUID;
+    private static final java.io.ObjectStreamField[] serialPersistentFields;
+    !static !transient <fields>;
+    private void writeObject(java.io.ObjectOutputStream);
+    private void readObject(java.io.ObjectInputStream);
+    java.lang.Object writeReplace();
+    java.lang.Object readResolve();
 }
 
-# Сохранить классы с аннотациями @Keep
--keep @androidx.annotation.Keep class *
--keepclassmembers class * {
-    @androidx.annotation.Keep *;
+# Dart / Flutter internal native methods
+-keepclassmembers class ** {
+    @androidx.annotation.Keep <fields>;
+    @androidx.annotation.Keep <methods>;
 }
-
-# Правила для ffmpeg_kit_flutter_new (пакет com.antonkarpenko)
--keep class com.antonkarpenko.ffmpegkit.** { *; }
--keep interface com.antonkarpenko.ffmpegkit.** { *; }
--dontwarn com.antonkarpenko.ffmpegkit.**
-
-# Оригинальный пакет arthenica
--keep class com.arthenica.ffmpegkit.** { *; }
--keep interface com.arthenica.ffmpegkit.** { *; }
--dontwarn com.arthenica.ffmpegkit.**
--keep class com.arthenica.smartexception.java.** { *; }
--dontwarn com.arthenica.smartexception.java.**
-
-# Правила для Apache Tika
--dontwarn javax.xml.stream.XMLStreamException
--dontwarn javax.xml.stream.**
--dontwarn org.apache.tika.**
-
-# Игнорировать предупреждения о недостающих классах XML
--dontwarn javax.xml.**
--dontwarn org.w3c.dom.**
