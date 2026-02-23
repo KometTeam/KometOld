@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_linkify/flutter_linkify.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
 import '../../../models/message.dart';
 import '../../../models/contact.dart';
@@ -268,13 +270,28 @@ class _MessageContent extends StatelessWidget {
             children: [
               if (message.text.isNotEmpty)
                 SelectionContainer.disabled(
-                  child: Text(
-                    message.text,
+                  child: Linkify(
+                    text: _normalizeBareLinks(message.text),
                     key: ValueKey('msg_text_${message.id}'),
                     style: TextStyle(
                       color: textColor,
                       fontSize: 16,
                     ),
+                    linkStyle: TextStyle(
+                      color: theme.colorScheme.primary,
+                      decoration: TextDecoration.underline,
+                    ),
+                    onOpen: (link) async {
+                      final uri = Uri.tryParse(link.url);
+                      if (uri != null) {
+                        final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+                        if (!ok && context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Не удалось открыть ссылку: ${link.url}')),
+                          );
+                        }
+                      }
+                    },
                   ),
                 ),
               

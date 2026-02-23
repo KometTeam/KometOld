@@ -108,7 +108,10 @@ class _ChatMediaScreenState extends State<ChatMediaScreen>
         }
 
         if (!hasLink) {
-          final urlPattern = RegExp(r'https?://[^\s]+', caseSensitive: false);
+          final urlPattern = RegExp(
+            r'(?:https?://[^\s]+)|(?:(?:(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,})(?::\d+)?(?:/[\w\-./?%&=+#]*)?)|(?:\b(?:\d{1,3}\.){3}\d{1,3}\b(?::\d+)?(?:/[\w\-./?%&=+#]*)?)',
+            caseSensitive: false,
+          );
           hasLink = urlPattern.hasMatch(message.text);
         }
       }
@@ -242,6 +245,9 @@ class _ChatMediaScreenState extends State<ChatMediaScreen>
   }
 
   void _openLink(String url) async {
+    if (!(url.startsWith('http://') || url.startsWith('https://'))) {
+      url = 'http://$url';
+    }
     final uri = Uri.parse(url);
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -261,7 +267,10 @@ class _ChatMediaScreenState extends State<ChatMediaScreen>
       }
     }
 
-    final urlPattern = RegExp(r'https?://[^\s]+', caseSensitive: false);
+    final urlPattern = RegExp(
+      r'(?:https?://[^\s]+)|(?:(?:(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,})(?::\d+)?(?:/[\w\-./?%&=+#]*)?)|(?:\b(?:\d{1,3}\.){3}\d{1,3}\b(?::\d+)?(?:/[\w\-./?%&=+#]*)?)',
+      caseSensitive: false,
+    );
     final match = urlPattern.firstMatch(message.text);
     return match?.group(0) ?? '';
   }
