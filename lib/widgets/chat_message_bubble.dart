@@ -273,13 +273,20 @@ class ChatMessageBubble extends StatelessWidget {
   }
 
   EdgeInsets _getMessageMargin(BuildContext context) {
+    final bool needsSmallLeftInset = !isMe && (
+      (!isGroupChat && !isChannel) || // direct chat (no leading avatar)
+      (isGroupChat && !isFirstInGroup) || // grouped messages without avatar
+      (isChannel) // channel messages typically have no per-message avatar
+    );
+    final leftMargin = needsSmallLeftInset ? 6.0 : 0.0;
+
     if (isLastInGroup) {
-      return const EdgeInsets.only(bottom: 6);
+      return EdgeInsets.only(left: leftMargin, bottom: 6);
     }
     if (isFirstInGroup) {
-      return const EdgeInsets.only(bottom: 2);
+      return EdgeInsets.only(left: leftMargin, bottom: 2);
     }
-    return const EdgeInsets.only(bottom: 2);
+    return EdgeInsets.only(left: leftMargin, bottom: 2);
   }
 
   Widget _buildForwardedMessage(

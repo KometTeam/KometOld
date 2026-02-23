@@ -4799,7 +4799,10 @@ class _ChatsScreenState extends State<ChatsScreen>
       return '';
     }
 
-    // Получаем контакт отправителя
+    if (isChannel) {
+      return '';
+    }
+
     final contact = _contacts[message.senderId];
     if (contact != null) {
       return getContactDisplayName(
@@ -4810,8 +4813,8 @@ class _ChatsScreenState extends State<ChatsScreen>
       );
     }
 
-    // Если не нашли контакт, возвращаем пустую строку
-    return '';
+    _loadMissingContact(message.senderId);
+    return 'ID ${message.senderId}';
   }
 
   Widget _buildChatSubtitle(Chat chat) {
@@ -5164,26 +5167,32 @@ class _ChatsScreenState extends State<ChatsScreen>
         children: [
           GestureDetector(
             onLongPress: () => _showMessagePreview(chat, currentFolder),
-            child: CircleAvatar(
-              radius: 24,
-              backgroundColor: colors.primaryContainer,
-
-              backgroundImage: avatarUrl != null
-                  ? CachedNetworkImageProvider(avatarUrl)
-                  : null,
-
-              child: avatarUrl == null
-                  ? (isSavedMessages || isGroupChat || isChannel)
+            child: (isSavedMessages || isGroupChat || isChannel)
+                ? CircleAvatar(
+                    radius: 24,
+                    backgroundColor: colors.primaryContainer,
+                    backgroundImage: avatarUrl != null
+                        ? CachedNetworkImageProvider(avatarUrl)
+                        : null,
+                    child: avatarUrl == null
                         ? Icon(leadingIcon, color: colors.onPrimaryContainer)
-                        : (RegExp(r'^\d+$').hasMatch(title) ||
-                              title.startsWith('ID '))
-                        ? Icon(Icons.person, color: colors.onPrimaryContainer)
-                        : Text(
-                            title.isNotEmpty ? title[0].toUpperCase() : '?',
-                            style: TextStyle(color: colors.onPrimaryContainer),
-                          )
-                  : null,
-            ),
+                        : null,
+                  )
+                : contact != null
+                ? ContactAvatarWidget(
+                    contactId: contact.id,
+                    originalAvatarUrl: contact.photoBaseUrl,
+                    radius: 24,
+                    fallbackText: title.isNotEmpty ? title[0].toUpperCase() : '?',
+                    backgroundColor: colors.primaryContainer,
+                  )
+                : ContactAvatarWidget(
+                    contactId: chat.id,
+                    originalAvatarUrl: avatarUrl,
+                    radius: 24,
+                    fallbackText: title.isNotEmpty ? title[0].toUpperCase() : '?',
+                    backgroundColor: colors.primaryContainer,
+                  ),
           ),
           Positioned(
             right: -4,

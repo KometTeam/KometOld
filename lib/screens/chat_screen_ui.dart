@@ -1554,6 +1554,7 @@ extension on _ChatScreenState {
         pageBuilder: (context, animation, secondaryAnimation) {
           return ContactProfileDialog(
             contact: widget.contact,
+            isChannel: widget.isChannel,
             myId: _actualMyId,
           );
         },

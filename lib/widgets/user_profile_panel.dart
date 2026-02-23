@@ -507,7 +507,9 @@ class _UserProfilePanelState extends State<UserProfilePanel> {
     
     if (isGroupOrChannel) {
       // Для групп и каналов
-      final isChannel = widget.currentChatId != null && widget.currentChatId! < 0;
+      final bool isChannel = (widget.contactData != null &&
+              (widget.contactData!['type']?.toString().toUpperCase() == 'CHANNEL')) ||
+          false;
       return [
         _buildActionButton(
           icon: isChannel ? Icons.newspaper : Icons.group,
