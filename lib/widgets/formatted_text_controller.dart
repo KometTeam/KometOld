@@ -194,6 +194,7 @@ class FormattedTextController extends TextEditingController {
     final underline = List<bool>.filled(text.length, false);
     final strike = List<bool>.filled(text.length, false);
     final quote = List<bool>.filled(text.length, false);
+    final mention = List<bool>.filled(text.length, false);
 
     for (final el in elements) {
       final type = el['type'] as String?;
@@ -219,6 +220,9 @@ class FormattedTextController extends TextEditingController {
           case 'QUOTE':
             quote[i] = true;
             break;
+          case 'USER_MENTION':
+            mention[i] = true;
+            break;
         }
       }
     }
@@ -228,6 +232,10 @@ class FormattedTextController extends TextEditingController {
 
     TextStyle styleForIndex(int i) {
       var s = baseStyle;
+      if (mention[i]) {
+        final theme = Theme.of(context);
+        return s.copyWith(color: theme.colorScheme.primary, fontWeight: FontWeight.w500);
+      }
       if (bold[i]) s = s.copyWith(fontWeight: FontWeight.w600);
       if (italic[i]) s = s.copyWith(fontStyle: FontStyle.italic);
       final decos = <TextDecoration>[];

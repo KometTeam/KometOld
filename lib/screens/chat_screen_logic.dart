@@ -2037,31 +2037,33 @@ extension on _ChatScreenState {
 
     final overlay = Overlay.of(context);
     _mentionOverlay = OverlayEntry(
-      builder: (context) => ValueListenableBuilder<bool>(
-        valueListenable: _showScrollToBottomNotifier,
-        builder: (context, showScrollButton, child) {
-          return AnimatedPositioned(
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeInOut,
-            left: MentionPanelPosition.left,
-            right: showScrollButton
-                ? MentionPanelPosition.right +
-                      60 // Отступ для кнопки + запас
-                : MentionPanelPosition.right,
-            bottom: MentionPanelPosition.bottom,
-            child: Material(
-              color: Colors.transparent,
-              child: _MentionDropdownPanel(
-                users: _filteredMentionableUsers,
-                onUserSelected: (user) {
-                  _insertMention(user);
-                  _removeMentionOverlay();
-                },
+      builder: (context) {
+        final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
+        return ValueListenableBuilder<bool>(
+          valueListenable: _showScrollToBottomNotifier,
+          builder: (context, showScrollButton, child) {
+            return AnimatedPositioned(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeInOut,
+              left: MentionPanelPosition.left,
+              right: showScrollButton
+                  ? MentionPanelPosition.right + 60
+                  : MentionPanelPosition.right,
+              bottom: keyboardHeight + MentionPanelPosition.bottom,
+              child: Material(
+                color: Colors.transparent,
+                child: _MentionDropdownPanel(
+                  users: _filteredMentionableUsers,
+                  onUserSelected: (user) {
+                    _insertMention(user);
+                    _removeMentionOverlay();
+                  },
+                ),
               ),
-            ),
-          );
-        },
-      ),
+            );
+          },
+        );
+      },
     );
     overlay.insert(_mentionOverlay!);
   }

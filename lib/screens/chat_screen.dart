@@ -197,7 +197,7 @@ class VideoPreviewItem extends ChatItem {
   });
 }
 
-class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
+class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin, WidgetsBindingObserver {
   // Core state fields
   bool _isDisposed = false;
   bool _isOpeningChannelSettings = false;
@@ -350,6 +350,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // Set active chat as early as possible to keep notifications/unread in sync.
     ApiService.instance.currentActiveChatId = widget.chatId;
 
@@ -461,6 +462,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     print('🗑️ dispose() вызван для чата ${widget.chatId}');
     print('📝 Текст перед dispose: "${_textController.text}"');
 
@@ -556,6 +558,11 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin {
     });
 
     super.dispose();
+  }
+
+  @override
+  void didChangeMetrics() {
+    _mentionOverlay?.markNeedsBuild();
   }
 
   // Helper method to show error snackbar

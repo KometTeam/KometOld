@@ -91,6 +91,13 @@ class ChatInputController extends ChangeNotifier {
       MentionDraft(userId: userId, name: name, from: from, length: len),
     );
 
+    textController.elements.add({
+      'type': 'USER_MENTION',
+      'from': from,
+      'length': len,
+    });
+    textController.notifyListeners();
+
     _showMentionDropdown = false;
     _notifyListenersSafe();
   }
