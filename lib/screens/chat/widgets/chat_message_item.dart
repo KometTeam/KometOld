@@ -189,6 +189,19 @@ class _ChatMessageItemState extends State<ChatMessageItem> {
 }
 
 class _MessageContent extends StatelessWidget {
+
+  String _normalizeBareLinks(String text) {
+    final urlLike = RegExp(
+      r'(?:https?://[^\s]+)|(?:(?:(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,})(?::\d+)?(?:/[\w\-./?%&=+#]*)?)|(?:\b(?:\d{1,3}\.){3}\d{1,3}\b(?::\d+)?(?:/[\w\-./?%&=+#]*)?)',
+      caseSensitive: false,
+    );
+    return text.replaceAllMapped(urlLike, (m) {
+      final raw = m.group(0)!;
+      if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+      return 'http://$raw';
+    });
+  }
+
   final Message message;
   final bool isMe;
   final ThemeData theme;
