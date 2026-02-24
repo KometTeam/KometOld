@@ -452,6 +452,14 @@ extension ApiServiceConnection on ApiService {
         print('← ERROR: $errorMsg');
         _healthMonitor.onError(errorMsg);
 
+        // Пробрасываем ERROR в messages stream с seq, чтобы ожидающие запросы могли поймать ошибку
+        _messageController.add({
+          'cmd': 3,
+          'seq': decodedMessage['seq'],
+          'opcode': decodedMessage['opcode'],
+          'payload': error,
+        });
+
         if (error != null && error['localizedMessage'] != null) {
           _errorController.add(error['localizedMessage']);
         } else if (error != null && error['message'] != null) {

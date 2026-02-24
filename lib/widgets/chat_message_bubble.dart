@@ -17,6 +17,7 @@ import 'package:provider/provider.dart';
 import 'package:flutter/services.dart';
 import 'dart:ui';
 import 'package:flutter_linkify/flutter_linkify.dart';
+import 'package:linkify/linkify.dart' show UrlLinkifier;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gwid/screens/chat_screen.dart';
 import 'package:gwid/services/avatar_cache_service.dart';
@@ -73,12 +74,22 @@ class DomainLinkifier extends Linkifier {
       caseSensitive: false,
     );
 
-    // URL без протокола - требуем www. или известную доменную зону
-    final urlWithoutProtocolRegex = RegExp(
+    // URL без протокола с www.
+    final urlWithWwwRegex = RegExp(
       r'(?:www\.)[а-яёa-z0-9-]{1,128}\.(?:' +
           validTlds +
           r')(?::[0-9]{1,5})?(?:/[а-яёa-z0-9.,_@%&?+=~/-]*)?(?:#[^ ]*)?',
       caseSensitive: false,
+    );
+
+    // Голые домены без протокола и без www (напр. max.ru, olo.su)
+    // Требуем word-boundary: слева не буква/цифра/точка, справа — не буква/цифра после TLD
+    final urlWithoutProtocolRegex = RegExp(
+      r'(?<![а-яёa-z0-9._-])(?:[а-яёa-z0-9](?:[а-яёa-z0-9-]{0,61}[а-яёa-z0-9])?\.)+(?:' +
+          validTlds +
+          r')(?::[0-9]{1,5})?(?:/[а-яёa-z0-9.,_@%&?+=~/-]*)?(?:#[^ ]*)?(?![а-яёa-z0-9])',
+      caseSensitive: false,
+      unicode: true,
     );
 
     // IP адреса
@@ -105,8 +116,22 @@ class DomainLinkifier extends Linkifier {
             ),
           );
         }
+        for (final match in urlWithWwwRegex.allMatches(text)) {
+          if (!allMatches.any(
+            (m) => match.start >= m.start && match.end <= m.end,
+          )) {
+            allMatches.add(
+              LinkifyMatch(
+                match.start,
+                match.end,
+                text.substring(match.start, match.end),
+                false,
+              ),
+            );
+          }
+        }
         for (final match in urlWithoutProtocolRegex.allMatches(text)) {
-          // Проверяем, что это не пересекается с уже найденными URL с протоколом
+          // Проверяем, что это не пересекается с уже найденными
           if (!allMatches.any(
             (m) => match.start >= m.start && match.end <= m.end,
           )) {
@@ -553,11 +578,10 @@ class ChatMessageBubble extends StatelessWidget {
                   );
 
                   final linkStyle = TextStyle(
-                    color: textColor.withValues(
-                      alpha: 0.9 * messageTextOpacity,
-                    ),
+                    color: const Color(0xFF90CAF9),
                     fontSize: 14,
                     decoration: TextDecoration.underline,
+                    decorationColor: const Color(0xFF90CAF9),
                   );
 
                   Future<void> onOpenLink(LinkableElement link) async {
@@ -1047,14 +1071,19 @@ class ChatMessageBubble extends StatelessWidget {
     );
 
     Future<void> onOpenLink(LinkableElement link) async {
-      final uri = Uri.parse(link.url);
-      if (await canLaunchUrl(uri)) {
+      final uri = Uri.tryParse(link.url);
+      if (uri == null) return;
+      try {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
-      } else {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Не удалось открыть ссылку: ${link.url}')),
-          );
+      } catch (_) {
+        try {
+          await launchUrl(uri, mode: LaunchMode.platformDefault);
+        } catch (e) {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Не удалось открыть ссылку: ${link.url}')),
+            );
+          }
         }
       }
     }
@@ -2300,7 +2329,14 @@ class ChatMessageBubble extends StatelessWidget {
     bool isUltraOptimized,
     double messageTextOpacity,
   ) {
-    final photos = attaches.where((a) => a['_type'] == 'PHOTO').toList();
+    final photos = attaches.where((a) {
+      if (a['_type'] != 'PHOTO') return false;
+      // Real photo attaches have width/height from server
+      if (a['width'] != null || a['height'] != null) return true;
+      final url = (a['url'] ?? a['baseUrl'] ?? '') as String;
+      // Accept image-like URLs
+      return RegExp(r'\.(jpg|jpeg|png|gif|webp|bmp)(\?|$)', caseSensitive: false).hasMatch(url);
+    }).toList();
     final List<Widget> widgets = [];
 
     if (photos.isEmpty) return widgets;
@@ -4754,7 +4790,7 @@ class ChatMessageBubble extends StatelessWidget {
               linkStyle: linkStyle,
               onOpen: onOpenLink,
               options: const LinkifyOptions(humanize: false),
-              linkifiers: const [DomainLinkifier(), EmailLinkifier()],
+              linkifiers: const [UrlLinkifier(), DomainLinkifier(), EmailLinkifier()],
               textAlign: TextAlign.left,
             )
           else if (message.text.contains("komet.cosmetic.") ||
@@ -5133,7 +5169,7 @@ class ChatMessageBubble extends StatelessWidget {
                   linkStyle: linkStyle,
                   onOpen: onOpenLink,
                   options: const LinkifyOptions(humanize: false),
-                  linkifiers: const [DomainLinkifier(), EmailLinkifier()],
+                  linkifiers: const [UrlLinkifier(), DomainLinkifier(), EmailLinkifier()],
                   textAlign: TextAlign.left,
                   overflow: TextOverflow.visible,
                   softWrap: true,
@@ -5147,6 +5183,7 @@ class ChatMessageBubble extends StatelessWidget {
                   seg.text,
                   baseForSeg,
                   slicedElements,
+                  bubbleLinkStyle: linkStyle,
                 ),
               );
             }
@@ -5181,8 +5218,9 @@ class ChatMessageBubble extends StatelessWidget {
     BuildContext context,
     String text,
     TextStyle baseStyle,
-    List<Map<String, dynamic>> elements,
-  ) {
+    List<Map<String, dynamic>> elements, {
+    TextStyle? bubbleLinkStyle,
+  }) {
     if (text.isEmpty || elements.isEmpty) {
       return Text(
         text,
@@ -5264,6 +5302,7 @@ class ChatMessageBubble extends StatelessWidget {
           segText,
           baseStyle,
           segElements,
+          bubbleLinkStyle: bubbleLinkStyle,
         );
 
         if (!isQuote) return segmentWidget;
@@ -5364,6 +5403,54 @@ class ChatMessageBubble extends StatelessWidget {
       return mentionEntityIds[i];
     }
 
+    // Regex для детекции URL в форматированном тексте (такой же как в DomainLinkifier)
+    const _frtValidTlds =
+        r'рф|онлайн|сайт|ру|su|com|net|org|mil|edu|arpa|gov|biz|info|aero|inc|name|app|dev|io|co|shop|club|guru|ninja|xyz|top|store|tech|space|world|today|news|ua|by|kz|uz|ge|az|am|md|tj|tm|kg|lv|lt|ee|pl|cz|sk|hu|ro|bg|rs|hr|si|al|ba|mk|me|cn|jp|kr|tw|hk|sg|my|id|th|vn|ph|in|pk|bd|lk|np|au|nz|ca|us|uk|de|fr|it|es|pt|nl|be|ch|at|se|no|dk|fi|is|ie|eu|mobi|travel|museum|coop|jobs|дети|москва|бел';
+    final _frtUrlRegex = RegExp(
+      r'(?:(?:https?|ftp)://(?:[а-яёa-z0-9-]{1,128}\.)+(?:' +
+          _frtValidTlds +
+          r')(?::[0-9]{1,5})?(?:/[а-яёa-z0-9.,_@%&?+=~/#-]*)?)'
+          r'|'
+          r'(?:(?<![а-яёa-z0-9._-])(?:[а-яёa-z0-9](?:[а-яёa-z0-9-]{0,61}[а-яёa-z0-9])?\.)+(?:' +
+          _frtValidTlds +
+          r')(?::[0-9]{1,5})?(?:/[а-яёa-z0-9.,_@%&?+=~/#-]*)?(?![а-яёa-z0-9]))',
+      caseSensitive: false,
+      unicode: true,
+    );
+
+    void addSpansForText(String spanText, TextStyle style) {
+      final matches = _frtUrlRegex.allMatches(spanText).toList();
+      if (matches.isEmpty) {
+        spans.add(TextSpan(text: spanText, style: style));
+        return;
+      }
+      int pos = 0;
+      for (final m in matches) {
+        if (m.start > pos) {
+          spans.add(TextSpan(text: spanText.substring(pos, m.start), style: style));
+        }
+        final rawUrl = spanText.substring(m.start, m.end);
+        final fullUrl = rawUrl.startsWith('http://') || rawUrl.startsWith('https://') || rawUrl.startsWith('ftp://')
+            ? rawUrl
+            : 'https://$rawUrl';
+        final urlStyle = bubbleLinkStyle ?? style.copyWith(
+          color: Colors.blue,
+          decoration: TextDecoration.underline,
+          decorationColor: Colors.blue,
+        );
+        final recognizer = TapGestureRecognizer()
+          ..onTap = () async {
+            final uri = Uri.tryParse(fullUrl);
+            if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
+          };
+        spans.add(TextSpan(text: rawUrl, style: urlStyle, recognizer: recognizer));
+        pos = m.end;
+      }
+      if (pos < spanText.length) {
+        spans.add(TextSpan(text: spanText.substring(pos), style: style));
+      }
+    }
+
     while (start < text.length) {
       int end = start + 1;
       final style = styleForIndex(start);
@@ -5390,7 +5477,7 @@ class ChatMessageBubble extends StatelessWidget {
           ),
         );
       } else {
-        spans.add(TextSpan(text: spanText, style: style));
+        addSpansForText(spanText, style);
       }
       start = end;
     }
@@ -5506,7 +5593,8 @@ class ChatMessageBubble extends StatelessWidget {
       ThemeData.estimateBrightnessForColor(bubbleColor),
     ).isDark;
     if (isMe) {
-      return isDark ? Colors.white : Colors.blue[700]!;
+      // На тёмном пузырьке — светло-голубой, на светлом — стандартный синий
+      return isDark ? const Color(0xFF90CAF9) : Colors.blue[700]!;
     }
     return Colors.blue[700]!;
   }

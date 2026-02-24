@@ -44,7 +44,13 @@ class ChatCacheService {
         ttl: _chatsTTL,
       );
       if (cached != null) {
-        return cached.cast<Map<String, dynamic>>();
+        return cached
+            .cast<Map<String, dynamic>>()
+            .where((c) {
+              final id = c['id'];
+              return id != null && id != 0;
+            })
+            .toList();
       }
     } catch (e) {
       print('Ошибка получения кэшированных чатов: $e');
@@ -362,6 +368,21 @@ class ChatCacheService {
       );
     }
     return null;
+  }
+
+  /// Removes a single chat entry from the 'cached_chats' list on disk.
+  /// Call this when a chat is deleted so it doesn't reappear after restart.
+  Future<void> removeChatFromCachedList(int chatId) async {
+    try {
+      final chats = await getCachedChats();
+      if (chats != null) {
+        final updated = chats.where((c) => c['id'] != chatId).toList();
+        await _cacheService.set(_chatsKey, updated, ttl: _chatsTTL);
+        print('Чат $chatId удалён из кэшированного списка чатов');
+      }
+    } catch (e) {
+      print('Ошибка удаления чата $chatId из кэшированного списка: $e');
+    }
   }
 
   Future<void> clearChatCache(int chatId) async {

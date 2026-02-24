@@ -17,6 +17,7 @@ class Chat {
   final int? participantsCount;
   final Message? pinnedMessage;
   final VideoConference? videoConversation;
+  final int favIndex;
 
   const Chat({
     required this.id,
@@ -31,7 +32,16 @@ class Chat {
     this.participantsCount,
     this.pinnedMessage,
     this.videoConversation,
+    this.favIndex = 0,
   });
+
+  static Chat? tryFromJson(Map<String, dynamic> json) {
+    final rawId = json['id'];
+    if (rawId == null) return null;
+    final id = rawId is int ? rawId : int.tryParse(rawId.toString());
+    if (id == null || id == 0) return null;
+    return Chat.fromJson(json);
+  }
 
   factory Chat.fromJson(Map<String, dynamic> json) {
     final participantsMap = json['participants'] as Map<String, dynamic>? ?? {};
@@ -72,8 +82,11 @@ class Chat {
       participantsCount: json['participantsCount'] as int?,
       pinnedMessage: pinnedMessage,
       videoConversation: videoConversation,
+      favIndex: json['favIndex'] as int? ?? 0,
     );
   }
+
+  bool get isPinned => favIndex > 0;
 
   bool get isGroup => type == 'CHAT' || participantIds.length > 2;
   bool get isChannel => type == 'CHANNEL';
@@ -100,6 +113,7 @@ class Chat {
     String? baseIconUrl,
     Message? pinnedMessage,
     VideoConference? videoConversation,
+    int? favIndex,
   }) {
     return Chat(
       id: id,
@@ -114,6 +128,7 @@ class Chat {
       participantsCount: participantsCount,
       pinnedMessage: pinnedMessage ?? this.pinnedMessage,
       videoConversation: videoConversation ?? this.videoConversation,
+      favIndex: favIndex ?? this.favIndex,
     );
   }
 

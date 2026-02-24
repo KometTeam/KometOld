@@ -413,8 +413,8 @@ extension on _ChatScreenState {
       Chat? currentChat;
       if (chats != null) {
         for (final chatJson in chats) {
-          final chat = Chat.fromJson(chatJson as Map<String, dynamic>);
-          if (chat.id == widget.chatId) {
+          final chat = Chat.tryFromJson(chatJson as Map<String, dynamic>);
+          if (chat != null && chat.id == widget.chatId) {
             currentChat = chat;
             break;
           }

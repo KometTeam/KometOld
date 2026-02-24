@@ -210,6 +210,18 @@ class ApiService {
 
   Map<String, dynamic>? get lastChatsPayload => _lastChatsPayload;
 
+  /// Убирает чат из кэшированного payload чтобы не воскрес после перезапуска
+  void removeChatFromLastPayload(int chatId) {
+    if (_lastChatsPayload == null) return;
+    final chats = _lastChatsPayload!['chats'];
+    if (chats is List) {
+      chats.removeWhere((c) {
+        if (c is Map) return c['id'] == chatId;
+        return false;
+      });
+    }
+  }
+
   /// Сбрасывает флаг загруженных чатов для принудительной перезагрузки
   void resetChatsFetchedFlag() {
     _chatsFetchedInThisSession = false;

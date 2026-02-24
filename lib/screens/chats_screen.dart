@@ -48,6 +48,7 @@ import 'package:gwid/screens/chat/widgets/chats_screen_scaffold.dart';
 import 'package:gwid/screens/chat/widgets/chats_list_page.dart';
 import 'package:gwid/screens/chat/dialogs/add_chats_to_folder_dialog.dart';
 import 'package:gwid/screens/chat/dialogs/read_settings_dialog.dart';
+import 'package:gwid/screens/settings/chat_notification_settings_dialog.dart';
 import 'package:gwid/screens/chat/screens/calls_screen.dart';
 import 'package:gwid/screens/chat/screens/sferum_webview_panel.dart';
 import 'package:gwid/screens/chat/handlers/message_handler.dart';
@@ -589,6 +590,11 @@ class _ChatsScreenState extends State<ChatsScreen>
       _allChats.removeWhere((c) => c.id == chatId);
       _filteredChats.removeWhere((c) => c.id == chatId);
     });
+    // Чистим disk cache чтобы чат не воскрес после перезапуска
+    ChatCacheService().removeChatFromCachedList(chatId);
+    ChatCacheService().clearChatCache(chatId);
+    // Убираем чат из кэшированного payload API
+    ApiService.instance.removeChatFromLastPayload(chatId);
   }
 
   final Map<int, Timer> _typingDecayTimers = {};
@@ -646,8 +652,9 @@ class _ChatsScreenState extends State<ChatsScreen>
                 .where((json) => json != null)
                 .map(
                   (json) =>
-                      Chat.fromJson((json as Map).cast<String, dynamic>()),
+                      Chat.tryFromJson((json as Map).cast<String, dynamic>()),
                 )
+                .whereType<Chat>()
                 .toList();
             _contacts.clear();
             for (final contactJson in contacts) {
@@ -1101,8 +1108,12 @@ class _ChatsScreenState extends State<ChatsScreen>
         _filteredChats = List.from(chatsToFilter);
 
         print('🔍 [filterChats] Сортируем ${_filteredChats.length} чатов...');
-        // Сортировка по времени последнего сообщения (новые сверху)
         _filteredChats.sort((a, b) {
+          final aPinned = a.favIndex > 0;
+          final bPinned = b.favIndex > 0;
+          if (aPinned && bPinned) return a.favIndex.compareTo(b.favIndex);
+          if (aPinned) return -1;
+          if (bPinned) return 1;
           return b.lastMessage.time.compareTo(a.lastMessage.time);
         });
         print('🔍 [filterChats] Сортировка завершена');
@@ -1123,8 +1134,12 @@ class _ChatsScreenState extends State<ChatsScreen>
           return contactName.contains(query);
         }).toList();
 
-        // Сортировка по времени последнего сообщения (новые сверху)
         _filteredChats.sort((a, b) {
+          final aPinned = a.favIndex > 0;
+          final bPinned = b.favIndex > 0;
+          if (aPinned && bPinned) return a.favIndex.compareTo(b.favIndex);
+          if (aPinned) return -1;
+          if (bPinned) return 1;
           return b.lastMessage.time.compareTo(a.lastMessage.time);
         });
       } else {
@@ -1430,8 +1445,9 @@ class _ChatsScreenState extends State<ChatsScreen>
                 .where((json) => json != null)
                 .map(
                   (json) =>
-                      Chat.fromJson((json as Map).cast<String, dynamic>()),
+                      Chat.tryFromJson((json as Map).cast<String, dynamic>()),
                 )
+                .whereType<Chat>()
                 .toList();
 
             final newChatIds = newChats.map((c) => c.id).toSet();
@@ -1448,7 +1464,7 @@ class _ChatsScreenState extends State<ChatsScreen>
             }
 
             _allChats.removeWhere(
-              (chat) => !newChatIds.contains(chat.id) && chat.id != 0,
+              (chat) => !newChatIds.contains(chat.id),
             );
 
             for (final contactJson in contacts) {
@@ -1683,8 +1699,9 @@ class _ChatsScreenState extends State<ChatsScreen>
                 final contactListJson = snapshot.data!['contacts'] as List;
                 _allChats = chatListJson
                     .map(
-                      (json) => Chat.fromJson((json as Map<String, dynamic>)),
+                      (json) => Chat.tryFromJson((json as Map<String, dynamic>)),
                     )
+                    .whereType<Chat>()
                     .toList();
                 _chatsLoaded = true;
                 unawaited(_listenForUpdates());
@@ -3476,41 +3493,7 @@ class _ChatsScreenState extends State<ChatsScreen>
     ChatFolder? currentFolder,
     BuildContext context,
   ) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Text(
-              'Действия',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-            ),
-          ),
-          const Divider(),
-          if (currentFolder == null && _folders.isNotEmpty)
-            ListTile(
-              leading: const Icon(Icons.folder),
-              title: const Text('Добавить в папку'),
-              onTap: () {
-                Navigator.of(context).pop();
-                _showFolderSelectionMenu(chat);
-              },
-            ),
-          ListTile(
-            leading: const Icon(Icons.mark_chat_read),
-            title: const Text('Настройки чтения'),
-            subtitle: const Text('Настроить чтение сообщений для этого чата'),
-            onTap: () {
-              Navigator.of(context).pop();
-              _showReadSettingsDialog(chat);
-            },
-          ),
-          const SizedBox(height: 8),
-        ],
-      ),
-    );
+    return const SizedBox.shrink();
   }
 
   void _showFolderSelectionMenu(Chat chat) {
@@ -5078,7 +5061,9 @@ class _ChatsScreenState extends State<ChatsScreen>
       leadingIcon = Icons.person;
     }
 
-    return ListTile(
+    return GestureDetector(
+      onLongPress: () => _showChatContextMenu(chat, currentFolder),
+      child: ListTile(
       key: ValueKey(chat.id),
       onTap: () {
         print('🔘 onTap вызван для чата: ${chat.id}');
@@ -5245,7 +5230,428 @@ class _ChatsScreenState extends State<ChatsScreen>
                 style: TextStyle(color: colors.onPrimary, fontSize: 12),
               ),
             ),
+          ] else if (chat.isPinned && chat.newMessages == 0) ...[
+            const SizedBox(height: 4),
+            Icon(
+              Icons.push_pin,
+              size: 14,
+              color: colors.onSurfaceVariant,
+            ),
           ],
+        ],
+      ),
+    ),
+    );
+  }
+
+  void _showChatContextMenu(Chat chat, ChatFolder? currentFolder) {
+    final bool isGroupChat = _isGroupChat(chat);
+    final bool isChannel = chat.type == 'CHANNEL';
+    final bool isSavedMessages = _isSavedMessages(chat);
+
+    // Получаем контакт для личных чатов (нужен для блокировки)
+    Contact? contact;
+    if (!isGroupChat && !isChannel && !isSavedMessages) {
+      final otherParticipantId = chat.participantIds.firstWhere(
+        (id) => id != _myId,
+        orElse: () => 0,
+      );
+      contact = _contacts[otherParticipantId];
+    }
+
+    final String chatTitle = isSavedMessages
+        ? 'Избранное'
+        : isChannel
+        ? (chat.title ?? 'Канал')
+        : isGroupChat
+        ? (chat.title ?? 'Группа')
+        : contact?.name ?? chat.title ?? 'Чат';
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final colors = Theme.of(ctx).colorScheme;
+        return Container(
+          decoration: BoxDecoration(
+            color: colors.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).padding.bottom + 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                margin: const EdgeInsets.only(top: 8, bottom: 4),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: colors.onSurfaceVariant.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 4),
+              SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Удалить чат / Покинуть канал / Удалить канал
+                    if (isChannel)
+                      ListTile(
+                        leading: Icon(Icons.delete_outline, color: colors.error),
+                        title: Text(
+                          chat.ownerId == _myId ? 'Удалить канал' : 'Покинуть канал',
+                          style: TextStyle(color: colors.error),
+                        ),
+                        onTap: () {
+                          Navigator.of(ctx).pop();
+                          if (chat.ownerId == _myId) {
+                            _confirmDeleteChannel(chat, chatTitle);
+                          } else {
+                            _confirmLeaveChannel(chat, chatTitle);
+                          }
+                        },
+                      )
+                    else
+                      ListTile(
+                        leading: Icon(Icons.delete_outline, color: colors.error),
+                        title: Text('Удалить чат', style: TextStyle(color: colors.error)),
+                        onTap: () {
+                          Navigator.of(ctx).pop();
+                          _confirmDeleteChat(chat, chatTitle);
+                        },
+                      ),
+                    // Заблокировать — только для личных чатов
+                    if (!isGroupChat && !isChannel && !isSavedMessages && contact != null)
+                      ListTile(
+                        leading: Icon(Icons.block, color: colors.error),
+                        title: Text(
+                          contact.isBlockedByMe ? 'Разблокировать' : 'Заблокировать',
+                          style: TextStyle(color: colors.error),
+                        ),
+                        onTap: () {
+                          Navigator.of(ctx).pop();
+                          _confirmBlockContact(contact!, chatTitle);
+                        },
+                      ),
+                    const Divider(height: 1),
+                    // Очистить историю
+                    if (!isChannel)
+                      ListTile(
+                        leading: Icon(Icons.cleaning_services_outlined, color: colors.onSurface),
+                        title: Text('Очистить историю', style: TextStyle(color: colors.onSurface)),
+                        onTap: () {
+                          Navigator.of(ctx).pop();
+                          _confirmClearHistory(chat, chatTitle);
+                        },
+                      ),
+                    // Закрепить (нет API — показываем snackbar)
+                    ListTile(
+                      leading: Icon(Icons.push_pin_outlined, color: colors.onSurface),
+                      title: Text('Закрепить', style: TextStyle(color: colors.onSurface)),
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Закрепление чатов пока не поддерживается'),
+                            duration: Duration(seconds: 2),
+                          ),
+                        );
+                      },
+                    ),
+                    // Уведомления
+                    ListTile(
+                      leading: Icon(Icons.notifications_outlined, color: colors.onSurface),
+                      title: Text('Уведомления', style: TextStyle(color: colors.onSurface)),
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        showChatNotificationSettings(
+                          context: context,
+                          chatId: chat.id,
+                          chatName: chatTitle,
+                          isGroupChat: isGroupChat,
+                          isChannel: isChannel,
+                        );
+                      },
+                    ),
+                    const Divider(height: 1),
+                    // Добавить в папку
+                    if (currentFolder == null && _folders.isNotEmpty)
+                      ListTile(
+                        leading: Icon(Icons.folder_outlined, color: colors.onSurface),
+                        title: Text('Добавить в папку', style: TextStyle(color: colors.onSurface)),
+                        onTap: () {
+                          Navigator.of(ctx).pop();
+                          _showFolderSelectionMenu(chat);
+                        },
+                      ),
+                    // Настройки чтения
+                    ListTile(
+                      leading: Icon(Icons.mark_chat_read_outlined, color: colors.onSurface),
+                      title: Text('Настройки чтения', style: TextStyle(color: colors.onSurface)),
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _showReadSettingsDialog(chat);
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _confirmDeleteChat(Chat chat, String chatTitle) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Удалить чат?'),
+        content: Text(
+          'Вы уверены, что хотите удалить чат "$chatTitle"? '
+          'История сообщений будет удалена без возможности восстановления.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              try {
+                await ApiService.instance.clearChatHistory(chat.id);
+                _removeChatLocally(chat.id);
+              } catch (e) {
+                if (mounted) {
+                  final msg = e.toString().replaceFirst('Exception: ', '');
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text(msg)),
+                  );
+                }
+              }
+            },
+            child: Text('Удалить', style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmClearHistory(Chat chat, String chatTitle) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Очистить историю?'),
+        content: Text(
+          'Вы уверены, что хотите очистить историю чата "$chatTitle"?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              ApiService.instance
+                  .clearChatHistory(chat.id)
+                  .catchError((e) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Ошибка очистки истории')),
+                      );
+                    }
+                  });
+            },
+            child: Text('Очистить', style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmBlockContact(Contact contact, String chatTitle) {
+    final isBlocked = contact.isBlockedByMe;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(isBlocked ? 'Разблокировать?' : 'Заблокировать?'),
+        content: Text(
+          isBlocked
+              ? 'Разблокировать пользователя "$chatTitle"?'
+              : 'Заблокировать пользователя "$chatTitle"? Он не сможет отправлять вам сообщения.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              final future = isBlocked
+                  ? ApiService.instance.unblockContact(contact.id)
+                  : ApiService.instance.blockContact(contact.id);
+              future.catchError((e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        isBlocked ? 'Ошибка разблокировки' : 'Ошибка блокировки',
+                      ),
+                    ),
+                  );
+                }
+              });
+            },
+            child: Text(
+              isBlocked ? 'Разблокировать' : 'Заблокировать',
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Диалог удаления канала — только для владельца
+  void _confirmDeleteChannel(Chat chat, String chatTitle) {
+    final otherParticipants = chat.participantIds
+        .where((id) => id != _myId)
+        .toList();
+    final hasParticipants = otherParticipants.isNotEmpty;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => _DeleteChannelDialog(
+        chatTitle: chatTitle,
+        hasParticipants: hasParticipants,
+        onTransfer: () {
+          Navigator.of(ctx).pop();
+          _showTransferOwnershipPicker(chat, chatTitle);
+        },
+        onDelete: () {
+          Navigator.of(ctx).pop();
+          _doDeleteChannel(chat);
+        },
+        onCancel: () => Navigator.of(ctx).pop(),
+      ),
+    );
+  }
+
+  /// Выполнить удаление канала (opcode 52)
+  void _doDeleteChannel(Chat chat) {
+    ApiService.instance.deleteChannel(chat.id).then((_) {
+      _removeChatLocally(chat.id);
+    }).catchError((e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
+        );
+      }
+    });
+  }
+
+  /// Показать пикер выбора нового владельца
+  void _showTransferOwnershipPicker(Chat chat, String chatTitle) {
+    // Получаем участников канала кроме себя
+    final otherParticipants = chat.participantIds
+        .where((id) => id != _myId)
+        .toList();
+
+    if (otherParticipants.isEmpty) {
+      // Нет других участников — просто удаляем
+      _doDeleteChannel(chat);
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Передать права владельца'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: otherParticipants.length,
+            itemBuilder: (context, index) {
+              final participantId = otherParticipants[index];
+              final contact = _contacts[participantId];
+              final name = contact?.name ?? participantId.toString();
+              return ListTile(
+                title: Text(name),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  ApiService.instance
+                      .transferChannelOwnership(chat.id, participantId)
+                      .then((_) {
+                        ApiService.instance.leaveChat(chat.id).then((_) {
+                          _removeChatLocally(chat.id);
+                        });
+                      })
+                      .catchError((e) {
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                e.toString().replaceFirst('Exception: ', ''),
+                              ),
+                            ),
+                          );
+                        }
+                      });
+                },
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Отмена'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Диалог выхода из канала (не владелец)
+  void _confirmLeaveChannel(Chat chat, String chatTitle) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Покинуть канал?'),
+        content: Text('Вы хотите покинуть канал "$chatTitle"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Отмена'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              ApiService.instance.leaveChat(chat.id).then((_) {
+                _removeChatLocally(chat.id);
+              }).catchError((e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        e.toString().replaceFirst('Exception: ', ''),
+                      ),
+                    ),
+                  );
+                }
+              });
+            },
+            child: Text(
+              'Покинуть',
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
         ],
       ),
     );
@@ -5273,5 +5679,128 @@ class _ChatsScreenState extends State<ChatsScreen>
     _contactNamesSubscription?.cancel();
     _readStatusSubscription?.cancel();
     super.dispose();
+  }
+}
+
+/// Диалог удаления канала с анимацией треска на кнопке "Передать права"
+/// если участников нет
+class _DeleteChannelDialog extends StatefulWidget {
+  final String chatTitle;
+  final bool hasParticipants;
+  final VoidCallback onTransfer;
+  final VoidCallback onDelete;
+  final VoidCallback onCancel;
+
+  const _DeleteChannelDialog({
+    required this.chatTitle,
+    required this.hasParticipants,
+    required this.onTransfer,
+    required this.onDelete,
+    required this.onCancel,
+  });
+
+  @override
+  State<_DeleteChannelDialog> createState() => _DeleteChannelDialogState();
+}
+
+class _DeleteChannelDialogState extends State<_DeleteChannelDialog>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _shakeController;
+  late Animation<double> _shakeAnimation;
+  bool _cracked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _shakeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+    );
+    _shakeAnimation = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 0, end: -8), weight: 1),
+      TweenSequenceItem(tween: Tween(begin: -8, end: 8), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: 8, end: -6), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: -6, end: 6), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: 6, end: -3), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: -3, end: 3), weight: 2),
+      TweenSequenceItem(tween: Tween(begin: 3, end: 0), weight: 1),
+    ]).animate(CurvedAnimation(
+      parent: _shakeController,
+      curve: Curves.easeInOut,
+    ));
+
+    _shakeController.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        setState(() => _cracked = true);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _shakeController.dispose();
+    super.dispose();
+  }
+
+  void _handleTransferTap() {
+    if (!widget.hasParticipants) {
+      if (!_cracked) {
+        _shakeController.forward(from: 0);
+      }
+      return;
+    }
+    widget.onTransfer();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return AlertDialog(
+      title: const Text('Удалить канал?'),
+      content: Text('Вы владелец канала "${widget.chatTitle}". Выберите действие:'),
+      actions: [
+        TextButton(
+          onPressed: widget.onCancel,
+          child: const Text('Отмена'),
+        ),
+        // Кнопка "Передать права и выйти" — с анимацией треска если некому передать
+        AnimatedBuilder(
+          animation: _shakeAnimation,
+          builder: (context, child) {
+            return Transform.translate(
+              offset: Offset(_shakeAnimation.value, 0),
+              child: child,
+            );
+          },
+          child: AnimatedOpacity(
+            opacity: _cracked ? 0.0 : 1.0,
+            duration: const Duration(milliseconds: 300),
+            child: AnimatedSize(
+              duration: const Duration(milliseconds: 300),
+              child: _cracked
+                  ? const SizedBox.shrink()
+                  : TextButton(
+                      onPressed: _handleTransferTap,
+                      child: Text(
+                        'Передать права и выйти',
+                        style: TextStyle(
+                          color: widget.hasParticipants
+                              ? null
+                              : colors.onSurface.withValues(alpha: 0.4),
+                        ),
+                      ),
+                    ),
+            ),
+          ),
+        ),
+        TextButton(
+          onPressed: widget.onDelete,
+          child: Text(
+            'Удалить канал',
+            style: TextStyle(color: colors.error),
+          ),
+        ),
+      ],
+    );
   }
 }

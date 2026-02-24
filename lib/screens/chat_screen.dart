@@ -569,7 +569,12 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin, 
   void _showErrorSnackBar(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.red),
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.only(bottom: 80, left: 8, right: 8),
+      ),
     );
   }
 

@@ -271,7 +271,6 @@ class MessageHandler {
         _handleChatUpdate(payload, cmd);
       } else if (opcode == 135) {
         // ОТКЛЮЧЕНО: opcode 135 вызывает критические баги с videoConversation
-        print('⏭️ [opcode 135] ПОЛНОСТЬЮ ИГНОРИРУЕМ');
         // _handleChatChanged(payload);
       } else if (opcode == 272) {
         _handleFoldersUpdate(payload);
@@ -303,7 +302,8 @@ class MessageHandler {
 
     // Если есть полный объект чата - используем его
     if (chatJson != null) {
-      final newChat = Chat.fromJson(chatJson);
+      final newChat = Chat.tryFromJson(chatJson);
+      if (newChat == null) return;
       ApiService.instance.updateChatInCacheFromJson(chatJson);
 
       final context = getContext();
@@ -545,7 +545,8 @@ class MessageHandler {
       _debouncedFilterChats();
     } else if (payload['chat'] is Map<String, dynamic>) {
       final chatJson = payload['chat'] as Map<String, dynamic>;
-      final newChat = Chat.fromJson(chatJson);
+      final newChat = Chat.tryFromJson(chatJson);
+      if (newChat == null) return;
       ApiService.instance.updateChatInCacheFromJson(chatJson);
 
       setState(() {
@@ -567,7 +568,8 @@ class MessageHandler {
             }
           }
           if (chatJson != null) {
-            final newChat = Chat.fromJson(chatJson);
+            final newChat = Chat.tryFromJson(chatJson);
+            if (newChat == null) return;
             // Для новых чатов тоже учитываем автоматическое прочтение
             final shouldIncrementUnread = !isMyMessage && !shouldAutoMarkAsRead && !isInActiveChat;
             final updatedChat = newChat.copyWith(
@@ -624,7 +626,8 @@ class MessageHandler {
                 ? filtered.first
                 : null;
             if (updatedChatData != null) {
-              final updatedChat = Chat.fromJson(updatedChatData);
+              final updatedChat = Chat.tryFromJson(updatedChatData);
+              if (updatedChat == null) return;
               setState(() {
                 allChats.removeAt(chatIndex);
                 _insertChatAtCorrectPosition(updatedChat);
@@ -718,7 +721,8 @@ class MessageHandler {
     }
 
     if (effectiveChatJson != null) {
-      final newChat = Chat.fromJson(effectiveChatJson);
+      final newChat = Chat.tryFromJson(effectiveChatJson);
+      if (newChat == null) return;
       ApiService.instance.updateChatInCacheFromJson(effectiveChatJson);
       final context = getContext();
       if (context.mounted) {
@@ -747,7 +751,8 @@ class MessageHandler {
     if (chatJson != null) {
       final chatType = chatJson['type'] as String?;
       if (chatType == 'CHAT') {
-        final newChat = Chat.fromJson(chatJson);
+        final newChat = Chat.tryFromJson(chatJson);
+        if (newChat == null) return;
         ApiService.instance.updateChatInCacheFromJson(chatJson);
         final context = getContext();
         if (context.mounted) {
@@ -773,7 +778,8 @@ class MessageHandler {
     if (cmd != 0x100 && cmd != 256) return;
     final chatJson = payload['chat'] as Map<String, dynamic>?;
     if (chatJson != null) {
-      final updatedChat = Chat.fromJson(chatJson);
+      final updatedChat = Chat.tryFromJson(chatJson);
+      if (updatedChat == null) return;
       ApiService.instance.updateChatInCacheFromJson(chatJson);
       final context = getContext();
       if (context.mounted) {
@@ -827,6 +833,9 @@ class MessageHandler {
           allChats.removeWhere((chat) => chat.id == chatId);
         });
         _debouncedFilterChats();
+        // Чистим disk cache чтобы чат не воскрес после перезапуска
+        ChatCacheService().removeChatFromCachedList(chatId);
+        ChatCacheService().clearChatCache(chatId);
       } else if (status == 'ACTIVE') {
         print('✅ [opcode 135] Обновляем/добавляем чат $chatId');
         
@@ -837,15 +846,18 @@ class MessageHandler {
           chatJson['videoConversation'] = null;
         }
         
-        // КРИТИЧНО: парсинг Chat.fromJson может зависнуть на videoConversation
+        // КРИТИЧНО: парсинг Chat.tryFromJson может зависнуть на videoConversation
         Chat? newChat;
         try {
-          print('   📝 [opcode 135] Парсинг Chat.fromJson...');
-          newChat = Chat.fromJson(chatJson);
-          print('   ✅ [opcode 135] Chat.fromJson успешно');
+          print('   📝 [opcode 135] Парсинг Chat.tryFromJson...');
+          newChat = Chat.tryFromJson(chatJson);
+          print('   ✅ [opcode 135] Chat.tryFromJson успешно');
         } catch (e, stackTrace) {
-          print('   ❌ [opcode 135] Ошибка Chat.fromJson: $e');
+          print('   ❌ [opcode 135] Ошибка Chat.tryFromJson: $e');
           print('   Stack: $stackTrace');
+          return;
+        }
+        if (newChat == null) {
           return;
         }
 
@@ -1158,14 +1170,14 @@ class MessageHandler {
 
     // Из payload
     if (chatFromPayload != null) {
-      return Chat.fromJson(chatFromPayload);
+      return Chat.tryFromJson(chatFromPayload);
     }
 
     // Из кэша
     try {
       final cachedChatJson = await ChatCacheService().getChatById(chatId);
       if (cachedChatJson != null) {
-        return Chat.fromJson(cachedChatJson);
+        return Chat.tryFromJson(cachedChatJson);
       }
     } catch (e) {
       print('⚠️ Ошибка получения чата $chatId из кэша: $e');

@@ -11,8 +11,8 @@ extension on _ChatScreenState {
     if (chats != null) {
       for (final chatJson in chats) {
         try {
-          final chat = Chat.fromJson(chatJson as Map<String, dynamic>);
-          if (chat.id == widget.chatId) {
+          final chat = Chat.tryFromJson(chatJson as Map<String, dynamic>);
+          if (chat != null && chat.id == widget.chatId) {
             currentChat = chat;
             break;
           }
@@ -1388,6 +1388,7 @@ extension on _ChatScreenState {
         content: Text(message),
         backgroundColor: Colors.red,
         behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.only(bottom: 80, left: 8, right: 8),
         duration: const Duration(seconds: 3),
       ),
     );
@@ -1939,11 +1940,22 @@ extension on _ChatScreenState {
         );
       }
 
+      final allPhotos = <Map<String, dynamic>>[];
+      for (final msg in _messages) {
+        for (final attach in msg.attaches) {
+          final type = attach['type'] as String?;
+          if (type == 'PHOTO' || type == 'IMAGE') {
+            allPhotos.add({...attach, '_messageId': msg.id});
+          }
+        }
+      }
+
       return ChatMessageBubble(
         key: ValueKey(item.message.id),
         message: item.message,
         contactDetailsCache: _contactDetailsCache,
         isMe: isMe,
+        allPhotos: allPhotos.isNotEmpty ? allPhotos : null,
         isFirstInGroup: item.isFirstInGroup,
         isLastInGroup: item.isLastInGroup,
         isGrouped: item.isGrouped,
@@ -2036,6 +2048,7 @@ extension on _ChatScreenState {
           const SnackBar(
             content: Text('Не удалось загрузить данные канала'),
             behavior: SnackBarBehavior.floating,
+            margin: EdgeInsets.only(bottom: 80, left: 8, right: 8),
           ),
         );
       }
@@ -2064,6 +2077,7 @@ extension on _ChatScreenState {
             content: Text('Ошибка: $e'),
             backgroundColor: Colors.red,
             behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.only(bottom: 80, left: 8, right: 8),
           ),
         );
       }
@@ -2226,6 +2240,8 @@ extension on _ChatScreenState {
           SnackBar(
             content: Text('Ошибка установки обоев: $e'),
             backgroundColor: Theme.of(context).colorScheme.error,
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.only(bottom: 80, left: 8, right: 8),
           ),
         );
       }
@@ -2242,6 +2258,8 @@ extension on _ChatScreenState {
           SnackBar(
             content: Text('Ошибка удаления обоев: $e'),
             backgroundColor: Theme.of(context).colorScheme.error,
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.only(bottom: 80, left: 8, right: 8),
           ),
         );
       }
@@ -2363,6 +2381,8 @@ extension on _ChatScreenState {
                                       'Нельзя отправлять медиа при включенном шифровании',
                                     ),
                                     backgroundColor: Colors.orange,
+                                    behavior: SnackBarBehavior.floating,
+                                    margin: EdgeInsets.only(bottom: 80, left: 8, right: 8),
                                   ),
                                 );
                               }

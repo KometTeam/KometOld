@@ -383,6 +383,8 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Не удалось найти чат с пользователем'),
+              behavior: SnackBarBehavior.floating,
+              margin: EdgeInsets.only(bottom: 80, left: 8, right: 8),
             ),
           );
         }
@@ -411,7 +413,11 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
       if (context.mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Ошибка: $e')));
+        ).showSnackBar(SnackBar(
+          content: Text('Ошибка: $e'),
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.only(bottom: 80, left: 8, right: 8),
+        ));
       }
     }
   }
@@ -459,6 +465,7 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
           const SnackBar(
             content: Text('Не удалось загрузить данные канала'),
             behavior: SnackBarBehavior.floating,
+            margin: EdgeInsets.only(bottom: 80, left: 8, right: 8),
           ),
         );
         return;
@@ -480,6 +487,7 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
         SnackBar(
           content: Text('Ошибка: $e'),
           behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.only(bottom: 80, left: 8, right: 8),
         ),
       );
     }

@@ -49,6 +49,11 @@ class _ChatsListPageState extends State<ChatsListPage>
 
     // Сортировка по времени последнего сообщения (новые сверху)
     chatsForFolder.sort((a, b) {
+      final aPinned = a.favIndex > 0;
+      final bPinned = b.favIndex > 0;
+      if (aPinned && bPinned) return a.favIndex.compareTo(b.favIndex);
+      if (aPinned) return -1;
+      if (bPinned) return 1;
       return b.lastMessage.time.compareTo(a.lastMessage.time);
     });
 
