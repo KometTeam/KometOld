@@ -1602,9 +1602,7 @@ extension on _ChatScreenState {
           TextButton(
             onPressed: () {
               Navigator.of(context).pop();
-              final apiService = context.read<ApiService>();
-              // blockContact method call
-              apiService
+              ApiService.instance
                   .blockContact(widget.contact.id)
                   .then((_) {
                     // ignore: invalid_use_of_protected_member
@@ -1654,8 +1652,7 @@ extension on _ChatScreenState {
           TextButton(
             onPressed: () {
               Navigator.of(context).pop();
-              final apiService = context.read<ApiService>();
-              apiService
+              ApiService.instance
                   .unblockContact(widget.contact.id)
                   .then((_) {
                     // ignore: invalid_use_of_protected_member
@@ -2118,8 +2115,7 @@ extension on _ChatScreenState {
           TextButton(
             onPressed: () {
               Navigator.of(context).pop();
-              final apiService = context.read<ApiService>();
-              apiService
+              ApiService.instance
                   .clearChatHistory(widget.chatId)
                   .then((_) {
                     // ignore: invalid_use_of_protected_member
@@ -2159,8 +2155,7 @@ extension on _ChatScreenState {
           TextButton(
             onPressed: () {
               Navigator.of(context).pop();
-              final apiService = context.read<ApiService>();
-              apiService
+              ApiService.instance
                   .clearChatHistory(widget.chatId)
                   .then((_) {
                     widget.onChatRemoved?.call();
@@ -2207,9 +2202,8 @@ extension on _ChatScreenState {
           TextButton(
             onPressed: () async {
               Navigator.of(context).pop();
-              final apiService = context.read<ApiService>();
               try {
-                apiService.leaveGroup(widget.chatId);
+                ApiService.instance.leaveGroup(widget.chatId);
                 widget.onChatRemoved?.call();
                 if (mounted) {
                   Navigator.of(context).pop();

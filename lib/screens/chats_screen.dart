@@ -125,6 +125,7 @@ class _ChatsScreenState extends State<ChatsScreen>
   StreamSubscription<String>? _connectionStateSubscription;
   StreamSubscription<int>? _contactNamesSubscription;
   StreamSubscription<MessageReadUpdate>? _readStatusSubscription;
+  StreamSubscription<Contact>? _contactUpdatesSubscription;
   bool _isAccountsExpanded = false;
   bool _isReconnecting = false;
 
@@ -315,6 +316,11 @@ class _ChatsScreenState extends State<ChatsScreen>
           // setState триггерит перерисовку списка чатов
         });
       }
+    });
+
+    // Подписываемся на обновления контактов (block/unblock и др.)
+    _contactUpdatesSubscription = ApiService.instance.contactUpdates.listen((contact) {
+      if (mounted) setState(() {});
     });
   }
 
@@ -3814,6 +3820,16 @@ class _ChatsScreenState extends State<ChatsScreen>
       currentFavorites.remove(chat.id);
     } else {
       if (!currentFavorites.contains(chat.id)) {
+        final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+        if (!themeProvider.unlimitedPinnedChats && currentFavorites.length >= 5) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Больше 5 нельзя. Но если нажать переключатель...'),
+              duration: Duration(seconds: 3),
+            ),
+          );
+          return;
+        }
         currentFavorites.add(chat.id);
       }
     }
@@ -6057,6 +6073,7 @@ class _ChatsScreenState extends State<ChatsScreen>
     _apiSubscription?.cancel();
     _connectionStatusSubscription?.cancel();
     _connectionStateSubscription?.cancel();
+    _contactUpdatesSubscription?.cancel();
     _messageHandler?.listen()?.cancel();
     _messageHandler
         ?.dispose(); // Освобождаем ресурсы MessageHandler (debouncer)

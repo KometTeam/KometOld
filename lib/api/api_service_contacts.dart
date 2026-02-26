@@ -4,11 +4,23 @@ extension ApiServiceContacts on ApiService {
   Future<void> blockContact(int contactId) async {
     await waitUntilOnline();
     _sendMessage(34, {'contactId': contactId, 'action': 'BLOCK'});
+    final existing = _contactCache[contactId];
+    if (existing != null) {
+      final updated = existing.copyWith(isBlockedByMe: true);
+      _contactCache[contactId] = updated;
+      notifyContactUpdate(updated);
+    }
   }
 
   Future<void> unblockContact(int contactId) async {
     await waitUntilOnline();
     _sendMessage(34, {'contactId': contactId, 'action': 'UNBLOCK'});
+    final existing = _contactCache[contactId];
+    if (existing != null) {
+      final updated = existing.copyWith(isBlockedByMe: false);
+      _contactCache[contactId] = updated;
+      notifyContactUpdate(updated);
+    }
   }
 
   Future<void> addContact(int contactId) async {
