@@ -151,11 +151,48 @@ class _ChatsScreenState extends State<ChatsScreen>
     return visible;
   }
 
+  String _getoutKey() {
+    final uid = _myId != 0 ? _myId : int.tryParse(ApiService.instance.userId ?? '0') ?? 0;
+    return 'gotupandcameoutofhere_$uid';
+  }
+
+  Set<int> _loadGetoutFromPrefs(SharedPreferences p) {
+    final key = _getoutKey();
+    final hiddenIds = p.getStringList(key) ?? [];
+    return hiddenIds.map((e) => int.tryParse(e) ?? -1).where((id) => id != -1).toSet();
+  }
+
+  Future<void> _saveGetoutToPrefs() async {
+    final prefs = _prefs ?? await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      _getoutKey(),
+      _GETOUT.map((id) => id.toString()).toList(),
+    );
+  }
+
+  // Вызывается когда профиль наконец загружен — перечитываем GETOUT с правильным ключом
+  void _reloadGetoutIfNeeded() {
+    if (_prefs == null || !_prefsLoaded) return;
+    final newGetout = _loadGetoutFromPrefs(_prefs!);
+    if (newGetout != _GETOUT) {
+      setState(() => _GETOUT = newGetout);
+      _filterChats();
+    }
+  }
+
   Future<void> _initializePrefs() async {
     final p = await SharedPreferences.getInstance();
-    final hiddenIds = p.getStringList('gotupandcameoutofhere') ?? [];
-    _GETOUT = hiddenIds.map((e) => int.tryParse(e) ?? -1).where((id) => id != -1).toSet();
     _prefs = p;
+    // Ждём пока userId станет известен
+    final uid = _myId != 0
+        ? _myId
+        : int.tryParse(ApiService.instance.userId ?? '0') ?? 0;
+    if (uid != 0) {
+      _GETOUT = _loadGetoutFromPrefs(p);
+    } else {
+      // userId ещё неизвестен — подождём профиль, перезагрузимся позже
+      _GETOUT = {};
+    }
     _prefsLoaded = true;
     print('✅ [GETOUT] Загружено из prefs: $_GETOUT');
     if (mounted) {
@@ -335,6 +372,7 @@ class _ChatsScreenState extends State<ChatsScreen>
           _myProfile = actualProfile;
           _isProfileLoading = false;
         });
+        _reloadGetoutIfNeeded();
         return;
       }
     } catch (e) {
@@ -346,6 +384,7 @@ class _ChatsScreenState extends State<ChatsScreen>
         _myProfile = serverProfile;
         _isProfileLoading = false;
       });
+      _reloadGetoutIfNeeded();
       return;
     }
 
@@ -591,6 +630,7 @@ class _ChatsScreenState extends State<ChatsScreen>
           _myProfile = profile;
           _isProfileLoading = false;
         });
+        _reloadGetoutIfNeeded();
       },
       showTokenExpiredDialog: _showTokenExpiredDialog,
       isSavedMessages: _isSavedMessages,
@@ -1538,8 +1578,7 @@ class _ChatsScreenState extends State<ChatsScreen>
     _allChats.sort((a, b) => b.lastMessage.time.compareTo(a.lastMessage.time));
     if (_prefs == null) {
       _prefs = await SharedPreferences.getInstance();
-      final hiddenIds = _prefs!.getStringList('gotupandcameoutofhere') ?? [];
-      _GETOUT = hiddenIds.map((e) => int.tryParse(e) ?? -1).where((id) => id != -1).toSet();
+      _GETOUT = _loadGetoutFromPrefs(_prefs!);
     }
     _filterChats();
   }
@@ -1791,10 +1830,8 @@ class _ChatsScreenState extends State<ChatsScreen>
                 WidgetsBinding.instance.addPostFrameCallback((_) async {
                   if (!mounted) return;
                   if (_prefs == null) {
-                    final p = await SharedPreferences.getInstance();
-                    final hiddenIds = p.getStringList('gotupandcameoutofhere') ?? [];
-                    _prefs = p;
-                    _GETOUT = hiddenIds.map((e) => int.tryParse(e) ?? -1).where((id) => id != -1).toSet();
+                    _prefs = await SharedPreferences.getInstance();
+                    _GETOUT = _loadGetoutFromPrefs(_prefs!);
                   }
                   if (mounted && _filteredChats.isEmpty) {
                     _filterChats();
@@ -3695,11 +3732,7 @@ class _ChatsScreenState extends State<ChatsScreen>
         onConfirm: () async {
           _getoutPressCount++;
           _GETOUT.add(chat.id);
-          final prefs = _prefs ?? await SharedPreferences.getInstance();
-          await prefs.setStringList(
-            'gotupandcameoutofhere',
-            _GETOUT.map((id) => id.toString()).toList(),
-          );
+          await _saveGetoutToPrefs();
           if (mounted) {
             setState(() {
               _dismissingChatObjects[chat.id] = chat;
@@ -5517,7 +5550,7 @@ class _ChatsScreenState extends State<ChatsScreen>
                       ),
                     ListTile(
                       leading: Icon(
-                        chat.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                        chat.isPinned ? Icons.push_pin_outlined : Icons.push_pin,
                         color: colors.onSurface,
                       ),
                       title: Text(
