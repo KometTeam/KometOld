@@ -1052,13 +1052,21 @@ class MessageHandler {
   }
 
   /// Показать уведомление с известным контактом
+  Future<bool> _isChatArchived(int chatId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final userId = ApiService.instance.userId ?? '0';
+    final key = 'archived_chats_$userId';
+    final ids = prefs.getStringList(key) ?? [];
+    return ids.contains(chatId.toString());
+  }
+
   void _showNotificationWithContact(
     int chatId,
     Message message,
     Contact contact, [
     Map<String, dynamic>? chatFromPayload,
   ]) async {
-    // Получаем данные чата
+    if (await _isChatArchived(chatId)) return;
     final effectiveChat = await _getEffectiveChat(chatId, chatFromPayload);
 
     // Сначала проверяем канал, потом группу
@@ -1156,6 +1164,7 @@ class MessageHandler {
     int userId, [
     Map<String, dynamic>? chatFromPayload,
   ]) async {
+    if (await _isChatArchived(chatId)) return;
     final effectiveChat = await _getEffectiveChat(chatId, chatFromPayload);
 
     // Сначала проверяем канал, потом группу

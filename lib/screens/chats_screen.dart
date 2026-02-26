@@ -135,6 +135,9 @@ class _ChatsScreenState extends State<ChatsScreen>
   bool _prefsLoaded = false;
   Map<int, Map<String, dynamic>> _chatDrafts = {};
 
+  Set<int> _archivedChats = {};
+  bool _isInArchive = false;
+
   int get _myId =>
       _myProfile?.id ?? int.tryParse(ApiService.instance.userId ?? '0') ?? 0;
 
@@ -142,7 +145,12 @@ class _ChatsScreenState extends State<ChatsScreen>
 
   List<Chat> get _visibleChats {
     if (!_prefsLoaded) return _allChats;
-    final visible = _allChats.where((chat) => !_GETOUT.contains(chat.id)).toList();
+    final visible = _allChats.where((chat) {
+      if (_GETOUT.contains(chat.id)) return false;
+      // В архивном режиме — только архивные, иначе — только не архивные
+      if (_isInArchive) return _archivedChats.contains(chat.id);
+      return !_archivedChats.contains(chat.id);
+    }).toList();
     for (final chat in _dismissingChatObjects.values) {
       if (!visible.any((c) => c.id == chat.id)) {
         visible.add(chat);
@@ -150,6 +158,9 @@ class _ChatsScreenState extends State<ChatsScreen>
     }
     return visible;
   }
+
+  List<Chat> get _archivedChatsList =>
+      _allChats.where((c) => _archivedChats.contains(c.id) && !_GETOUT.contains(c.id)).toList();
 
   String _getoutKey() {
     final uid = _myId != 0 ? _myId : int.tryParse(ApiService.instance.userId ?? '0') ?? 0;
@@ -170,28 +181,61 @@ class _ChatsScreenState extends State<ChatsScreen>
     );
   }
 
+  String _archiveKey() {
+    final uid = _myId != 0 ? _myId : int.tryParse(ApiService.instance.userId ?? '0') ?? 0;
+    return 'archived_chats_$uid';
+  }
+
+  Set<int> _loadArchiveFromPrefs(SharedPreferences p) {
+    final ids = p.getStringList(_archiveKey()) ?? [];
+    return ids.map((e) => int.tryParse(e) ?? -1).where((id) => id != -1).toSet();
+  }
+
+  Future<void> _saveArchiveToPrefs() async {
+    final prefs = _prefs ?? await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      _archiveKey(),
+      _archivedChats.map((id) => id.toString()).toList(),
+    );
+  }
+
+  Future<void> _toggleArchive(Chat chat) async {
+    setState(() {
+      if (_archivedChats.contains(chat.id)) {
+        _archivedChats.remove(chat.id);
+      } else {
+        _archivedChats.add(chat.id);
+      }
+    });
+    await _saveArchiveToPrefs();
+    _filterChats();
+    setState(() {});
+  }
+
   // Вызывается когда профиль наконец загружен — перечитываем GETOUT с правильным ключом
   void _reloadGetoutIfNeeded() {
     if (_prefs == null || !_prefsLoaded) return;
     final newGetout = _loadGetoutFromPrefs(_prefs!);
-    if (newGetout != _GETOUT) {
-      setState(() => _GETOUT = newGetout);
-      _filterChats();
-    }
+    final newArchive = _loadArchiveFromPrefs(_prefs!);
+    setState(() {
+      _GETOUT = newGetout;
+      _archivedChats = newArchive;
+    });
+    _filterChats();
   }
 
   Future<void> _initializePrefs() async {
     final p = await SharedPreferences.getInstance();
     _prefs = p;
-    // Ждём пока userId станет известен
     final uid = _myId != 0
         ? _myId
         : int.tryParse(ApiService.instance.userId ?? '0') ?? 0;
     if (uid != 0) {
       _GETOUT = _loadGetoutFromPrefs(p);
+      _archivedChats = _loadArchiveFromPrefs(p);
     } else {
-      // userId ещё неизвестен — подождём профиль, перезагрузимся позже
       _GETOUT = {};
+      _archivedChats = {};
     }
     _prefsLoaded = true;
     print('✅ [GETOUT] Загружено из prefs: $_GETOUT');
@@ -1855,9 +1899,18 @@ class _ChatsScreenState extends State<ChatsScreen>
               if (_isSearchExpanded) {
                 return _buildSearchResults();
               } else {
+                final isAllChatsTab = _folderTabController.index == 0;
+                final showArchiveBanner = isAllChatsTab && _archivedChatsList.isNotEmpty;
                 return Column(
                   children: [
                     _buildFolderTabs(),
+                    AnimatedSize(
+                      duration: const Duration(milliseconds: 250),
+                      curve: Curves.easeInOut,
+                      child: showArchiveBanner
+                          ? _buildArchiveBanner()
+                          : const SizedBox.shrink(),
+                    ),
                     Expanded(
                       child: TabBarView(
                         controller: _folderTabController,
@@ -3078,16 +3131,115 @@ class _ChatsScreenState extends State<ChatsScreen>
 
       if (_selectedFolderId != folderId) {
         _selectedFolderId = folderId;
+        if (_isInArchive && folderId != null) {
+          _isInArchive = false;
+        }
         _filterChats();
         setState(() {});
       }
     }
   }
 
+  Widget _buildArchiveBanner() {
+    final colors = Theme.of(context).colorScheme;
+    final count = _archivedChatsList.length;
+
+    if (_isInArchive) {
+      // Режим архива — показываем заголовок с кнопкой назад
+      return Material(
+        color: colors.surfaceContainerHighest,
+        child: InkWell(
+          onTap: () {
+            setState(() => _isInArchive = false);
+            _filterChats();
+            setState(() {});
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            child: Row(
+              children: [
+                Icon(Icons.arrow_back, size: 20, color: colors.primary),
+                const SizedBox(width: 12),
+                Icon(Icons.archive_outlined, size: 20, color: colors.primary),
+                const SizedBox(width: 8),
+                Text(
+                  'Архив',
+                  style: TextStyle(
+                    color: colors.primary,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                  ),
+                ),
+                const Spacer(),
+                Text(
+                  '$count ${_pluralChats(count)}',
+                  style: TextStyle(color: colors.onSurfaceVariant, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Обычный режим — панелька входа в архив
+    return Material(
+      color: colors.surfaceContainerHighest,
+      child: InkWell(
+        onTap: () {
+          setState(() => _isInArchive = true);
+          _filterChats();
+          setState(() {});
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            children: [
+              Icon(Icons.archive_outlined, size: 20, color: colors.onSurfaceVariant),
+              const SizedBox(width: 12),
+              Text(
+                'Архив',
+                style: TextStyle(
+                  color: colors.onSurfaceVariant,
+                  fontWeight: FontWeight.w500,
+                  fontSize: 15,
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: colors.primary,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '$count',
+                  style: TextStyle(
+                    color: colors.onPrimary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(Icons.chevron_right, size: 18, color: colors.onSurfaceVariant),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _pluralChats(int count) {
+    if (count % 10 == 1 && count % 100 != 11) return 'чат';
+    if (count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 10 || count % 100 >= 20)) return 'чата';
+    return 'чатов';
+  }
+
   List<Widget> _buildFolderPages() {
     final List<Widget> pages = [
       ChatsListPage(
-        key: const ValueKey('folder_null'),
+        key: ValueKey('folder_null_archive_$_isInArchive'),
         folder: null,
         allChats: _visibleChats,
         contacts: _contacts,
@@ -3732,7 +3884,9 @@ class _ChatsScreenState extends State<ChatsScreen>
         onConfirm: () async {
           _getoutPressCount++;
           _GETOUT.add(chat.id);
+          _archivedChats.remove(chat.id);
           await _saveGetoutToPrefs();
+          await _saveArchiveToPrefs();
           if (mounted) {
             setState(() {
               _dismissingChatObjects[chat.id] = chat;
@@ -5486,10 +5640,14 @@ class _ChatsScreenState extends State<ChatsScreen>
                 ),
               ),
               const SizedBox(height: 4),
-              SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(ctx).size.height * 0.75,
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                     // Удалить чат / Покинуть канал / Удалить канал
                     if (isChannel)
                       ListTile(
@@ -5516,6 +5674,22 @@ class _ChatsScreenState extends State<ChatsScreen>
                           _confirmDeleteChat(chat, chatTitle);
                         },
                       ),
+                    ListTile(
+                      leading: Icon(
+                        _archivedChats.contains(chat.id)
+                            ? Icons.unarchive_outlined
+                            : Icons.archive_outlined,
+                        color: colors.onSurface,
+                      ),
+                      title: Text(
+                        _archivedChats.contains(chat.id) ? 'Разархивировать' : 'В архив',
+                        style: TextStyle(color: colors.onSurface),
+                      ),
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _toggleArchive(chat);
+                      },
+                    ),
                     ListTile(
                       leading: Icon(Icons.visibility_off_outlined, color: colors.error),
                       title: Text('Не показывать этот чат больше', style: TextStyle(color: colors.error)),
@@ -5549,10 +5723,21 @@ class _ChatsScreenState extends State<ChatsScreen>
                         },
                       ),
                     ListTile(
-                      leading: Icon(
-                        chat.isPinned ? Icons.push_pin_outlined : Icons.push_pin,
-                        color: colors.onSurface,
-                      ),
+                      leading: chat.isPinned
+                          ? SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: Stack(
+                                children: [
+                                  Icon(Icons.push_pin, size: 24, color: colors.onSurface),
+                                  CustomPaint(
+                                    size: const Size(24, 24),
+                                    painter: _StrikethroughPainter(color: colors.onSurface),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : Icon(Icons.push_pin_outlined, color: colors.onSurface),
                       title: Text(
                         chat.isPinned ? 'Открепить' : 'Закрепить',
                         style: TextStyle(color: colors.onSurface),
@@ -5597,7 +5782,8 @@ class _ChatsScreenState extends State<ChatsScreen>
                         _showReadSettingsDialog(chat);
                       },
                     ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -6136,4 +6322,25 @@ class _GetoutDialogState extends State<_GetoutDialog>
       ],
     );
   }
+}
+
+class _StrikethroughPainter extends CustomPainter {
+  final Color color;
+  const _StrikethroughPainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 2.2
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(
+      Offset(size.width * 0.1, size.height * 0.9),
+      Offset(size.width * 0.9, size.height * 0.1),
+      paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_StrikethroughPainter old) => old.color != color;
 }
