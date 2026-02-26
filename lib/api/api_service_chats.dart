@@ -240,6 +240,11 @@ extension ApiServiceChats on ApiService {
 
     await _ensureCacheServicesInitialized();
 
+    if (force) {
+      _chatsFetchedInThisSession = false;
+      _lastChatsPayload = null;
+    }
+
     if (!force && _lastChatsPayload != null && _lastChatsAt != null) {
       if (DateTime.now().difference(_lastChatsAt!) < _chatsCacheTtl) {
         return _lastChatsPayload!;
@@ -468,6 +473,25 @@ extension ApiServiceChats on ApiService {
 
       if (config != null) {
         _processServerPrivacyConfig(config);
+
+        // Мёржим favIndex из config.chats в каждый объект чата
+        final configChats = config['chats'] as Map<String, dynamic>?;
+        if (configChats != null) {
+          for (var i = 0; i < chatListJson.length; i++) {
+            final chatJson = Map<String, dynamic>.from(
+              chatListJson[i] as Map,
+            );
+            final chatIdStr = chatJson['id']?.toString();
+            if (chatIdStr != null && configChats.containsKey(chatIdStr)) {
+              final chatConfig =
+                  configChats[chatIdStr] as Map<String, dynamic>?;
+              if (chatConfig != null) {
+                chatJson['favIndex'] = chatConfig['favIndex'] ?? 0;
+              }
+            }
+            chatListJson[i] = chatJson;
+          }
+        }
       }
 
       final result = {

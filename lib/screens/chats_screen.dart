@@ -53,6 +53,7 @@ import 'package:gwid/screens/chat/screens/calls_screen.dart';
 import 'package:gwid/screens/chat/screens/sferum_webview_panel.dart';
 import 'package:gwid/screens/chat/handlers/message_handler.dart';
 import 'package:gwid/widgets/optimized/optimized_widgets.dart';
+import 'package:gwid/widgets/shatter_animation.dart';
 
 class ChatsScreen extends StatefulWidget {
   final void Function(
@@ -128,19 +129,38 @@ class _ChatsScreenState extends State<ChatsScreen>
   bool _isReconnecting = false;
 
   SharedPreferences? _prefs;
+  Set<int> _GETOUT = {};
+  int _getoutPressCount = 0;
+  final Set<int> _dismissingChats = {};
+  bool _prefsLoaded = false;
   Map<int, Map<String, dynamic>> _chatDrafts = {};
 
   int get _myId =>
       _myProfile?.id ?? int.tryParse(ApiService.instance.userId ?? '0') ?? 0;
 
+  final Map<int, Chat> _dismissingChatObjects = {};
+
+  List<Chat> get _visibleChats {
+    if (!_prefsLoaded) return _allChats;
+    final visible = _allChats.where((chat) => !_GETOUT.contains(chat.id)).toList();
+    for (final chat in _dismissingChatObjects.values) {
+      if (!visible.any((c) => c.id == chat.id)) {
+        visible.add(chat);
+      }
+    }
+    return visible;
+  }
+
   Future<void> _initializePrefs() async {
     final p = await SharedPreferences.getInstance();
+    final hiddenIds = p.getStringList('gotupandcameoutofhere') ?? [];
+    _GETOUT = hiddenIds.map((e) => int.tryParse(e) ?? -1).where((id) => id != -1).toSet();
+    _prefs = p;
+    _prefsLoaded = true;
+    print('✅ [GETOUT] Загружено из prefs: $_GETOUT');
     if (mounted) {
-      setState(() {
-        _prefs = p;
-      });
-    } else {
-      _prefs = p;
+      setState(() {});
+      _filterChats();
     }
   }
 
@@ -1087,7 +1107,24 @@ class _ChatsScreenState extends State<ChatsScreen>
       );
       print('📍 [filterChats] Вызван из:\n${StackTrace.current}');
       final query = _searchController.text.toLowerCase();
-      List<Chat> chatsToFilter = _allChats;
+      print('🚫 [GETOUT] _GETOUT=$_GETOUT, _prefsLoaded=$_prefsLoaded');
+      if (!_prefsLoaded) {
+        // Prefs ещё не загружены — подождём, _initializePrefs сам вызовет _filterChats
+        print('⏳ [GETOUT] Prefs ещё не загружены, пропускаем фильтрацию');
+        return;
+      }
+      List<Chat> chatsToFilter = _allChats.where((chat) {
+        if (_GETOUT.contains(chat.id)) {
+          print('🚫 [GETOUT] Фильтруем чат ${chat.id} (${chat.title})');
+          return false;
+        }
+        final msg = chat.lastMessage;
+        if (msg.text.isNotEmpty) return true;
+        return msg.attaches.any((a) {
+          final type = (a['_type'] ?? a['type'])?.toString() ?? '';
+          return type.isNotEmpty;
+        });
+      }).toList();
 
       if (_selectedFolderId != null) {
         print('🔍 [filterChats] Фильтруем по папке $_selectedFolderId');
@@ -1095,7 +1132,7 @@ class _ChatsScreenState extends State<ChatsScreen>
           (f) => f.id == _selectedFolderId,
           orElse: () => _folders.first,
         );
-        chatsToFilter = _allChats
+        chatsToFilter = chatsToFilter
             .where((chat) => _chatBelongsToFolder(chat, selectedFolder))
             .toList();
         print(
@@ -1478,10 +1515,10 @@ class _ChatsScreenState extends State<ChatsScreen>
               _myProfile = Profile.fromJson(profileData);
               _isProfileLoading = false;
             }
-
-            _filterChats();
-            setState(() {});
           });
+
+          _filterChats();
+          if (mounted) setState(() {});
 
           _loadChatDrafts();
         })
@@ -1498,9 +1535,13 @@ class _ChatsScreenState extends State<ChatsScreen>
   }
 
   Future<void> _loadChatOrder() async {
-    // Сортируем чаты по времени последнего сообщения (новые сверху)
     _allChats.sort((a, b) => b.lastMessage.time.compareTo(a.lastMessage.time));
-    _filteredChats = List.from(_allChats);
+    if (_prefs == null) {
+      _prefs = await SharedPreferences.getInstance();
+      final hiddenIds = _prefs!.getStringList('gotupandcameoutofhere') ?? [];
+      _GETOUT = hiddenIds.map((e) => int.tryParse(e) ?? -1).where((id) => id != -1).toSet();
+    }
+    _filterChats();
   }
 
   Future<void> _loadMissingContact(int contactId) async {
@@ -1733,17 +1774,12 @@ class _ChatsScreenState extends State<ChatsScreen>
                   _loadChatOrder()
                       .then((_) {
                         if (!mounted) return;
-                        setState(() {
-                          _filteredChats = List.from(_allChats);
-                        });
+                        _filterChats();
                       })
                       .catchError((error) {
                         print('Ошибка в _loadChatOrder: $error');
                         if (!mounted) return;
-                        // При ошибке все равно показываем чаты
-                        setState(() {
-                          _filteredChats = List.from(_allChats);
-                        });
+                        _filterChats();
                       });
                 }
               }
@@ -1752,17 +1788,16 @@ class _ChatsScreenState extends State<ChatsScreen>
               if (_filteredChats.isEmpty &&
                   _allChats.isNotEmpty &&
                   _chatOrderLoaded) {
-                // Используем временную переменную вместо прямого изменения состояния
-                final sortedChats = List.from(_allChats)
-                  ..sort(
-                    (a, b) => b.lastMessage.time.compareTo(a.lastMessage.time),
-                  );
-                // Планируем setState на следующий фрейм
-                WidgetsBinding.instance.addPostFrameCallback((_) {
+                WidgetsBinding.instance.addPostFrameCallback((_) async {
+                  if (!mounted) return;
+                  if (_prefs == null) {
+                    final p = await SharedPreferences.getInstance();
+                    final hiddenIds = p.getStringList('gotupandcameoutofhere') ?? [];
+                    _prefs = p;
+                    _GETOUT = hiddenIds.map((e) => int.tryParse(e) ?? -1).where((id) => id != -1).toSet();
+                  }
                   if (mounted && _filteredChats.isEmpty) {
-                    setState(() {
-                      _filteredChats = List<Chat>.from(sortedChats);
-                    });
+                    _filterChats();
                   }
                 });
               }
@@ -2980,7 +3015,7 @@ class _ChatsScreenState extends State<ChatsScreen>
                                           ? chat.title!
                                           : (otherParticipantId != null
                                                 ? 'ID $otherParticipantId'
-                                                : 'ID 0'))),
+                                                : ''))),
                             style: TextStyle(
                               fontSize: 11,
                               color: colors.onSurface,
@@ -3017,7 +3052,7 @@ class _ChatsScreenState extends State<ChatsScreen>
       ChatsListPage(
         key: const ValueKey('folder_null'),
         folder: null,
-        allChats: _allChats,
+        allChats: _visibleChats,
         contacts: _contacts,
         myId: _myId,
         searchQuery: _searchQuery,
@@ -3028,7 +3063,7 @@ class _ChatsScreenState extends State<ChatsScreen>
         (folder) => ChatsListPage(
           key: ValueKey('folder_${folder.id}'),
           folder: folder,
-          allChats: _allChats,
+          allChats: _visibleChats,
           contacts: _contacts,
           myId: _myId,
           searchQuery: _searchQuery,
@@ -3565,6 +3600,121 @@ class _ChatsScreenState extends State<ChatsScreen>
           globalReadOnEnter: theme.debugReadOnEnter,
         );
       },
+    );
+  }
+
+  Future<void> _togglePinChat(Chat chat) async {
+    final allFolder = _folders.firstWhere(
+      (f) => f.id == 'all.chat.folder',
+      orElse: () => ChatFolder(
+        id: 'all.chat.folder',
+        title: 'Все',
+        favorites: [],
+        include: [],
+        filters: [],
+        hideEmpty: false,
+        widgets: [],
+        options: [],
+      ),
+    );
+
+    final oldFavIndex = chat.favIndex;
+    final currentFavorites = List<int>.from(allFolder.favorites ?? []);
+
+    if (chat.isPinned) {
+      currentFavorites.remove(chat.id);
+    } else {
+      if (!currentFavorites.contains(chat.id)) {
+        currentFavorites.add(chat.id);
+      }
+    }
+
+    // Оптимистичное обновление UI
+    setState(() {
+      final idx = _allChats.indexWhere((c) => c.id == chat.id);
+      if (idx != -1) {
+        final newFavIndex = chat.isPinned ? 0 : currentFavorites.indexOf(chat.id) + 1;
+        _allChats[idx] = _allChats[idx].copyWith(favIndex: newFavIndex);
+      }
+    });
+    _filterChats();
+
+    try {
+      final response = await ApiService.instance.sendRequest(274, {
+        'id': allFolder.id,
+        'title': allFolder.title,
+        'include': allFolder.include ?? [],
+        'favorites': currentFavorites,
+        'filters': allFolder.filters ?? [],
+        'options': allFolder.options ?? [],
+      });
+
+      final cmd = response['cmd'];
+      final folder = response['payload']?['folder'];
+      if (cmd != 256 || folder == null) {
+        // Откат при ошибке
+        setState(() {
+          final idx = _allChats.indexWhere((c) => c.id == chat.id);
+          if (idx != -1) {
+            _allChats[idx] = _allChats[idx].copyWith(favIndex: oldFavIndex);
+          }
+        });
+        _filterChats();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Не удалось изменить закреп')),
+          );
+        }
+      }
+    } catch (e) {
+      // Откат при ошибке
+      setState(() {
+        final idx = _allChats.indexWhere((c) => c.id == chat.id);
+        if (idx != -1) {
+          _allChats[idx] = _allChats[idx].copyWith(favIndex: oldFavIndex);
+        }
+      });
+      _filterChats();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка: $e')),
+        );
+      }
+    }
+  }
+
+  void _showGetoutDialog(Chat chat) {
+    // Определяем задержку в зависимости от количества нажатий
+    final delay = _getoutPressCount == 0 ? 5 : _getoutPressCount == 1 ? 3 : 0;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => _GetoutDialog(
+        chatTitle: chat.title ?? 'этот чат',
+        delaySeconds: delay,
+        onConfirm: () async {
+          _getoutPressCount++;
+          _GETOUT.add(chat.id);
+          final prefs = _prefs ?? await SharedPreferences.getInstance();
+          await prefs.setStringList(
+            'gotupandcameoutofhere',
+            _GETOUT.map((id) => id.toString()).toList(),
+          );
+          if (mounted) {
+            setState(() {
+              _dismissingChatObjects[chat.id] = chat;
+              _dismissingChats.add(chat.id);
+            });
+          }
+          await Future.delayed(const Duration(milliseconds: 700));
+          if (mounted) {
+            setState(() {
+              _dismissingChats.remove(chat.id);
+              _dismissingChatObjects.remove(chat.id);
+            });
+          }
+        },
+      ),
     );
   }
 
@@ -4797,7 +4947,7 @@ class _ChatsScreenState extends State<ChatsScreen>
     }
 
     _loadMissingContact(message.senderId);
-    return 'ID ${message.senderId}';
+    return '';
   }
 
   Widget _buildChatSubtitle(Chat chat) {
@@ -5009,6 +5159,18 @@ class _ChatsScreenState extends State<ChatsScreen>
   }
 
   Widget _buildChatListItem(Chat chat, int index, ChatFolder? currentFolder) {
+    final isDismissing = _dismissingChats.contains(chat.id);
+    final child = _buildChatListItemContent(chat, index, currentFolder);
+    return ShatterAnimation(
+      key: ValueKey('shatter_${chat.id}'),
+      shatter: isDismissing,
+      duration: const Duration(milliseconds: 700),
+      onComplete: () {},
+      child: child,
+    );
+  }
+
+  Widget _buildChatListItemContent(Chat chat, int index, ChatFolder? currentFolder) {
     final colors = Theme.of(context).colorScheme;
 
     final bool isSavedMessages = _isSavedMessages(chat);
@@ -5321,6 +5483,14 @@ class _ChatsScreenState extends State<ChatsScreen>
                           _confirmDeleteChat(chat, chatTitle);
                         },
                       ),
+                    ListTile(
+                      leading: Icon(Icons.visibility_off_outlined, color: colors.error),
+                      title: Text('Не показывать этот чат больше', style: TextStyle(color: colors.error)),
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _showGetoutDialog(chat);
+                      },
+                    ),
                     // Заблокировать — только для личных чатов
                     if (!isGroupChat && !isChannel && !isSavedMessages && contact != null)
                       ListTile(
@@ -5345,18 +5515,18 @@ class _ChatsScreenState extends State<ChatsScreen>
                           _confirmClearHistory(chat, chatTitle);
                         },
                       ),
-                    // Закрепить (нет API — показываем snackbar)
                     ListTile(
-                      leading: Icon(Icons.push_pin_outlined, color: colors.onSurface),
-                      title: Text('Закрепить', style: TextStyle(color: colors.onSurface)),
+                      leading: Icon(
+                        chat.isPinned ? Icons.push_pin : Icons.push_pin_outlined,
+                        color: colors.onSurface,
+                      ),
+                      title: Text(
+                        chat.isPinned ? 'Открепить' : 'Закрепить',
+                        style: TextStyle(color: colors.onSurface),
+                      ),
                       onTap: () {
                         Navigator.of(ctx).pop();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Закрепление чатов пока не поддерживается'),
-                            duration: Duration(seconds: 2),
-                          ),
-                        );
+                        _togglePinChat(chat);
                       },
                     ),
                     // Уведомления
@@ -5798,6 +5968,136 @@ class _DeleteChannelDialogState extends State<_DeleteChannelDialog>
           child: Text(
             'Удалить канал',
             style: TextStyle(color: colors.error),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _GetoutDialog extends StatefulWidget {
+  final String chatTitle;
+  final int delaySeconds;
+  final Future<void> Function() onConfirm;
+
+  const _GetoutDialog({
+    required this.chatTitle,
+    required this.delaySeconds,
+    required this.onConfirm,
+  });
+
+  @override
+  State<_GetoutDialog> createState() => _GetoutDialogState();
+}
+
+class _GetoutDialogState extends State<_GetoutDialog>
+    with SingleTickerProviderStateMixin {
+  int _secondsLeft = 0;
+  bool _enabled = false;
+  bool _confirming = false;
+  late AnimationController _shakeController;
+  late Animation<double> _shakeAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _secondsLeft = widget.delaySeconds;
+    _enabled = widget.delaySeconds == 0;
+
+    _shakeController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 50),
+    );
+    _shakeAnimation = Tween<double>(begin: -1, end: 1).animate(
+      CurvedAnimation(parent: _shakeController, curve: Curves.linear),
+    );
+
+    if (widget.delaySeconds > 0) {
+      _startTimer();
+    } else {
+      _startShaking();
+    }
+  }
+
+  void _startTimer() {
+    Future.doWhile(() async {
+      await Future.delayed(const Duration(seconds: 1));
+      if (!mounted) return false;
+      setState(() {
+        _secondsLeft--;
+        if (_secondsLeft <= 0) {
+          _secondsLeft = 0;
+          _enabled = true;
+          _startShaking();
+        }
+      });
+      return _secondsLeft > 0;
+    });
+  }
+
+  void _startShaking() {
+    _shakeController.repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _shakeController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
+    return AlertDialog(
+      title: const Text('ВЫ УВЕРЕНЫ?'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Вы больше не сможете видеть чат "${widget.chatTitle}" ни при каких обстоятельствах в этой сессии.',
+            style: const TextStyle(fontSize: 14),
+          ),
+          if (_secondsLeft > 0) ...[
+            const SizedBox(height: 12),
+            Text(
+              'Кнопка станет доступна через $_secondsLeft сек...',
+              style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12),
+            ),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Отмена'),
+        ),
+        AnimatedBuilder(
+          animation: _shakeAnimation,
+          builder: (context, child) {
+            final shake = _enabled
+                ? _shakeAnimation.value * 3
+                : 0.0;
+            return Transform.translate(
+              offset: Offset(shake, 0),
+              child: child,
+            );
+          },
+          child: TextButton(
+            onPressed: _enabled && !_confirming
+                ? () async {
+                    setState(() => _confirming = true);
+                    Navigator.of(context).pop();
+                    await widget.onConfirm();
+                  }
+                : null,
+            style: TextButton.styleFrom(
+              foregroundColor: colors.error,
+            ),
+            child: Text(
+              _secondsLeft > 0 ? 'Я знаю что делаю ($_secondsLeft)' : 'Я знаю что делаю',
+            ),
           ),
         ),
       ],

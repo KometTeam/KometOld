@@ -293,6 +293,33 @@ class MessageHandler {
         }
       });
     }
+
+    // Обновляем favIndex из config.chats
+    final config = payload['config'] as Map<String, dynamic>?;
+    final configChats = config?['chats'] as Map<String, dynamic>?;
+    if (configChats != null && configChats.isNotEmpty) {
+      Future.microtask(() {
+        final context = getContext();
+        if (!context.mounted) return;
+        setState(() {
+          for (var i = 0; i < allChats.length; i++) {
+            final chatIdStr = allChats[i].id.toString();
+            final chatConfig = configChats[chatIdStr] as Map<String, dynamic>?;
+            if (chatConfig != null) {
+              final newFavIndex = chatConfig['favIndex'] as int? ?? 0;
+              if (allChats[i].favIndex != newFavIndex) {
+                allChats[i] = allChats[i].copyWith(favIndex: newFavIndex);
+              }
+            } else {
+              if (allChats[i].favIndex != 0) {
+                allChats[i] = allChats[i].copyWith(favIndex: 0);
+              }
+            }
+          }
+        });
+        _debouncedFilterChats();
+      });
+    }
   }
 
   void _handleNewChat(Map<String, dynamic> payload) {
