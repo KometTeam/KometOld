@@ -1178,8 +1178,6 @@ extension on _ChatScreenState {
                             color: Theme.of(context).colorScheme.onSurface,
                           ),
                           onChanged: (text) {
-                            // ignore: invalid_use_of_protected_member
-                            setState(() {});
                             _handleChatInputChanged(text);
                           },
                         )
@@ -1223,15 +1221,12 @@ extension on _ChatScreenState {
                                     TextSelection.collapsed(
                                       offset: selection.start + 1,
                                     );
-                                // ignore: invalid_use_of_protected_member
-                                setState(() {});
                                 _handleChatInputChanged(_textController.text);
                                 return null;
                               },
                             ),
                           },
                           child: TextField(
-                            key: _textFieldKey,
                             controller: _textController,
                             maxLines: null,
                             textInputAction: TextInputAction.send,
@@ -1251,8 +1246,6 @@ extension on _ChatScreenState {
                               color: Theme.of(context).colorScheme.onSurface,
                             ),
                             onChanged: (text) {
-                              // ignore: invalid_use_of_protected_member
-                              setState(() {});
                               _handleChatInputChanged(text);
                             },
                             contextMenuBuilder: (context, editableTextState) {
@@ -1865,31 +1858,20 @@ extension on _ChatScreenState {
         )) {
           // opcode 130 - новая система (проверка по timestamp)
           readStatus = MessageReadStatus.read;
-          print(
-            '📖 [UI] Сообщение ${item.message.id} прочитано (opcode 130, time=$messageTime)',
-          );
         } else if (messageIdInt != null &&
             _lastPeerReadMessageId != null &&
             messageIdInt <= _lastPeerReadMessageId!) {
           // opcode 50 - старая система (READ_MESSAGE, проверка по ID)
           readStatus = MessageReadStatus.read;
-          print(
-            '📖 [UI] Сообщение ${item.message.id} прочитано (opcode 50, lastPeerRead=$_lastPeerReadMessageId)',
-          );
         } else if (item.message.status == 'READ') {
           // Статус из сервера
           readStatus = MessageReadStatus.read;
-          print(
-            '📖 [UI] Сообщение ${item.message.id} прочитано (message.status)',
-          );
         } else if (item.message.status == 'SENDING' ||
             item.message.id.startsWith('local_')) {
           readStatus = MessageReadStatus.sending;
-          print('⏳ [UI] Сообщение ${item.message.id} отправляется');
         } else {
           // Дефолт: отправлено
           readStatus = MessageReadStatus.sent;
-          print('📤 [UI] Сообщение ${item.message.id} отправлено (дефолт)');
         }
       }
 
@@ -1937,17 +1919,9 @@ extension on _ChatScreenState {
         );
       }
 
-      final allPhotos = <Map<String, dynamic>>[];
-      for (final msg in _messages) {
-        for (final attach in msg.attaches) {
-          final type = attach['type'] as String?;
-          if (type == 'PHOTO' || type == 'IMAGE') {
-            allPhotos.add({...attach, '_messageId': msg.id});
-          }
-        }
-      }
+      final allPhotos = _cachedAllPhotos;
 
-      return ChatMessageBubble(
+      final bubble = ChatMessageBubble(
         key: ValueKey(item.message.id),
         message: item.message,
         contactDetailsCache: _contactDetailsCache,
@@ -1980,6 +1954,8 @@ extension on _ChatScreenState {
         onReaction: (emoji) => _sendReaction(item.message.id, emoji),
         onRemoveReaction: () => _removeReaction(item.message.id),
       );
+
+      return bubble;
     } else if (item is DateSeparatorItem) {
       return _DateSeparatorChip(date: item.date);
     } else if (item is VoicePreviewItem) {

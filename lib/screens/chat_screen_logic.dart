@@ -43,9 +43,6 @@ extension on _ChatScreenState {
       final replyIdForServer = _replyingToMessage?.id;
       final replyMsgForLocal = _replyingToMessage;
 
-      // Trigger flying text animation
-      _animateFlyingText(originalText);
-
       _addMessage(tempMessage);
       _clearInputState();
       _sendToServer(
@@ -137,41 +134,6 @@ extension on _ChatScreenState {
     _setStateIfMounted(() {});
   }
 
-  void _animateFlyingText(String text) {
-    if (!mounted) return;
-    final RenderBox? renderBox =
-        _textFieldKey.currentContext?.findRenderObject() as RenderBox?;
-    if (renderBox == null) return;
-
-    final Offset startOffset = renderBox.localToGlobal(Offset.zero);
-    final Size size = renderBox.size;
-
-    // Aim for the bottom-right area where the new message will appear
-    final mediaQuery = MediaQuery.of(context);
-    final Offset endOffset = Offset(
-      mediaQuery.size.width - 150, // Right side
-      mediaQuery.size.height - 180, // Slightly above input
-    );
-
-    final OverlayState overlayState = Overlay.of(context);
-    late OverlayEntry entry;
-
-    entry = OverlayEntry(
-      builder: (context) => _FlyingTextWidget(
-        text: text,
-        startOffset: startOffset,
-        endOffset: endOffset,
-        size: size,
-        onComplete: () {
-          if (entry.mounted) {
-            entry.remove();
-          }
-        },
-      ),
-    );
-
-    overlayState.insert(entry);
-  }
 
   void _clearSelectionStyles() {
     if (_isDisposed) return;
@@ -1114,7 +1076,6 @@ extension on _ChatScreenState {
 
       if (widget.isGroupChat) await _loadGroupParticipants();
       _buildChatItems();
-      _messagesToAnimate.clear();
 
       Future.microtask(() {
         _setStateIfMounted(() {
@@ -1152,7 +1113,6 @@ extension on _ChatScreenState {
                 _hasMore = initial.length >= initialLimit;
 
                 _buildChatItems();
-                _messagesToAnimate.clear();
 
                 _setStateIfMounted(() {
                   _isLoadingHistory =
@@ -1317,7 +1277,6 @@ extension on _ChatScreenState {
       _hasMore = nextHasMore;
 
       _buildChatItems();
-      _messagesToAnimate.clear();
 
       Future.microtask(() {
         _setStateIfMounted(() {
@@ -1481,7 +1440,6 @@ extension on _ChatScreenState {
     final isMyMessage = normalizedMessage.senderId == _actualMyId;
     final lastMessage = _messages.isNotEmpty ? _messages.last : null;
     _messages.add(normalizedMessage);
-    _messagesToAnimate.add(normalizedMessage.id);
 
     final currentDate = DateTime.fromMillisecondsSinceEpoch(
       normalizedMessage.time,
@@ -2836,6 +2794,7 @@ extension on _ChatScreenState {
       );
     }
     _chatItems = items;
+    _cachedAllPhotos = _buildAllPhotos();
 
     if (_isVoiceUploading || _isVoiceUploadFailed) {
       _chatItems.add(

@@ -203,8 +203,8 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin, 
   bool _isOpeningChannelSettings = false;
   final List<Message> _messages = [];
   List<ChatItem> _chatItems = [];
+  List<Map<String, dynamic>> _cachedAllPhotos = [];
   final Set<String> _deletingMessageIds = {};
-  final Set<String> _messagesToAnimate = {};
 
   // Loading states
   bool _isLoadingHistory = true;
@@ -221,7 +221,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin, 
   final ValueNotifier<bool> _showScrollToBottomNotifier = ValueNotifier(false);
   final ValueNotifier<Message?> _pinnedMessageNotifier = ValueNotifier(null);
   final TextEditingController _searchController = TextEditingController();
-  final GlobalKey _textFieldKey = GlobalKey();
   final FocusNode _searchFocusNode = FocusNode();
 
   // Chat data
@@ -411,25 +410,6 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin, 
         print(
           '✨ [opcode 130] Обновление статуса в UI для чата ${widget.chatId}',
         );
-        setState(() {
-          // Триггерим анимацию для обновленных сообщений
-          _messagesToAnimate.clear();
-          for (var msg in _messages) {
-            // update.lastReadMessageId - это timestamp, сравниваем с msg.time
-            if (msg.time <= update.lastReadMessageId) {
-              _messagesToAnimate.add(msg.id);
-            }
-          }
-        });
-
-        // Убираем анимацию через 1 секунду
-        Future.delayed(const Duration(seconds: 1), () {
-          if (mounted) {
-            setState(() {
-              _messagesToAnimate.clear();
-            });
-          }
-        });
       }
     });
 
@@ -674,6 +654,19 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin, 
     // Implemented in logic file
   }
 
+  List<Map<String, dynamic>> _buildAllPhotos() {
+    final result = <Map<String, dynamic>>[];
+    for (final msg in _messages) {
+      for (final attach in msg.attaches) {
+        final type = attach['type'] as String?;
+        if (type == 'PHOTO' || type == 'IMAGE') {
+          result.add({...attach, '_messageId': msg.id});
+        }
+      }
+    }
+    return result;
+  }
+
   // Методы _initializeChat, _loadEncryptionConfig, _loadMore
   // реализованы в chat_screen_logic.dart как part of этого файла
 }
@@ -723,97 +716,3 @@ class _OutgoingCallDialogState extends State<_OutgoingCallDialog> {
   }
 }
 
-class _FlyingTextWidget extends StatefulWidget {
-  final String text;
-  final Offset startOffset;
-  final Offset endOffset;
-  final Size size;
-  final VoidCallback onComplete;
-
-  const _FlyingTextWidget({
-    required this.text,
-    required this.startOffset,
-    required this.endOffset,
-    required this.size,
-    required this.onComplete,
-  });
-
-  @override
-  State<_FlyingTextWidget> createState() => _FlyingTextWidgetState();
-}
-
-class _FlyingTextWidgetState extends State<_FlyingTextWidget>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<Offset> _positionAnimation;
-  late Animation<double> _scaleAnimation;
-  late Animation<double> _opacityAnimation;
-  late Animation<double> _rotateAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800),
-    );
-
-    _positionAnimation = Tween<Offset>(
-      begin: widget.startOffset,
-      end: widget.endOffset,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
-
-    _scaleAnimation = Tween<double>(
-      begin: 1.0,
-      end: 0.9,
-    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeIn));
-
-    _opacityAnimation = TweenSequence<double>([
-      TweenSequenceItem(tween: Tween<double>(begin: 1.0, end: 1.0), weight: 90),
-      TweenSequenceItem(tween: Tween<double>(begin: 1.0, end: 0.0), weight: 10),
-    ]).animate(CurvedAnimation(parent: _controller, curve: Curves.easeIn));
-
-    _rotateAnimation = const AlwaysStoppedAnimation(0.0);
-
-    _controller.forward().then((_) => widget.onComplete());
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) {
-        return Positioned(
-          left: _positionAnimation.value.dx,
-          top: _positionAnimation.value.dy,
-          child: Material(
-            color: Colors.transparent,
-            child: Opacity(
-              opacity: _opacityAnimation.value,
-              child: Transform.rotate(
-                angle: _rotateAnimation.value,
-                child: Transform.scale(
-                  scale: _scaleAnimation.value,
-                  child: Text(
-                    widget.text,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurface,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w400,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}

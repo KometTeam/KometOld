@@ -335,21 +335,20 @@ class MessageHandler {
 
       final context = getContext();
       if (context.mounted) {
+        final isInActiveChat = ApiService.instance.currentActiveChatId == newChat.id;
         setState(() {
-          final existingIndex = allChats.indexWhere(
-            (chat) => chat.id == newChat.id,
-          );
-          if (existingIndex != -1) {
-            allChats[existingIndex] = newChat;
+          final oldIndex = allChats.indexWhere((chat) => chat.id == newChat.id);
+          if (oldIndex != -1) {
+            allChats.removeAt(oldIndex);
+            _insertChatAtCorrectPosition(newChat);
           } else {
             final savedIndex = allChats.indexWhere(isSavedMessages);
             final insertIndex = savedIndex >= 0 ? savedIndex + 1 : 0;
             allChats.insert(insertIndex, newChat);
           }
         });
-        // ОПТИМИЗАЦИЯ: Используем debounced вызов filterChats
-        // При множественных обновлениях это объединит вызовы в один
-        _debouncedFilterChats();
+        // Не перефильтровываем если мы сейчас в этом чате — список не виден
+        if (!isInActiveChat) _debouncedFilterChats();
       }
     }
     // Если есть только сообщение и chatId - обновляем существующий чат
@@ -357,18 +356,18 @@ class MessageHandler {
       final newMessage = Message.fromJson(messageJson);
       final context = getContext();
       if (context.mounted) {
+        final isInActiveChat = ApiService.instance.currentActiveChatId == chatId;
         setState(() {
-          final chatIndex = allChats.indexWhere((chat) => chat.id == chatId);
-          if (chatIndex != -1) {
-            final oldChat = allChats[chatIndex];
+          final oldIndex = allChats.indexWhere((chat) => chat.id == chatId);
+          if (oldIndex != -1) {
+            final oldChat = allChats[oldIndex];
             final updatedChat = oldChat.copyWith(lastMessage: newMessage);
-            allChats.removeAt(chatIndex);
+            allChats.removeAt(oldIndex);
             _insertChatAtCorrectPosition(updatedChat);
           }
         });
-        // ОПТИМИЗАЦИЯ: Используем debounced вызов filterChats
-        // При множественных обновлениях это объединит вызовы в один
-        _debouncedFilterChats();
+        // Не перефильтровываем если мы сейчас в этом чате — список не виден
+        if (!isInActiveChat) _debouncedFilterChats();
       }
     }
   }
@@ -569,7 +568,11 @@ class MessageHandler {
         allChats.removeAt(chatIndex);
         _insertChatAtCorrectPosition(updatedChat);
       });
-      _debouncedFilterChats();
+      // Не перефильтровываем если это наше сообщение в активный чат —
+      // список чатов сейчас не виден, обновим когда выйдем из чата
+      if (!(isMyMessage && isInActiveChat)) {
+        _debouncedFilterChats();
+      }
     } else if (payload['chat'] is Map<String, dynamic>) {
       final chatJson = payload['chat'] as Map<String, dynamic>;
       final newChat = Chat.tryFromJson(chatJson);
