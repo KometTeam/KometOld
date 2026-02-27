@@ -138,6 +138,8 @@ class _ChatsScreenState extends State<ChatsScreen>
 
   Set<int> _archivedChats = {};
   bool _isInArchive = false;
+  bool _archiveBannerDismissed = false;
+  bool _isShowingContacts = false;
 
   int get _myId =>
       _myProfile?.id ?? int.tryParse(ApiService.instance.userId ?? '0') ?? 0;
@@ -299,6 +301,12 @@ class _ChatsScreenState extends State<ChatsScreen>
             print("🔄 ChatsScreen: Обновление чатов запущено");
           }
         });
+
+    ApiService.instance.connectionStatus.listen((status) {
+      if (status == 'ready' && mounted) {
+        _loadChatsAndContacts();
+      }
+    });
 
     _contactNamesSubscription = ContactLocalNamesService().changes.listen((_) {
       if (mounted) setState(() {});
@@ -684,6 +692,7 @@ class _ChatsScreenState extends State<ChatsScreen>
       },
       showTokenExpiredDialog: _showTokenExpiredDialog,
       isSavedMessages: _isSavedMessages,
+      onNewChat: _onNewChatReceived,
     );
 
     _messageHandler = handler;
@@ -792,6 +801,7 @@ class _ChatsScreenState extends State<ChatsScreen>
   void _showAddMenu(BuildContext context) {
     showModalBottomSheet(
       context: context,
+      useSafeArea: true,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -1906,15 +1916,25 @@ class _ChatsScreenState extends State<ChatsScreen>
                 return _buildSearchResults();
               } else {
                 final isAllChatsTab = _folderTabController.index == 0;
-                final showArchiveBanner = isAllChatsTab && _archivedChatsList.isNotEmpty;
+                final showArchiveBanner = isAllChatsTab && _archivedChatsList.isNotEmpty && !_archiveBannerDismissed;
                 return Column(
                   children: [
                     _buildFolderTabs(),
+                    if (_isShowingContacts)
+                      Expanded(child: _buildContactsPanel()),
+                    if (!_isShowingContacts) ...[
                     AnimatedSize(
                       duration: const Duration(milliseconds: 250),
                       curve: Curves.easeInOut,
                       child: showArchiveBanner
-                          ? _buildArchiveBanner()
+                          ? GestureDetector(
+                              onVerticalDragEnd: (details) {
+                                if (details.primaryVelocity != null && details.primaryVelocity! < -200) {
+                                  setState(() => _archiveBannerDismissed = true);
+                                }
+                              },
+                              child: _buildArchiveBanner(),
+                            )
                           : const SizedBox.shrink(),
                     ),
                     Expanded(
@@ -1923,6 +1943,7 @@ class _ChatsScreenState extends State<ChatsScreen>
                         children: _buildFolderPages(),
                       ),
                     ),
+                    ],
                   ],
                 );
               }
@@ -1940,6 +1961,7 @@ class _ChatsScreenState extends State<ChatsScreen>
             bodyContent: bodyContent,
             buildAppBar: _buildAppBar,
             buildAppDrawer: _buildAppDrawer,
+            showFab: !_isShowingContacts,
             onAddPressed: widget.isForwardMode
                 ? null
                 : () => _showAddMenu(context),
@@ -3146,6 +3168,144 @@ class _ChatsScreenState extends State<ChatsScreen>
     }
   }
 
+  void _onNewChatReceived(Chat newChat) {
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      setState(() {
+        final savedIndex = _allChats.indexWhere(_isSavedMessages);
+        final insertIndex = savedIndex >= 0 ? savedIndex + 1 : 0;
+        _allChats.insert(insertIndex, newChat);
+      });
+      _filterChats();
+    });
+
+    if (!mounted) return;
+    final colors = Theme.of(context).colorScheme;
+    final chatName = newChat.title ?? 'Новый чат';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.only(bottom: 80, left: 16, right: 16),
+        backgroundColor: colors.surfaceContainerHighest,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        content: Row(
+          children: [
+            Icon(
+              newChat.type == 'CHANNEL' ? Icons.campaign_outlined : Icons.group_outlined,
+              color: colors.primary,
+              size: 20,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                chatName,
+                style: TextStyle(color: colors.onSurface, fontWeight: FontWeight.w500),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+        action: SnackBarAction(
+          label: 'Открыть',
+          textColor: colors.primary,
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => ChatScreen(
+                  chatId: newChat.id,
+                  contact: _contacts[newChat.participantIds
+                      .firstWhere((id) => id != _myId, orElse: () => 0)] ?? Contact(id: 0, name: newChat.title ?? '', firstName: '', lastName: ''),
+                  myId: _myId,
+                  isGroupChat: newChat.type == 'CHAT',
+                  isChannel: newChat.type == 'CHANNEL',
+                ),
+              ),
+            );
+          },
+        ),
+        duration: const Duration(seconds: 5),
+      ),
+    );
+  }
+
+  Widget _buildContactsPanel() {
+    final colors = Theme.of(context).colorScheme;
+    final sortedContacts = _contacts.values.toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+
+    if (sortedContacts.isEmpty) {
+      return Center(
+        child: Text(
+          'Нет контактов',
+          style: TextStyle(color: colors.onSurfaceVariant),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      itemCount: sortedContacts.length,
+      itemBuilder: (context, index) {
+        final contact = sortedContacts[index];
+        return ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          leading: ContactAvatarWidget(
+            contactId: contact.id,
+            originalAvatarUrl: contact.photoBaseUrl,
+            radius: 24,
+            fallbackText: contact.name,
+          ),
+          title: Text(
+            contact.name,
+            style: TextStyle(
+              color: colors.onSurface,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          subtitle: (contact.description != null && contact.description!.isNotEmpty)
+              ? Text(
+                  contact.description!,
+                  style: TextStyle(color: colors.onSurfaceVariant, fontSize: 13),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                )
+              : null,
+          trailing: IconButton(
+            icon: Icon(Icons.more_vert, color: colors.onSurfaceVariant),
+            onPressed: () {},
+          ),
+          onTap: () {
+            final chat = _allChats.firstWhere(
+              (c) => c.participantIds.contains(contact.id) &&
+                  c.participantIds.contains(_myId) &&
+                  c.type == 'DIALOG',
+              orElse: () => _allChats.first,
+            );
+            final found = _allChats.any(
+              (c) => c.participantIds.contains(contact.id) &&
+                  c.participantIds.contains(_myId) &&
+                  c.type == 'DIALOG',
+            );
+            if (found) {
+              setState(() => _isShowingContacts = false);
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => ChatScreen(
+                    chatId: chat.id,
+                    contact: contact,
+                    myId: _myId,
+                  ),
+                ),
+              );
+            }
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildArchiveBanner() {
     final colors = Theme.of(context).colorScheme;
     final count = _archivedChatsList.length;
@@ -3366,6 +3526,19 @@ class _ChatsScreenState extends State<ChatsScreen>
         children: [
           Row(
             children: [
+              IconButton(
+                onPressed: () {
+                  setState(() => _isShowingContacts = !_isShowingContacts);
+                },
+                icon: Icon(
+                  Icons.people_outline,
+                  color: _isShowingContacts ? colors.primary : colors.onSurfaceVariant,
+                  size: 22,
+                ),
+                style: IconButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                ),
+              ),
               Expanded(
                 child: _folders.length <= 3
                     ? Center(
@@ -3493,6 +3666,7 @@ class _ChatsScreenState extends State<ChatsScreen>
 
     await showModalBottomSheet(
       context: context,
+      useSafeArea: true,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) {
@@ -3731,6 +3905,7 @@ class _ChatsScreenState extends State<ChatsScreen>
 
     showModalBottomSheet(
       context: context,
+      useSafeArea: true,
       builder: (context) {
         final colors = Theme.of(context).colorScheme;
         return Container(
@@ -3787,6 +3962,7 @@ class _ChatsScreenState extends State<ChatsScreen>
 
     showModalBottomSheet(
       context: context,
+      useSafeArea: true,
       builder: (context) {
         return ReadSettingsDialogContent(
           chat: chat,
@@ -3956,6 +4132,7 @@ class _ChatsScreenState extends State<ChatsScreen>
 
     showModalBottomSheet(
       context: context,
+      useSafeArea: true,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) {
@@ -4417,6 +4594,7 @@ class _ChatsScreenState extends State<ChatsScreen>
   void _showSearchFilters() {
     showModalBottomSheet(
       context: context,
+      useSafeArea: true,
       builder: (context) => Container(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -5635,6 +5813,7 @@ class _ChatsScreenState extends State<ChatsScreen>
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
+      useSafeArea: true,
       builder: (ctx) {
         final colors = Theme.of(ctx).colorScheme;
         return Container(
@@ -5642,7 +5821,7 @@ class _ChatsScreenState extends State<ChatsScreen>
             color: colors.surface,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
           ),
-          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).padding.bottom + 8),
+          padding: const EdgeInsets.only(bottom: 8),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [

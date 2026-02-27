@@ -855,11 +855,6 @@ extension on _ChatScreenState {
           }
         }
 
-        // Добавляем в кэш (с сохранением link из локального сообщения)
-        unawaited(
-          ChatCacheService().addMessageToCache(widget.chatId, newMessage),
-        );
-
         // Если идёт загрузка истории, откладываем обработку
         if (_isLoadingHistory) {
           _pendingMessagesDuringLoad.add(newMessage);
@@ -1432,10 +1427,6 @@ extension on _ChatScreenState {
     );
     if (_messages.any((m) => m.id == normalizedMessage.id)) return;
 
-    final allMessages = [..._messages, normalizedMessage]
-      ..sort((a, b) => a.time.compareTo(b.time));
-    unawaited(ChatCacheService().cacheChatMessages(widget.chatId, allMessages));
-
     final wasAtBottom = _isUserAtBottom;
     final isMyMessage = normalizedMessage.senderId == _actualMyId;
     final lastMessage = _messages.isNotEmpty ? _messages.last : null;
@@ -1529,7 +1520,7 @@ extension on _ChatScreenState {
       })();
 
       _messages[index] = finalMessageWithOriginalText;
-      unawaited(ChatCacheService().cacheChatMessages(widget.chatId, _messages));
+      unawaited(ChatCacheService().addMessageToCache(widget.chatId, finalMessageWithOriginalText));
 
       if (mounted) {
         _setStateIfMounted(() {});

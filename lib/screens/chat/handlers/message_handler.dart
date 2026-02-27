@@ -31,6 +31,7 @@ class MessageHandler {
   final Function(Profile) setMyProfile;
   final Function(String) showTokenExpiredDialog;
   final bool Function(Chat) isSavedMessages;
+  final Function(Chat)? onNewChat;
 
   // Дедупликация сообщений - храним ID последних обработанных сообщений
   static final Set<String> _processedMessageIds = {};
@@ -63,7 +64,18 @@ class MessageHandler {
     required this.setMyProfile,
     required this.showTokenExpiredDialog,
     required this.isSavedMessages,
+    this.onNewChat,
   });
+
+  void _addNewChatSafely(Chat newChat) {
+    if (onNewChat != null) {
+      onNewChat!(newChat);
+    } else {
+      final savedIndex = allChats.indexWhere(isSavedMessages);
+      final insertIndex = savedIndex >= 0 ? savedIndex + 1 : 0;
+      allChats.insert(insertIndex, newChat);
+    }
+  }
 
   /// Вызывает filterChats с debouncing для оптимизации при множественных обновлениях
   void _debouncedFilterChats() {
@@ -270,8 +282,7 @@ class MessageHandler {
       } else if (opcode == 55) {
         _handleChatUpdate(payload, cmd);
       } else if (opcode == 135) {
-        // ОТКЛЮЧЕНО: opcode 135 вызывает критические баги с videoConversation
-        // _handleChatChanged(payload);
+        _handleChatChanged(payload);
       } else if (opcode == 272) {
         _handleFoldersUpdate(payload);
       } else if (opcode == 274) {
@@ -339,16 +350,23 @@ class MessageHandler {
         setState(() {
           final oldIndex = allChats.indexWhere((chat) => chat.id == newChat.id);
           if (oldIndex != -1) {
-            allChats.removeAt(oldIndex);
-            _insertChatAtCorrectPosition(newChat);
+            if (newChat.favIndex > 0) {
+              allChats[oldIndex] = newChat;
+            } else {
+              allChats.removeAt(oldIndex);
+              _insertChatAtCorrectPosition(newChat);
+            }
           } else {
-            final savedIndex = allChats.indexWhere(isSavedMessages);
-            final insertIndex = savedIndex >= 0 ? savedIndex + 1 : 0;
-            allChats.insert(insertIndex, newChat);
+            _addNewChatSafely(newChat);
           }
         });
-        // Не перефильтровываем если мы сейчас в этом чате — список не виден
-        if (!isInActiveChat) _debouncedFilterChats();
+        if (!isInActiveChat) {
+          if (newChat.favIndex > 0) {
+            setState(() {});
+          } else {
+            _debouncedFilterChats();
+          }
+        }
       }
     }
     // Если есть только сообщение и chatId - обновляем существующий чат
@@ -357,17 +375,22 @@ class MessageHandler {
       final context = getContext();
       if (context.mounted) {
         final isInActiveChat = ApiService.instance.currentActiveChatId == chatId;
+        bool isPinned = false;
         setState(() {
           final oldIndex = allChats.indexWhere((chat) => chat.id == chatId);
           if (oldIndex != -1) {
             final oldChat = allChats[oldIndex];
             final updatedChat = oldChat.copyWith(lastMessage: newMessage);
-            allChats.removeAt(oldIndex);
-            _insertChatAtCorrectPosition(updatedChat);
+            isPinned = updatedChat.favIndex > 0;
+            if (isPinned) {
+              allChats[oldIndex] = updatedChat;
+            } else {
+              allChats.removeAt(oldIndex);
+              _insertChatAtCorrectPosition(updatedChat);
+            }
           }
         });
-        // Не перефильтровываем если мы сейчас в этом чате — список не виден
-        if (!isInActiveChat) _debouncedFilterChats();
+        if (!isInActiveChat && !isPinned) _debouncedFilterChats();
       }
     }
   }
@@ -430,8 +453,6 @@ class MessageHandler {
     if (_processedMessageIds.length > _maxProcessedMessages) {
       _processedMessageIds.remove(_processedMessageIds.first);
     }
-
-    ApiService.instance.clearCacheForChat(chatId);
 
     // Получаем myId из профиля
     int? myId;
@@ -564,14 +585,24 @@ class MessageHandler {
             : oldChat.newMessages,
       );
 
+      final isPinned = updatedChat.favIndex > 0;
       setState(() {
-        allChats.removeAt(chatIndex);
-        _insertChatAtCorrectPosition(updatedChat);
+        if (isPinned) {
+          // Закреплённый чат не двигается — просто обновляем на месте
+          allChats[chatIndex] = updatedChat;
+        } else {
+          allChats.removeAt(chatIndex);
+          _insertChatAtCorrectPosition(updatedChat);
+        }
       });
-      // Не перефильтровываем если это наше сообщение в активный чат —
-      // список чатов сейчас не виден, обновим когда выйдем из чата
+      // Не перефильтровываем если это наше сообщение в активный чат
       if (!(isMyMessage && isInActiveChat)) {
-        _debouncedFilterChats();
+        if (isPinned) {
+          // Закреплённый чат не двигается — просто перестраиваем UI
+          setState(() {});
+        } else {
+          _debouncedFilterChats();
+        }
       }
     } else if (payload['chat'] is Map<String, dynamic>) {
       final chatJson = payload['chat'] as Map<String, dynamic>;
@@ -579,11 +610,7 @@ class MessageHandler {
       if (newChat == null) return;
       ApiService.instance.updateChatInCacheFromJson(chatJson);
 
-      setState(() {
-        final savedIndex = allChats.indexWhere(isSavedMessages);
-        final insertIndex = savedIndex >= 0 ? savedIndex + 1 : 0;
-        allChats.insert(insertIndex, newChat);
-      });
+      setState(() => _addNewChatSafely(newChat));
       _debouncedFilterChats();
     } else {
       final lastPayload = ApiService.instance.lastChatsPayload;
@@ -619,7 +646,6 @@ class MessageHandler {
 
   void _handleEditedMessage(int chatId, Map<String, dynamic> payload) {
     final editedMessage = Message.fromJson(payload['message']);
-    ApiService.instance.clearCacheForChat(chatId);
 
     final int chatIndex = allChats.indexWhere((chat) => chat.id == chatId);
     if (chatIndex != -1) {
@@ -638,7 +664,6 @@ class MessageHandler {
   void _handleDeletedMessages(int chatId, Map<String, dynamic> payload) {
     final rawMessageIds = payload['messageIds'] as List<dynamic>? ?? [];
     final deletedMessageIds = rawMessageIds.map((id) => id.toString()).toList();
-    ApiService.instance.clearCacheForChat(chatId);
 
     final int chatIndex = allChats.indexWhere((chat) => chat.id == chatId);
     if (chatIndex != -1) {
@@ -763,9 +788,7 @@ class MessageHandler {
           if (existingIndex != -1) {
             allChats[existingIndex] = newChat;
           } else {
-            final savedIndex = allChats.indexWhere(isSavedMessages);
-            final insertIndex = savedIndex >= 0 ? savedIndex + 1 : 0;
-            allChats.insert(insertIndex, newChat);
+            _addNewChatSafely(newChat);
           }
         });
         _debouncedFilterChats();
@@ -793,9 +816,7 @@ class MessageHandler {
             if (existingIndex != -1) {
               allChats[existingIndex] = newChat;
             } else {
-              final savedIndex = allChats.indexWhere(isSavedMessages);
-              final insertIndex = savedIndex >= 0 ? savedIndex + 1 : 0;
-              allChats.insert(insertIndex, newChat);
+              _addNewChatSafely(newChat);
             }
           });
           _debouncedFilterChats();
@@ -906,9 +927,7 @@ class MessageHandler {
           allChats[existingIndex] = newChat!;
         } else {
           print('   ➕ [opcode 135] Добавляем новый чат');
-          final savedIndex = allChats.indexWhere(isSavedMessages);
-          final insertIndex = savedIndex >= 0 ? savedIndex + 1 : 0;
-          allChats.insert(insertIndex, newChat!);
+          _addNewChatSafely(newChat!);
         }
         
         // Вызываем setState только если контекст всё ещё mounted

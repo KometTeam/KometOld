@@ -299,9 +299,7 @@ class ChatMessageBubble extends StatelessWidget {
 
   EdgeInsets _getMessageMargin(BuildContext context) {
     final bool needsSmallLeftInset = !isMe && (
-      (!isGroupChat && !isChannel) || // direct chat (no leading avatar)
-      (isGroupChat && !isFirstInGroup) || // grouped messages without avatar
-      (isChannel) // channel messages typically have no per-message avatar
+      (!isGroupChat && !isChannel) // direct chat (no leading avatar)
     );
     final leftMargin = needsSmallLeftInset ? 6.0 : 0.0;
 
@@ -1646,7 +1644,7 @@ class ChatMessageBubble extends StatelessWidget {
         : const Color(0xFF6b7280);
 
     Widget videoContent = Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
       child: Column(
         crossAxisAlignment: isMe
             ? CrossAxisAlignment.end
@@ -1814,7 +1812,7 @@ class ChatMessageBubble extends StatelessWidget {
         : const Color(0xFF6b7280);
 
     Widget photoContent = Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
       child: Column(
         crossAxisAlignment: isMe
             ? CrossAxisAlignment.end
@@ -1946,7 +1944,7 @@ class ChatMessageBubble extends StatelessWidget {
         senderName != null;
 
     Widget videoContent = Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
       child: Column(
         crossAxisAlignment: isMe
             ? CrossAxisAlignment.end
@@ -2002,10 +2000,10 @@ class ChatMessageBubble extends StatelessWidget {
                       : MainAxisAlignment.start,
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    if (!isMe && (isGroupChat || isChannel) && index == 0) ...[
+                    if (!isMe && (isGroupChat || isChannel)) ...[
                       SizedBox(
                         width: 40,
-                        child: isLastInGroup
+                        child: index == 0 && isLastInGroup
                             ? Transform.translate(
                                 offset: Offset(0, avatarVerticalOffset),
                                 child: _buildSenderAvatar(),
@@ -2145,7 +2143,7 @@ class ChatMessageBubble extends StatelessWidget {
         senderName != null;
 
     Widget fileContent = Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
       child: Column(
         crossAxisAlignment: isMe
             ? CrossAxisAlignment.end
@@ -3710,18 +3708,21 @@ class ChatMessageBubble extends StatelessWidget {
       widgets.add(
         Padding(
           padding: const EdgeInsets.only(top: 6),
-          child: AudioPlayerWidget(
-            url: url,
-            duration: durationSeconds * 1000,
-            durationText: durationSeconds > 0
-                ? '${durationSeconds ~/ 60}:${(durationSeconds % 60).toString().padLeft(2, '0')}'
-                : '0:00',
-            wave: audio['wave']?.toString(),
-            waveBytes: null,
-            audioId: audioId,
-            textColor: textColor,
-            borderRadius: BorderRadius.circular(14),
-            messageTextOpacity: messageTextOpacity,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 320),
+            child: AudioPlayerWidget(
+              url: url,
+              duration: durationSeconds * 1000,
+              durationText: durationSeconds > 0
+                  ? '${durationSeconds ~/ 60}:${(durationSeconds % 60).toString().padLeft(2, '0')}'
+                  : '0:00',
+              wave: audio['wave']?.toString(),
+              waveBytes: null,
+              audioId: audioId,
+              textColor: textColor,
+              borderRadius: BorderRadius.circular(14),
+              messageTextOpacity: messageTextOpacity,
+            ),
           ),
         ),
       );
@@ -4354,10 +4355,17 @@ class ChatMessageBubble extends StatelessWidget {
     List<Map<String, dynamic>>? galleryPhotos = allPhotos;
 
     if (galleryPhotos != null && galleryPhotos.isNotEmpty) {
-      final initialIndex = galleryPhotos.indexWhere(
-        (p) =>
-            (p['url'] ?? p['baseUrl']) == (attach['url'] ?? attach['baseUrl']),
-      );
+      final attachUrl = (attach['url'] ?? attach['baseUrl'])?.toString() ?? '';
+      final attachId = attach['id']?.toString() ?? '';
+      final initialIndex = galleryPhotos.indexWhere((p) {
+        if (attachId.isNotEmpty && p['id']?.toString() == attachId) return true;
+        final pUrl = (p['url'] ?? p['baseUrl'])?.toString() ?? '';
+        if (pUrl == attachUrl) return true;
+        // Сравниваем без query параметров
+        final pBase = pUrl.split('?').first;
+        final aBase = attachUrl.split('?').first;
+        return pBase.isNotEmpty && pBase == aBase;
+      });
       if (initialIndex != -1) {
         _openPhotoGallery(context, galleryPhotos, initialIndex);
         return;
@@ -7246,23 +7254,41 @@ class _FullScreenPhotoViewerState extends State<FullScreenPhotoViewer> {
   }
 
   Widget _buildPhotoWidget(Map<String, dynamic> photo) {
-    final url = photo['url'] ?? photo['baseUrl'];
-    if (url == null) return const SizedBox();
+    final url = (photo['url'] ?? photo['baseUrl'])?.toString();
+    if (url == null || url.isEmpty) return const SizedBox();
 
-    return Image.network(
-      url,
-      fit: BoxFit.contain,
-      loadingBuilder: (context, child, loadingProgress) {
-        if (loadingProgress == null) return child;
-        return const Center(
-          child: CircularProgressIndicator(color: Colors.white),
-        );
-      },
-      errorBuilder: (context, error, stackTrace) {
-        return const Center(
-          child: Icon(Icons.error, color: Colors.white, size: 48),
-        );
-      },
+    final baseUrl = url.split('?').first;
+    final previewUrl = url.contains('?')
+        ? '$baseUrl?size=medium&quality=high&format=jpeg'
+        : '$url?size=medium&quality=high&format=jpeg';
+    final fullUrl = url.contains('?')
+        ? '$baseUrl?size=original&quality=high&format=original'
+        : '$url?size=original&quality=high&format=original';
+
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        // Превью — уже в кэше Flutter, показывается мгновенно
+        Image.network(
+          previewUrl,
+          fit: BoxFit.contain,
+          errorBuilder: (_, __, ___) => const SizedBox(),
+        ),
+        // Оригинал грузится поверх и плавно появляется
+        Image.network(
+          fullUrl,
+          fit: BoxFit.contain,
+          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+            if (wasSynchronouslyLoaded || frame != null) return child;
+            return const SizedBox();
+          },
+          errorBuilder: (context, error, stackTrace) {
+            return const Center(
+              child: Icon(Icons.error, color: Colors.white, size: 48),
+            );
+          },
+        ),
+      ],
     );
   }
 
@@ -7280,6 +7306,7 @@ class _FullScreenPhotoViewerState extends State<FullScreenPhotoViewer> {
               itemBuilder: (context, index) {
                 final photo = widget.allPhotos![index];
                 final controller = _transformationControllers[index];
+                Offset? _doubleTapLocalPosition;
 
                 return GestureDetector(
                   onTap: () {
@@ -7288,12 +7315,42 @@ class _FullScreenPhotoViewerState extends State<FullScreenPhotoViewer> {
                       Navigator.of(context).pop();
                     }
                   },
+                  onDoubleTapDown: (details) {
+                    _doubleTapLocalPosition = details.localPosition;
+                  },
+                  onDoubleTap: () {
+                    if (controller == null) return;
+                    final scale = controller.value.getMaxScaleOnAxis();
+                    if (scale > 1.1) {
+                      // Анзум — возвращаем к 1x
+                      controller.value = Matrix4.identity();
+                      setState(() => _isPanEnabled[index] = false);
+                    } else {
+                      // Зум в точку касания — 3x как в TG
+                      const zoomScale = 3.0;
+                      final pos = _doubleTapLocalPosition ?? Offset(
+                        MediaQuery.of(context).size.width / 2,
+                        MediaQuery.of(context).size.height / 2,
+                      );
+                      final x = -pos.dx * (zoomScale - 1);
+                      final y = -pos.dy * (zoomScale - 1);
+                      final zoomed = Matrix4.identity()
+                        ..translate(x, y)
+                        ..scale(zoomScale);
+                      controller.value = zoomed;
+                      setState(() => _isPanEnabled[index] = true);
+                    }
+                  },
                   child: InteractiveViewer(
                     transformationController: controller,
                     panEnabled: _isPanEnabled[index] ?? false,
                     boundaryMargin: const EdgeInsets.all(double.infinity),
                     minScale: 1.0,
                     maxScale: 5.0,
+                    onInteractionEnd: (details) {
+                      final scale = controller?.value.getMaxScaleOnAxis() ?? 1.0;
+                      setState(() => _isPanEnabled[index] = scale > 1.1);
+                    },
                     child: Center(child: _buildPhotoWidget(photo)),
                   ),
                 );
@@ -8697,12 +8754,16 @@ class _VideoCirclePlayerState extends State<_VideoCirclePlayer> {
 
       if (!mounted) return;
 
+      final videoHeaders = <String, String>{
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      };
+      final token = ApiService.instance.authToken;
+      if (token != null && token.isNotEmpty) {
+        videoHeaders['Authorization'] = 'Bearer $token';
+      }
       _controller = VideoPlayerController.networkUrl(
         Uri.parse(videoUrl),
-        httpHeaders: const {
-          'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        },
+        httpHeaders: videoHeaders,
       );
 
       await _controller!.initialize();

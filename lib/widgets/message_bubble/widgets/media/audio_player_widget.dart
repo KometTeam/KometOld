@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:math';
 import 'package:gwid/services/cache_service.dart';
 
 class AudioPlayerWidget extends StatefulWidget {
@@ -40,6 +41,8 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
   Duration _position = Duration.zero;
   Duration _totalDuration = Duration.zero;
   List<int>? _waveformData;
+  bool _isDragging = false;
+  double _dragProgress = 0.0;
 
   @override
   void initState() {
@@ -52,7 +55,6 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
     } else if (widget.wave != null && widget.wave!.isNotEmpty) {
       _decodeWaveform(widget.wave!);
     } else {
-      // Если waveform нет - генерируем простую заглушку
       _generateFallbackWaveform();
     }
 
@@ -61,23 +63,21 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
     }
 
     _audioPlayer.playerStateStream.listen((state) {
-      if (mounted) {
-        final wasCompleted = _isCompleted;
-        setState(() {
-          _isPlaying = state.playing;
-          _isLoading =
-              state.processingState == ProcessingState.loading ||
-              state.processingState == ProcessingState.buffering;
-          _isCompleted = state.processingState == ProcessingState.completed;
-        });
+      if (!mounted) return;
+      setState(() {
+        _isPlaying = state.playing;
+        _isLoading =
+            state.processingState == ProcessingState.loading ||
+            state.processingState == ProcessingState.buffering;
+      });
 
-        if (state.processingState == ProcessingState.completed &&
-            !wasCompleted) {
-          // Сбрасываем позицию и останавливаем, чтобы кнопка вернулась к play
-          _audioPlayer.seek(Duration.zero);
-          _audioPlayer.pause();
+      if (state.processingState == ProcessingState.completed) {
+        _audioPlayer.seek(Duration.zero);
+        _audioPlayer.pause();
+        if (mounted) {
           setState(() {
             _isPlaying = false;
+            _isCompleted = true;
             _position = Duration.zero;
           });
         }
@@ -85,34 +85,13 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
     });
 
     _audioPlayer.positionStream.listen((position) {
-      if (mounted) {
-        final reachedEnd =
-            _totalDuration.inMilliseconds > 0 &&
-            position.inMilliseconds >= _totalDuration.inMilliseconds - 50 &&
-            _isPlaying;
-
-        if (reachedEnd) {
-          // Сбрасываем позицию и останавливаем
-          _audioPlayer.seek(Duration.zero);
-          _audioPlayer.pause();
-        }
-
-        setState(() {
-          _position = position;
-          if (reachedEnd) {
-            _isPlaying = false;
-            _isCompleted = true;
-            _position = Duration.zero;
-          }
-        });
-      }
+      if (!mounted || _isDragging) return;
+      setState(() => _position = position);
     });
 
     _audioPlayer.durationStream.listen((duration) {
       if (mounted && duration != null && duration.inMilliseconds > 0) {
-        setState(() {
-          _totalDuration = duration;
-        });
+        setState(() => _totalDuration = duration);
       }
     });
   }
@@ -123,23 +102,18 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
       if (waveBase64.contains(',')) {
         base64Data = waveBase64.split(',')[1];
       }
-
       final bytes = base64Decode(base64Data);
       _waveformData = bytes.toList();
     } catch (e) {
-      _waveformData = null;
+      _generateFallbackWaveform();
     }
   }
-  
+
   void _generateFallbackWaveform() {
-    // Генерируем простую waveform если её нет
-    // Используем случайные значения для имитации звуковой волны
-    final random = widget.duration.hashCode; // Детерминированный "случайный" seed
+    final rng = Random(widget.duration);
     _waveformData = List.generate(40, (i) {
-      // Создаём волнообразный паттерн
-      final base = (i % 10) / 10.0;
-      final wave = (((random + i * 7) % 100) / 100.0) * 0.6 + base * 0.4;
-      return (wave * 200 + 55).toInt(); // Значения от 55 до 255
+      final v = (sin(i * 0.4) * 0.3 + rng.nextDouble() * 0.7);
+      return (v * 200 + 55).toInt().clamp(55, 255);
     });
   }
 
@@ -157,7 +131,7 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
         );
       }
     } catch (e) {
-      print('⚠️ Ошибка кэширования аудио файла: $e');
+      // ignore
     }
   }
 
@@ -167,121 +141,49 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
     try {
       if (_isPlaying) {
         await _audioPlayer.pause();
-        if (mounted) {
-          setState(() {
-            _isPlaying = false;
-          });
-        }
       } else {
-        if (_isCompleted ||
-            (_totalDuration.inMilliseconds > 0 &&
-                _position.inMilliseconds >=
-                    _totalDuration.inMilliseconds - 100)) {
-          await _audioPlayer.stop();
+        if (_isCompleted) {
           await _audioPlayer.seek(Duration.zero);
-          if (mounted) {
-            setState(() {
-              _isCompleted = false;
-              _isPlaying = false;
-              _position = Duration.zero;
-            });
-          }
-          await Future.delayed(const Duration(milliseconds: 150));
+          setState(() {
+            _isCompleted = false;
+            _position = Duration.zero;
+          });
         }
 
         if (_audioPlayer.processingState == ProcessingState.idle) {
-          if (widget.url.isNotEmpty) {
-            final cacheService = CacheService();
-            var cachedFile = await cacheService.getCachedAudioFile(
-              widget.url,
-              customKey: widget.audioId?.toString(),
-            );
+          final cacheService = CacheService();
+          var cachedFile = await cacheService.getCachedAudioFile(
+            widget.url,
+            customKey: widget.audioId?.toString(),
+          );
 
-            if (cachedFile != null && await cachedFile.exists()) {
-              await _audioPlayer.setFilePath(cachedFile.path);
-            } else {
-              final hasCached = await cacheService.hasCachedAudioFile(
-                widget.url,
-                customKey: widget.audioId?.toString(),
-              );
-
-              if (!hasCached) {
-                try {
-                  await _audioPlayer.setUrl(widget.url);
-
-                  cacheService
-                      .cacheAudioFile(
-                        widget.url,
-                        customKey: widget.audioId?.toString(),
-                      )
-                      .catchError((error) => null);
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          'Не удалось загрузить аудио: ${e.toString()}',
-                        ),
-                        backgroundColor: Colors.red,
-                        duration: const Duration(seconds: 3),
-                      ),
-                    );
-                  }
-                  return;
-                }
-              } else {
-                await _audioPlayer.setUrl(widget.url);
-              }
-            }
+          if (cachedFile != null && await cachedFile.exists()) {
+            await _audioPlayer.setFilePath(cachedFile.path);
+          } else {
+            await _audioPlayer.setUrl(widget.url);
           }
         }
+
         await _audioPlayer.play();
-        if (mounted) {
-          setState(() {
-            _isPlaying = true;
-          });
-        }
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Ошибка воспроизведения: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      debugPrint('Audio error: $e');
     }
   }
 
   Future<void> _seek(Duration position) async {
-    if (_audioPlayer.processingState == ProcessingState.idle) {
-      if (widget.url.isNotEmpty) {
-        final cacheService = CacheService();
-        var cachedFile = await cacheService.getCachedAudioFile(
-          widget.url,
-          customKey: widget.audioId?.toString(),
-        );
-
-        if (cachedFile != null && await cachedFile.exists()) {
-          await _audioPlayer.setFilePath(cachedFile.path);
-        } else {
-          await _audioPlayer.setUrl(widget.url);
-        }
-      }
-    }
-    await _audioPlayer.seek(position);
-    if (mounted) {
-      setState(() {
-        _isCompleted = false;
-      });
+    try {
+      await _audioPlayer.seek(position);
+      setState(() => _position = position);
+    } catch (e) {
+      // ignore
     }
   }
 
-  String _formatDuration(Duration duration) {
-    final minutes = duration.inMinutes;
-    final seconds = duration.inSeconds % 60;
-    return '$minutes:${seconds.toString().padLeft(2, '0')}';
+  String _formatDuration(Duration d) {
+    final m = d.inMinutes.toString().padLeft(2, '0');
+    final s = (d.inSeconds % 60).toString().padLeft(2, '0');
+    return '$m:$s';
   }
 
   @override
@@ -293,128 +195,128 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
   @override
   Widget build(BuildContext context) {
     final progress = _totalDuration.inMilliseconds > 0
-        ? _position.inMilliseconds / _totalDuration.inMilliseconds
+        ? (_isDragging
+            ? _dragProgress
+            : (_position.inMilliseconds / _totalDuration.inMilliseconds).clamp(0.0, 1.0))
         : 0.0;
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () {},
-      onLongPress: () {},
-      child: Container(
-        decoration: BoxDecoration(
-          color: widget.textColor.withValues(alpha: 0.05),
-          borderRadius: widget.borderRadius,
-          border: Border.all(
-            color: widget.textColor.withValues(alpha: 0.1),
-            width: 1,
-          ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(10),
-          child: Row(
-            children: [
-              GestureDetector(
-                onTap: _togglePlayPause,
-                child: Container(
-                  width: 32,
-                  height: 32,
-                  decoration: BoxDecoration(
-                    color: widget.textColor.withValues(alpha: 0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: _isLoading
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Icon(
-                          _isPlaying 
-                              ? Icons.pause 
-                              : (_isCompleted ? Icons.replay : Icons.play_arrow),
-                          color: widget.textColor.withValues(
-                            alpha: 0.8 * widget.messageTextOpacity,
-                          ),
-                          size: 20,
-                        ),
-                ),
+    final displayDuration = _isPlaying || _position > Duration.zero
+        ? _formatDuration(_position)
+        : _formatDuration(_totalDuration);
+
+    final playColor = widget.textColor.withValues(alpha: widget.messageTextOpacity);
+    final waveColor = widget.textColor.withValues(alpha: 0.3 * widget.messageTextOpacity);
+    final waveProgressColor = widget.textColor.withValues(alpha: 0.9 * widget.messageTextOpacity);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // Кнопка play/pause
+          GestureDetector(
+            onTap: _togglePlayPause,
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: playColor.withValues(alpha: 0.15),
+                shape: BoxShape.circle,
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Всегда показываем waveform (либо настоящую, либо сгенерированную)
-                    SizedBox(
-                      height: 30,
-                      child: CustomPaint(
-                        painter: WaveformPainter(
-                          waveform: _waveformData ?? [],
-                          progress: progress,
-                          color: widget.textColor.withValues(
-                            alpha: 0.6 * widget.messageTextOpacity,
+              child: _isLoading
+                  ? Padding(
+                      padding: const EdgeInsets.all(10),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: playColor,
+                      ),
+                    )
+                  : Icon(
+                      _isPlaying ? Icons.pause : Icons.play_arrow,
+                      color: playColor,
+                      size: 24,
+                    ),
+            ),
+          ),
+          const SizedBox(width: 10),
+
+          // Waveform + время
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Waveform с жестом перетаскивания
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    return GestureDetector(
+                      onHorizontalDragStart: (details) {
+                        setState(() {
+                          _isDragging = true;
+                          _dragProgress = (details.localPosition.dx / constraints.maxWidth).clamp(0.0, 1.0);
+                        });
+                      },
+                      onHorizontalDragUpdate: (details) {
+                        setState(() {
+                          _dragProgress = (details.localPosition.dx / constraints.maxWidth).clamp(0.0, 1.0);
+                        });
+                      },
+                      onHorizontalDragEnd: (details) {
+                        final newPos = Duration(
+                          milliseconds: (_totalDuration.inMilliseconds * _dragProgress).round(),
+                        );
+                        setState(() => _isDragging = false);
+                        _seek(newPos);
+                      },
+                      onTapUp: (details) {
+                        final p = (details.localPosition.dx / constraints.maxWidth).clamp(0.0, 1.0);
+                        final newPos = Duration(
+                          milliseconds: (_totalDuration.inMilliseconds * p).round(),
+                        );
+                        _seek(newPos);
+                      },
+                      child: SizedBox(
+                        height: 32,
+                        width: constraints.maxWidth,
+                        child: CustomPaint(
+                          painter: WaveformPainter(
+                            waveform: _waveformData ?? [],
+                            progress: progress,
+                            color: waveColor,
+                            progressColor: waveProgressColor,
+                            isDragging: _isDragging,
                           ),
-                          progressColor: widget.textColor.withValues(
-                            alpha: 0.9 * widget.messageTextOpacity,
-                          ),
-                        ),
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            return GestureDetector(
-                              behavior: HitTestBehavior.opaque,
-                              onTapDown: (details) {
-                                final tapProgress =
-                                    details.localPosition.dx /
-                                    constraints.maxWidth;
-                                final clampedProgress = tapProgress.clamp(
-                                  0.0,
-                                  1.0,
-                                );
-                                final newPosition = Duration(
-                                  milliseconds:
-                                      (_totalDuration.inMilliseconds *
-                                              clampedProgress)
-                                          .round(),
-                                );
-                                _seek(newPosition);
-                              },
-                              onLongPress: () {},
-                            );
-                          },
                         ),
                       ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 2),
+                // Время
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      displayDuration,
+                      style: TextStyle(
+                        color: widget.textColor.withValues(alpha: 0.6 * widget.messageTextOpacity),
+                        fontSize: 11,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
                     ),
-                    const SizedBox(height: 4),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          _formatDuration(_position),
-                          style: TextStyle(
-                            color: widget.textColor.withValues(
-                              alpha: 0.7 * widget.messageTextOpacity,
-                            ),
-                            fontSize: 12,
-                          ),
-                        ),
-                        Text(
-                          _formatDuration(_totalDuration),
-                          style: TextStyle(
-                            color: widget.textColor.withValues(
-                              alpha: 0.7 * widget.messageTextOpacity,
-                            ),
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
+                    Text(
+                      widget.durationText,
+                      style: TextStyle(
+                        color: widget.textColor.withValues(alpha: 0.4 * widget.messageTextOpacity),
+                        fontSize: 11,
+                      ),
                     ),
                   ],
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -425,12 +327,14 @@ class WaveformPainter extends CustomPainter {
   final double progress;
   final Color color;
   final Color progressColor;
+  final bool isDragging;
 
   WaveformPainter({
     required this.waveform,
     required this.progress,
     required this.color,
     required this.progressColor,
+    this.isDragging = false,
   });
 
   @override
@@ -441,34 +345,47 @@ class WaveformPainter extends CustomPainter {
       ..style = PaintingStyle.fill
       ..strokeCap = StrokeCap.round;
 
-    final barWidth = size.width / waveform.length;
-    final progressX = size.width * progress;
+    final count = waveform.length;
+    final totalWidth = size.width;
+    final barWidth = (totalWidth / count * 0.6).clamp(2.0, 6.0);
+    final gap = totalWidth / count;
+    final progressX = totalWidth * progress;
 
-    for (int i = 0; i < waveform.length; i++) {
-      final x = i * barWidth;
-      final normalizedHeight = (waveform[i] / 255.0).clamp(0.1, 1.0);
-      final barHeight = size.height * normalizedHeight;
+    for (int i = 0; i < count; i++) {
+      final x = i * gap + gap / 2 - barWidth / 2;
+      final normalizedHeight = (waveform[i] / 255.0).clamp(0.08, 1.0);
+      final barHeight = (size.height * normalizedHeight).clamp(3.0, size.height);
+
+      final isPlayed = x < progressX;
 
       final rect = RRect.fromRectAndRadius(
         Rect.fromLTWH(
           x,
           (size.height - barHeight) / 2,
-          barWidth * 0.8,
+          barWidth,
           barHeight,
         ),
-        const Radius.circular(2),
+        const Radius.circular(3),
       );
 
-      paint.color = x < progressX ? progressColor : color;
+      paint.color = isPlayed ? progressColor : color;
       canvas.drawRRect(rect, paint);
     }
+
+    final thumbPaint = Paint()
+      ..color = progressColor
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(
+      Offset(progressX.clamp(4.0, size.width - 4.0), size.height / 2),
+      isDragging ? 6.0 : 4.0,
+      thumbPaint,
+    );
   }
 
   @override
   bool shouldRepaint(covariant WaveformPainter oldDelegate) {
     return oldDelegate.progress != progress ||
         oldDelegate.waveform != waveform ||
-        oldDelegate.color != color ||
-        oldDelegate.progressColor != progressColor;
+        oldDelegate.isDragging != isDragging;
   }
 }

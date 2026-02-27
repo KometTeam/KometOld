@@ -443,6 +443,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin, 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    unawaited(ChatCacheService().flushPendingCache(widget.chatId));
     print('🗑️ dispose() вызван для чата ${widget.chatId}');
     print('📝 Текст перед dispose: "${_textController.text}"');
 
@@ -658,7 +659,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin, 
     final result = <Map<String, dynamic>>[];
     for (final msg in _messages) {
       for (final attach in msg.attaches) {
-        final type = attach['type'] as String?;
+        final type = (attach['_type'] ?? attach['type']) as String?;
         if (type == 'PHOTO' || type == 'IMAGE') {
           result.add({...attach, '_messageId': msg.id});
         }

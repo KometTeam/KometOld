@@ -241,6 +241,9 @@ extension ApiServiceChats on ApiService {
     await _ensureCacheServicesInitialized();
 
     if (force) {
+      if (_chatsFetchedInThisSession && _lastChatsPayload != null) {
+        return _lastChatsPayload!;
+      }
       _chatsFetchedInThisSession = false;
       _lastChatsPayload = null;
     }

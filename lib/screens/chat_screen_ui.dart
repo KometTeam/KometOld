@@ -1063,6 +1063,7 @@ extension on _ChatScreenState {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Row(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Container(
                           width: 3,
@@ -1073,7 +1074,8 @@ extension on _ChatScreenState {
                           ),
                         ),
                         const SizedBox(width: 8),
-                        Expanded(
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 220),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisSize: MainAxisSize.min,
@@ -1484,27 +1486,7 @@ extension on _ChatScreenState {
         .reduce((a, b) => a > b ? a : b);
 
     // Если далеко (больше 10 элементов от низа), делаем гибридный скролл
-    if (maxVisibleIndex > 10) {
-      // Сначала телепортируемся близко к низу (на 5 элементов выше)
-      _itemScrollController.jumpTo(index: 5);
-
-      // Затем быстро докручиваем до самого низа
-      Future.delayed(const Duration(milliseconds: 50), () {
-        if (!mounted || !_itemScrollController.isAttached) return;
-        _itemScrollController.scrollTo(
-          index: 0,
-          duration: const Duration(milliseconds: 150), // Быстрее
-          curve: Curves.easeOut,
-        );
-      });
-    } else {
-      // Если близко, просто быстро скроллим
-      _itemScrollController.scrollTo(
-        index: 0,
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOut,
-      );
-    }
+    _itemScrollController.jumpTo(index: 0);
   }
 
   void _scrollToPinnedMessage() {
@@ -2541,13 +2523,23 @@ extension on _ChatScreenState {
             children: [
               ListTile(
                 leading: const Icon(Icons.photo_library),
-                title: const Text('Выбрать из галереи'),
+                title: const Text('Выбрать фото из галереи'),
                 onTap: () => Navigator.pop(context, 'gallery'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.video_library),
+                title: const Text('Выбрать видео из галереи'),
+                onTap: () => Navigator.pop(context, 'video'),
               ),
               ListTile(
                 leading: const Icon(Icons.camera_alt),
                 title: const Text('Сделать фото'),
                 onTap: () => Navigator.pop(context, 'camera'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.videocam),
+                title: const Text('Снять видео'),
+                onTap: () => Navigator.pop(context, 'camera_video'),
               ),
             ],
           ),
@@ -2560,11 +2552,15 @@ extension on _ChatScreenState {
 
       if (choice == 'gallery') {
         pickedFiles = await picker.pickMultiImage();
+      } else if (choice == 'video') {
+        final file = await picker.pickVideo(source: ImageSource.gallery);
+        if (file != null) pickedFiles = [file];
       } else if (choice == 'camera') {
         final file = await picker.pickImage(source: ImageSource.camera);
-        if (file != null) {
-          pickedFiles = [file];
-        }
+        if (file != null) pickedFiles = [file];
+      } else if (choice == 'camera_video') {
+        final file = await picker.pickVideo(source: ImageSource.camera);
+        if (file != null) pickedFiles = [file];
       }
 
       if (pickedFiles == null || pickedFiles.isEmpty) return null;

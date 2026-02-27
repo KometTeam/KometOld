@@ -28,6 +28,15 @@ class ChatCacheService {
   Duration get _contactsTTL => _settingsService.currentSettings.contactsTTL;
   Duration get _messagesTTL => _settingsService.currentSettings.messagesTTL;
 
+  final Map<int, List<Message>> _pendingCacheUpdates = {};
+
+  Future<void> flushPendingCache(int chatId) async {
+    final pending = _pendingCacheUpdates.remove(chatId);
+    if (pending != null) {
+      await cacheChatMessages(chatId, pending);
+    }
+  }
+
   Future<void> cacheChats(List<Map<String, dynamic>> chats) async {
     try {
       await _cacheService.set(_chatsKey, chats, ttl: _chatsTTL);
@@ -227,46 +236,32 @@ class ChatCacheService {
 
   Future<void> addMessageToCache(int chatId, Message message) async {
     try {
-      final cached = await getCachedChatMessages(chatId);
+      // Берём pending если есть, иначе читаем с диска
+      final cached = _pendingCacheUpdates[chatId] ?? await getCachedChatMessages(chatId);
 
+      List<Message> updatedMessages;
       if (cached != null) {
-        // Проверяем, нет ли уже такого сообщения (по id или cid)
-        final exists = cached.any(
+        final existingIndex = cached.indexWhere(
           (m) =>
               m.id == message.id ||
               (m.cid != null && message.cid != null && m.cid == message.cid),
         );
-
-        if (!exists) {
-          // Добавляем новое сообщение, сохраняя порядок по времени
-          final updatedMessages = [...cached, message]
+        if (existingIndex == -1) {
+          updatedMessages = [...cached, message]
             ..sort((a, b) => a.time.compareTo(b.time));
-          await cacheChatMessages(chatId, updatedMessages);
         } else {
-          // Обновляем существующее сообщение
-          // ВАЖНО: Сохраняем поле link из локального сообщения, если сервер его не вернул
-          final updatedMessages = cached
-              .map(
-                (m) {
-                  if (m.id == message.id ||
-                      (m.cid != null &&
-                          message.cid != null &&
-                          m.cid == message.cid)) {
-                    // Если у нового сообщения нет link, но у старого есть - сохраняем старый link
-                    if (message.link == null && m.link != null) {
-                      return message.copyWith(link: m.link);
-                    }
-                    return message;
-                  }
-                  return m;
-                },
-              )
-              .toList();
-          await cacheChatMessages(chatId, updatedMessages);
+          final old = cached[existingIndex];
+          final merged = message.link == null && old.link != null
+              ? message.copyWith(link: old.link)
+              : message;
+          updatedMessages = List.of(cached);
+          updatedMessages[existingIndex] = merged;
         }
       } else {
-        await cacheChatMessages(chatId, [message]);
+        updatedMessages = [message];
       }
+
+      _pendingCacheUpdates[chatId] = updatedMessages;
     } catch (e) {
       print('Ошибка добавления сообщения в кэш: $e');
     }

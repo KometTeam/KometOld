@@ -145,8 +145,7 @@ class ChatController extends ChangeNotifier {
       _loadContactIfNeeded(message.senderId);
     }
     
-    // Кэширование
-    unawaited(ChatCacheService().cacheChatMessages(chatId, _messages));
+    unawaited(ChatCacheService().addMessageToCache(chatId, message));
     
     _notifyListenersSafe();
   }
@@ -173,12 +172,11 @@ class ChatController extends ChangeNotifier {
   void updateMessage(Message updated) {
     final index = _messages.indexWhere((m) => m.id == updated.id);
     if (index == -1) {
-      // Пробуем найти по CID
       if (updated.cid != null) {
         final cidIndex = _messages.indexWhere((m) => m.cid == updated.cid);
         if (cidIndex != -1) {
           _messages[cidIndex] = updated;
-          unawaited(ChatCacheService().cacheChatMessages(chatId, _messages));
+          unawaited(ChatCacheService().addMessageToCache(chatId, updated));
           _notifyListenersSafe();
         }
       }
@@ -186,14 +184,17 @@ class ChatController extends ChangeNotifier {
     }
     
     _messages[index] = updated;
-    unawaited(ChatCacheService().cacheChatMessages(chatId, _messages));
+    unawaited(ChatCacheService().addMessageToCache(chatId, updated));
     _notifyListenersSafe();
   }
   
   /// Удалить сообщения
   void removeMessages(List<String> messageIds) {
     _messages.removeWhere((m) => messageIds.contains(m.id));
-    unawaited(ChatCacheService().cacheChatMessages(chatId, _messages));
+    // Удаляем из кэша по одному
+    for (final id in messageIds) {
+      unawaited(ChatCacheService().removeMessageFromCache(chatId, id));
+    }
     _notifyListenersSafe();
   }
   
@@ -265,11 +266,7 @@ class ChatController extends ChangeNotifier {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_itemScrollController == null || !_itemScrollController!.isAttached) return;
       try {
-        _itemScrollController!.scrollTo(
-          index: visualIndex,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeInOut,
-        );
+        _itemScrollController!.jumpTo(index: visualIndex);
       } catch (e) {
         print('⚠️ Ошибка скролла к сообщению: $e');
       }
