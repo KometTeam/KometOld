@@ -262,6 +262,7 @@ extension on _ChatScreenState {
                     ],
                   ),
                 ),
+              if (!widget.isChannel || _isChannelAdmin())
               PopupMenuItem(
                 value: 'encryption_password',
                 child: Row(
@@ -840,6 +841,32 @@ extension on _ChatScreenState {
 
   // Text Input
   Widget _buildTextInput() {
+    // Кнопка запуска бота
+    if (widget.contact.isBot && widget.needBotStart && _messages.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+        child: SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            icon: const Icon(Icons.smart_toy_outlined),
+            label: const Text('Запустить бота'),
+            onPressed: () async {
+              try {
+                await ApiService.instance.sendBotStarted(widget.chatId);
+                if (mounted) setState(() {});
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Ошибка: $e')),
+                  );
+                }
+              }
+            },
+          ),
+        ),
+      );
+    }
+
     if (widget.isChannel) {
       bool amIAdmin = false;
       final currentChat = _getCurrentGroupChat();
@@ -850,7 +877,32 @@ extension on _ChatScreenState {
       }
 
       if (!amIAdmin) {
-        return const SizedBox.shrink();
+        final channelLink = (currentChat?['link'] as String?) ?? widget.channelLink;
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+          child: SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              icon: const Icon(Icons.notifications_active_outlined),
+              label: const Text('Подписаться на канал'),
+              onPressed: channelLink == null ? null : () async {
+                final link = channelLink.startsWith('@')
+                    ? channelLink.substring(1).trim()
+                    : channelLink.trim();
+                try {
+                  await ApiService.instance.subscribeToChannel(link);
+                  if (mounted) setState(() {});
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Ошибка подписки: $e')),
+                    );
+                  }
+                }
+              },
+            ),
+          ),
+        );
       }
     }
 

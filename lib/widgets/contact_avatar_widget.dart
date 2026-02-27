@@ -97,7 +97,9 @@ class _ContactAvatarWidgetState extends State<ContactAvatarWidget> {
       backgroundImage: avatarImage,
       child: avatarImage == null
           ? Text(
-              widget.fallbackText ?? '?',
+              widget.fallbackText != null && widget.fallbackText!.isNotEmpty
+                  ? widget.fallbackText![0].toUpperCase()
+                  : '?',
               style: TextStyle(
                 color:
                     widget.textColor ?? theme.colorScheme.onSecondaryContainer,

@@ -1,6 +1,9 @@
 part of 'api_service.dart';
 
 extension ApiServiceSearch on ApiService {
+  /// Глобальный поиск по чатам, контактам и сообщениям
+  /// opcode 68 - поиск с маркером для пагинации (PUBLIC_CHATS и т.д.)
+  /// opcode 60 - поиск типа ALL для получения всех результатов сразу
   Future<Map<String, dynamic>> globalSearch(
     String query, {
     int count = 30,
@@ -16,9 +19,11 @@ extension ApiServiceSearch on ApiService {
       if (useTypeAll) 'type': 'ALL',
     };
 
+    // opcode 60 для поиска с type: ALL
+    // opcode 68 для поиска с пагинацией
     final opcode = useTypeAll ? 60 : 68;
 
-    final response = await sendRequestWithVersion(10, opcode, payload);
+    final response = await sendRequest(opcode, payload);
     final responsePayload = response['payload'];
 
     if (responsePayload is Map<String, dynamic>) {

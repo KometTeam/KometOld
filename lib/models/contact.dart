@@ -10,6 +10,7 @@ class Contact {
   final int accountStatus;
   final String? status;
   final List<String> options;
+  final String? link;
 
   Contact({
     required this.id,
@@ -23,6 +24,7 @@ class Contact {
     this.accountStatus = 0,
     this.status,
     this.options = const [],
+    this.link,
   });
 
   bool get isBot => options.contains('BOT');
@@ -54,6 +56,7 @@ class Contact {
       accountStatus: accountStatus ?? this.accountStatus,
       status: status ?? this.status,
       options: options ?? this.options,
+      link: link ?? this.link,
     );
   }
 
@@ -105,6 +108,7 @@ class Contact {
       accountStatus: json['accountStatus'] ?? 0,
       status: json['status'],
       options: List<String>.from(json['options'] ?? []),
+      link: json['link']?.toString(),
     );
   }
 }

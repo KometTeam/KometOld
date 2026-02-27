@@ -74,6 +74,20 @@ Future<void> _generateInitialAndroidSpoof() async {
 }
 
 Future<void> main() async {
+  // Подавляем надоедливые GTK/GDK warnings на Linux
+  if (Platform.isLinux) {
+    // Перенаправляем stderr чтобы отфильтровать Gdk warnings
+    final originalPrint = debugPrint;
+    debugPrint = (String? message, {int? wrapWidth}) {
+      if (message != null && 
+          (message.contains('Gdk-WARNING') || 
+           message.contains('Error converting selection'))) {
+        return; // Игнорируем эти сообщения
+      }
+      originalPrint(message, wrapWidth: wrapWidth);
+    };
+  }
+  
   FlutterError.onError = (FlutterErrorDetails details) {
     FlutterError.presentError(details);
     debugPrint('💥 [Global] FlutterError: ${details.exceptionAsString()}');

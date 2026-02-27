@@ -3,6 +3,7 @@ import 'package:just_audio/just_audio.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:math';
+import 'dart:ui' as ui;
 import 'package:gwid/services/cache_service.dart';
 
 class AudioPlayerWidget extends StatefulWidget {
@@ -103,7 +104,54 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
         base64Data = waveBase64.split(',')[1];
       }
       final bytes = base64Decode(base64Data);
-      _waveformData = bytes.toList();
+      _decodeWaveformFromImage(bytes);
+    } catch (e) {
+      _generateFallbackWaveform();
+    }
+  }
+
+  Future<void> _decodeWaveformFromImage(Uint8List bytes) async {
+    try {
+      final codec = await ui.instantiateImageCodec(bytes);
+      final frame = await codec.getNextFrame();
+      final image = frame.image;
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      if (byteData == null) {
+        _generateFallbackWaveform();
+        return;
+      }
+
+      final w = image.width;
+      final h = image.height;
+      final pixels = byteData.buffer.asUint8List();
+      final result = <int>[];
+
+      for (int x = 0; x < w; x++) {
+        // Ищем самый нижний непрозрачный/тёмный пиксель в колонке снизу вверх
+        int filledRows = 0;
+        for (int y = h - 1; y >= 0; y--) {
+          final idx = (y * w + x) * 4;
+          final r = pixels[idx];
+          final g = pixels[idx + 1];
+          final b = pixels[idx + 2];
+          final a = pixels[idx + 3];
+          // Пиксель считается заполненным если он непрозрачный и достаточно тёмный/цветной
+          if (a > 30 && (r < 200 || g < 200 || b < 200)) {
+            filledRows = h - y;
+            break;
+          }
+        }
+        // Нормализуем в 0-255
+        final amplitude = ((filledRows / h) * 255).round().clamp(0, 255);
+        result.add(amplitude);
+      }
+
+      if (mounted) {
+        setState(() {
+          _waveformData = result.isEmpty ? null : result;
+        });
+      }
+      if (result.isEmpty) _generateFallbackWaveform();
     } catch (e) {
       _generateFallbackWaveform();
     }

@@ -111,6 +111,8 @@ class ChatScreen extends StatefulWidget {
   final bool isChannel;
   final int? participantCount;
   final bool isDesktopMode;
+  final String? channelLink;
+  final bool needBotStart;
 
   const ChatScreen({
     super.key,
@@ -126,6 +128,8 @@ class ChatScreen extends StatefulWidget {
     this.isChannel = false,
     this.participantCount,
     this.isDesktopMode = false,
+    this.channelLink,
+    this.needBotStart = false,
   });
 
   @override

@@ -54,6 +54,8 @@ import 'package:gwid/screens/chat/screens/sferum_webview_panel.dart';
 import 'package:gwid/screens/chat/handlers/message_handler.dart';
 import 'package:gwid/widgets/optimized/optimized_widgets.dart';
 import 'package:gwid/widgets/shatter_animation.dart';
+import 'package:animated_list_plus/animated_list_plus.dart';
+import 'package:animated_list_plus/transitions.dart';
 
 class ChatsScreen extends StatefulWidget {
   final void Function(
@@ -775,14 +777,20 @@ class _ChatsScreenState extends State<ChatsScreen>
                 )
                 .whereType<Chat>()
                 .toList();
-            _contacts.clear();
+            // Обновляем контакты: удаляем старые, добавляем новые
+            final newContactIds = <int>{};
             for (final contactJson in contacts) {
-              _loadChatDrafts();
               final contact = Contact.fromJson(
                 (contactJson as Map).cast<String, dynamic>(),
               );
               _contacts[contact.id] = contact;
+              newContactIds.add(contact.id);
             }
+            
+            // Удаляем контакты, которых больше нет на сервере
+            _contacts.removeWhere((id, contact) => !newContactIds.contains(id));
+            
+            _loadChatDrafts();
 
             if (profileData != null) {
               _myProfile = Profile.fromJson(profileData);
@@ -1346,7 +1354,7 @@ class _ChatsScreenState extends State<ChatsScreen>
         q,
         count: 30,
         marker: reset ? null : _globalSearchMarker,
-        useTypeAll: false,
+        useTypeAll: true,
       );
 
       if (!mounted || token != _globalSearchToken) return;
@@ -1357,8 +1365,6 @@ class _ChatsScreenState extends State<ChatsScreen>
         for (final item in result) {
           if (item is! Map) continue;
           final map = item.cast<String, dynamic>();
-          final section = map['section']?.toString();
-          if (section == 'MESSAGES') continue;
           items.add(map);
         }
       }
@@ -1604,12 +1610,18 @@ class _ChatsScreenState extends State<ChatsScreen>
               (chat) => !newChatIds.contains(chat.id),
             );
 
+            // Обновляем контакты: удаляем старые, добавляем новые
+            final newContactIds = <int>{};
             for (final contactJson in contacts) {
               final contact = Contact.fromJson(
                 (contactJson as Map).cast<String, dynamic>(),
               );
               _contacts[contact.id] = contact;
+              newContactIds.add(contact.id);
             }
+            
+            // Удаляем контакты, которых больше нет на сервере
+            _contacts.removeWhere((id, contact) => !newContactIds.contains(id));
 
             if (profileData != null) {
               _myProfile = Profile.fromJson(profileData);
@@ -1850,6 +1862,7 @@ class _ChatsScreenState extends State<ChatsScreen>
                 final contacts = contactListJson.map(
                   (json) => Contact.fromJson(json as Map<String, dynamic>),
                 );
+                // Обновляем контакты - записываем только те, что пришли с сервера
                 _contacts = {for (var c in contacts) c.id: c};
 
                 final presence =
@@ -1919,30 +1932,30 @@ class _ChatsScreenState extends State<ChatsScreen>
                 final showArchiveBanner = isAllChatsTab && _archivedChatsList.isNotEmpty && !_archiveBannerDismissed;
                 return Column(
                   children: [
-                    _buildFolderTabs(),
                     if (_isShowingContacts)
                       Expanded(child: _buildContactsPanel()),
                     if (!_isShowingContacts) ...[
-                    AnimatedSize(
-                      duration: const Duration(milliseconds: 250),
-                      curve: Curves.easeInOut,
-                      child: showArchiveBanner
-                          ? GestureDetector(
-                              onVerticalDragEnd: (details) {
-                                if (details.primaryVelocity != null && details.primaryVelocity! < -200) {
-                                  setState(() => _archiveBannerDismissed = true);
-                                }
-                              },
-                              child: _buildArchiveBanner(),
-                            )
-                          : const SizedBox.shrink(),
-                    ),
-                    Expanded(
-                      child: TabBarView(
-                        controller: _folderTabController,
-                        children: _buildFolderPages(),
+                      _buildFolderTabs(),
+                      AnimatedSize(
+                        duration: const Duration(milliseconds: 250),
+                        curve: Curves.easeInOut,
+                        child: showArchiveBanner
+                            ? GestureDetector(
+                                onVerticalDragEnd: (details) {
+                                  if (details.primaryVelocity != null && details.primaryVelocity! < -200) {
+                                    setState(() => _archiveBannerDismissed = true);
+                                  }
+                                },
+                                child: _buildArchiveBanner(),
+                              )
+                            : const SizedBox.shrink(),
                       ),
-                    ),
+                      Expanded(
+                        child: TabBarView(
+                          controller: _folderTabController,
+                          children: _buildFolderPages(),
+                        ),
+                      ),
                     ],
                   ],
                 );
@@ -2672,23 +2685,103 @@ class _ChatsScreenState extends State<ChatsScreen>
 
         if (i < globalItemsCount) {
           final item = _globalSearchResults[i];
+          final section = item['section']?.toString();
           final chat = item['chat'];
+          final contactData = item['contact'];
+          final message = item['message'];
+          int? chatId = item['chatId'];
           final highlights = item['highlights'];
 
           String title = '';
           String subtitle = '';
-
-          if (chat is Map) {
+          String? avatarUrl;
+          int? targetContactId;
+          
+          // Обработка контактов (боты и пользователи)
+          if (contactData is Map) {
+            final contactDataMap = contactData.cast<String, dynamic>();
+            // Извлекаем вложенный объект contact
+            final contactMap = contactDataMap['contact'] is Map 
+                ? (contactDataMap['contact'] as Map).cast<String, dynamic>()
+                : contactDataMap;
+            final summary = contactDataMap['summary']?.toString();
+            
+            // Проверяем что у контакта есть id
+            if (contactMap['id'] != null) {
+              try {
+                final contactObj = Contact.fromJson(contactMap);
+                
+                // Показываем ник бота если есть
+                if (contactObj.isBot && summary != null && summary.startsWith('@')) {
+                  title = '${contactObj.name} ($summary)';
+                } else if (contactObj.isBot) {
+                  final linkStr = contactMap['link']?.toString();
+                  if (linkStr != null && linkStr.isNotEmpty) {
+                    final match = RegExp(r'max\.ru/(.+)').firstMatch(linkStr);
+                    if (match != null) {
+                      final username = match.group(1);
+                      title = '${contactObj.name} (@$username)';
+                    } else {
+                      title = contactObj.name;
+                    }
+                  } else {
+                    title = contactObj.name;
+                  }
+                } else {
+                  title = contactObj.name;
+                }
+                
+                subtitle = contactObj.description ?? '';
+                avatarUrl = contactObj.photoBaseUrl;
+                targetContactId = contactObj.id;
+              } catch (e) {
+                print('Ошибка парсинга контакта: $e');
+              }
+            }
+          }
+          // Обработка результатов поиска по сообщениям (section: MESSAGES)
+          else if (section == 'MESSAGES' && message is Map) {
+            final messageMap = message.cast<String, dynamic>();
+            final text = messageMap['text']?.toString() ?? '';
+            final sender = messageMap['sender'];
+            
+            // Пытаемся найти имя чата
+            Chat? chatObj;
+            try {
+              chatObj = _allChats.firstWhere(
+                (c) => c.id == chatId,
+              );
+            } catch (e) {
+              chatObj = null;
+            }
+            
+            if (chatObj != null) {
+              title = (chatObj.title?.isNotEmpty ?? false) ? chatObj.title! : 'Чат $chatId';
+              avatarUrl = chatObj.baseIconUrl;
+            } else {
+              title = 'Чат $chatId';
+            }
+            
+            // Текст сообщения как подзаголовок
+            subtitle = text.isNotEmpty ? text : 'Сообщение от $sender';
+          }
+          // Обработка результатов поиска по чатам
+          else if (chat is Map) {
             final chatMap = chat.cast<String, dynamic>();
             title =
                 chatMap['title']?.toString() ??
                 chatMap['link']?.toString() ??
                 '';
             subtitle = chatMap['description']?.toString() ?? '';
+            avatarUrl = chatMap['baseIconUrl']?.toString();
+            // chatId для каналов может быть в самом объекте chat
+            if (chatId == null && chatMap['id'] != null) {
+              chatId = chatMap['id'];
+            }
           }
 
           if (title.isEmpty) {
-            title = item['chatId']?.toString() ?? 'Результат';
+            title = chatId?.toString() ?? targetContactId?.toString() ?? 'Результат';
           }
 
           if (highlights is List && highlights.isNotEmpty) {
@@ -2697,10 +2790,258 @@ class _ChatsScreenState extends State<ChatsScreen>
           }
 
           return ListTile(
+            leading: avatarUrl != null && avatarUrl.isNotEmpty
+                ? CircleAvatar(
+                    backgroundImage: NetworkImage(avatarUrl),
+                    onBackgroundImageError: (_, __) {},
+                  )
+                : CircleAvatar(
+                    child: Text(title.isNotEmpty ? title[0].toUpperCase() : '?'),
+                  ),
             title: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis),
             subtitle: subtitle.isEmpty
                 ? null
                 : Text(subtitle, maxLines: 3, overflow: TextOverflow.ellipsis),
+            onTap: () async {
+              // Обработка клика по контакту (боту)
+              if (targetContactId != null) {
+                // Берём из кэша или создаём из данных поиска
+                Contact? contact = _contacts[targetContactId];
+                if (contact == null && contactData is Map) {
+                  try {
+                    final contactDataMap = (contactData as Map).cast<String, dynamic>();
+                    final contactMap = contactDataMap['contact'] is Map
+                        ? (contactDataMap['contact'] as Map).cast<String, dynamic>()
+                        : contactDataMap;
+                    contact = Contact.fromJson(contactMap);
+                  } catch (e) {
+                    print('Ошибка парсинга контакта из поиска: $e');
+                  }
+                }
+
+                if (contact != null) {
+                  // Ищем существующий диалог с этим контактом
+                  Chat? existingChat;
+                  try {
+                    existingChat = _allChats.firstWhere(
+                      (c) => !c.isGroup && !c.isChannel && c.participantIds.contains(targetContactId),
+                    );
+                  } catch (_) {}
+
+                  int resolvedChatId = existingChat?.id ?? 0;
+
+                  // Для бота chatId = myId ^ botId
+                  bool needBotStart = false;
+                  if (resolvedChatId == 0 && contact.isBot) {
+                    resolvedChatId = _myId ^ contact.id;
+                    needBotStart = true;
+                  }
+
+                  if (!mounted) return;
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => ChatScreen(
+                        chatId: resolvedChatId,
+                        contact: contact!,
+                        myId: _myId,
+                        isGroupChat: false,
+                        isChannel: false,
+                        participantCount: 2,
+                        needBotStart: needBotStart,
+                        onChatRemoved: () {},
+                        onChatUpdated: () {
+                          _loadChatsAndContacts();
+                        },
+                      ),
+                    ),
+                  );
+                }
+                return;
+              }
+              
+              // Обработка клика по чату
+              if (chatId != null) {
+                Chat? chatObj;
+                try {
+                  chatObj = _allChats.firstWhere(
+                    (c) => c.id == chatId,
+                  );
+                } catch (e) {
+                  chatObj = null;
+                }
+                
+                if (chatObj != null) {
+                  // Определяем контакт для чата
+                  final chat = chatObj; // Убираем nullable
+                  final isGroupChat = chat.isGroup;
+                  final isChannel = chat.isChannel;
+                  final participantCount = chat.participantIds.length;
+                  
+                  Contact contactToUse;
+                  if (isGroupChat || isChannel) {
+                    contactToUse = Contact(
+                      id: chat.id,
+                      name: chat.title ?? 'Группа',
+                      firstName: '',
+                      lastName: '',
+                      photoBaseUrl: chat.baseIconUrl,
+                    );
+                  } else {
+                    final otherParticipantId = chat.participantIds.firstWhere(
+                      (id) => id != _myId,
+                      orElse: () => 0,
+                    );
+                    contactToUse = _contacts[otherParticipantId] ?? Contact(
+                      id: otherParticipantId,
+                      name: 'Пользователь $otherParticipantId',
+                      firstName: '',
+                      lastName: '',
+                    );
+                  }
+                  
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => ChatScreen(
+                        chatId: chat.id,
+                        contact: contactToUse,
+                        myId: _myId,
+                        pinnedMessage: chat.pinnedMessage,
+                        isGroupChat: isGroupChat,
+                        isChannel: isChannel,
+                        participantCount: participantCount,
+                        onChatRemoved: () {
+                          _removeChatLocally(chat.id);
+                        },
+                        onChatUpdated: () {
+                          _loadChatsAndContacts();
+                        },
+                      ),
+                    ),
+                  );
+                } else {
+                  // Чат не найден в локальном списке - используем данные из поиска
+                  print('🔍 Чат $chatId не найден в _allChats, используем данные из поиска');
+                  
+                  // Получаем данные из результата поиска
+                  final chatMap = chat is Map ? chat.cast<String, dynamic>() : <String, dynamic>{};
+                  final chatType = chatMap['type']?.toString();
+                  final link = chatMap['link']?.toString();
+                  
+                  print('🔍 chatType=$chatType, link=$link');
+                  
+                  // Для каналов и ботов используем resolveLink (opcode 57)
+                  if (chatType == 'CHANNEL' || chatType == 'BOT') {
+                    if (link != null && link.isNotEmpty) {
+                      print('🔗 Открываем канал/бот по ссылке: $link');
+                      try {
+                        // Используем opcode 57 для получения информации о чате
+                        final resolvedChat = await ApiService.instance.getChatInfoByLink(link);
+                        print('✅ Получена информация о чате: ${resolvedChat['title']}');
+                        
+                        final resolvedChatId = resolvedChat['id'] as int?;
+                        if (resolvedChatId == null) {
+                          print('❌ chatId не найден в ответе');
+                          return;
+                        }
+                        
+                        // Подписываемся на чат
+                        await ApiService.instance.subscribeToChat(resolvedChatId, true);
+                        print('✅ Подписались на чат $resolvedChatId');
+                        
+                        // Создаем Contact
+                        final chatTitle = resolvedChat['title'] as String? ?? 'Чат $resolvedChatId';
+                        final contact = Contact(
+                          id: resolvedChatId,
+                          name: chatTitle,
+                          firstName: chatTitle,
+                          lastName: '',
+                          photoBaseUrl: resolvedChat['baseIconUrl'] as String?,
+                        );
+                        
+                        final resolvedChatType = resolvedChat['type'] as String?;
+                        final isChannel = resolvedChatType == 'CHANNEL';
+                        
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (context) => ChatScreen(
+                              chatId: resolvedChatId,
+                              contact: contact,
+                              myId: _myId,
+                              isGroupChat: false,
+                              isChannel: isChannel,
+                              participantCount: (resolvedChat['participantsCount'] as int?) ?? 0,
+                              channelLink: link,
+                              onChatRemoved: () {},
+                              onChatUpdated: () {
+                                _loadChatsAndContacts();
+                              },
+                            ),
+                          ),
+                        );
+                      } catch (e) {
+                        print('❌ Ошибка при открытии канала/бота: $e');
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Ошибка открытия: ${e.toString()}'),
+                              backgroundColor: Theme.of(context).colorScheme.error,
+                            ),
+                          );
+                        }
+                      }
+                    } else {
+                      print('⚠️ Отсутствует ссылка для канала/бота');
+                    }
+                  } else {
+                    // Обычный диалог — находим id другого участника из данных чата
+                    int contactId = chatId!;
+                    if (chat is Map) {
+                      final chatMap = (chat as Map).cast<String, dynamic>();
+                      final participants = chatMap['participants'];
+                      if (participants is Map) {
+                        final otherIds = participants.keys
+                            .map((k) => int.tryParse(k.toString()))
+                            .whereType<int>()
+                            .where((id) => id != _myId)
+                            .toList();
+                        if (otherIds.isNotEmpty) contactId = otherIds.first;
+                      }
+                    }
+
+                    final contact = _contacts[contactId] ?? Contact(
+                      id: contactId,
+                      name: title,
+                      firstName: title,
+                      lastName: '',
+                      photoBaseUrl: avatarUrl,
+                    );
+
+                    try {
+                      await ApiService.instance.subscribeToChat(chatId!, true);
+                    } catch (e) {
+                      print('⚠️ subscribeToChat error: $e');
+                    }
+
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => ChatScreen(
+                          chatId: chatId!,
+                          contact: contact,
+                          myId: _myId,
+                          isGroupChat: false,
+                          isChannel: false,
+                          participantCount: 0,
+                          onChatRemoved: () {},
+                          onChatUpdated: () {
+                            _loadChatsAndContacts();
+                          },
+                        ),
+                      ),
+                    );
+                  }
+                }
+              }
+            },
           );
         }
 
@@ -3244,65 +3585,49 @@ class _ChatsScreenState extends State<ChatsScreen>
       );
     }
 
-    return ListView.builder(
-      itemCount: sortedContacts.length,
-      itemBuilder: (context, index) {
-        final contact = sortedContacts[index];
-        return ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          leading: ContactAvatarWidget(
-            contactId: contact.id,
-            originalAvatarUrl: contact.photoBaseUrl,
-            radius: 24,
-            fallbackText: contact.name,
-          ),
-          title: Text(
-            contact.name,
-            style: TextStyle(
-              color: colors.onSurface,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          subtitle: (contact.description != null && contact.description!.isNotEmpty)
-              ? Text(
-                  contact.description!,
-                  style: TextStyle(color: colors.onSurfaceVariant, fontSize: 13),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                )
-              : null,
-          trailing: IconButton(
-            icon: Icon(Icons.more_vert, color: colors.onSurfaceVariant),
-            onPressed: () {},
-          ),
-          onTap: () {
-            final chat = _allChats.firstWhere(
-              (c) => c.participantIds.contains(contact.id) &&
-                  c.participantIds.contains(_myId) &&
-                  c.type == 'DIALOG',
-              orElse: () => _allChats.first,
-            );
-            final found = _allChats.any(
-              (c) => c.participantIds.contains(contact.id) &&
-                  c.participantIds.contains(_myId) &&
-                  c.type == 'DIALOG',
-            );
-            if (found) {
-              setState(() => _isShowingContacts = false);
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => ChatScreen(
-                    chatId: chat.id,
-                    contact: contact,
-                    myId: _myId,
-                  ),
-                ),
+    return ImplicitlyAnimatedList<Contact>(
+      items: sortedContacts,
+      areItemsTheSame: (a, b) => a.id == b.id,
+      itemBuilder: (context, animation, contact, index) {
+        return SizeFadeTransition(
+          animation: animation,
+          child: _ContactListItem(
+            contact: contact,
+            onTap: () {
+              final found = _allChats.any(
+                (c) => c.participantIds.contains(contact.id) &&
+                    c.participantIds.contains(_myId) &&
+                    c.type == 'DIALOG',
               );
-            }
-          },
+              if (found) {
+                final chat = _allChats.firstWhere(
+                  (c) => c.participantIds.contains(contact.id) &&
+                      c.participantIds.contains(_myId) &&
+                      c.type == 'DIALOG',
+                );
+                setState(() => _isShowingContacts = false);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => ChatScreen(
+                      chatId: chat.id,
+                      contact: contact,
+                      myId: _myId,
+                    ),
+                  ),
+                );
+              }
+            },
+            onRemove: () {
+              ApiService.instance.removeContact(contact.id);
+              setState(() {
+                _contacts.remove(contact.id);
+              });
+            },
+          ),
         );
       },
+      spawnIsolate: false,
     );
   }
 
@@ -3433,10 +3758,7 @@ class _ChatsScreenState extends State<ChatsScreen>
   }
 
   Widget _buildFolderTabs() {
-    if (_folderTabController.length <= 1) {
-      return const SizedBox.shrink();
-    }
-
+    // Показываем панель всегда, даже если папки еще не загружены
     final colors = Theme.of(context).colorScheme;
 
     final List<Widget> tabs = [
@@ -6516,6 +6838,153 @@ class _GetoutDialogState extends State<_GetoutDialog>
           ),
         ),
       ],
+    );
+  }
+}
+
+class _ContactListItem extends StatefulWidget {
+  final Contact contact;
+  final VoidCallback onTap;
+  final VoidCallback onRemove;
+
+  const _ContactListItem({
+    required this.contact,
+    required this.onTap,
+    required this.onRemove,
+  });
+
+  @override
+  State<_ContactListItem> createState() => _ContactListItemState();
+}
+
+class _ContactListItemState extends State<_ContactListItem>
+    with SingleTickerProviderStateMixin {
+  bool _expanded = false;
+  bool _dismissing = false;
+  late AnimationController _animController;
+  late Animation<double> _expandAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 250),
+    );
+    _expandAnim = CurvedAnimation(parent: _animController, curve: Curves.easeInOut);
+  }
+
+  @override
+  void dispose() {
+    _animController.dispose();
+    super.dispose();
+  }
+
+  void _toggle() {
+    setState(() => _expanded = !_expanded);
+    if (_expanded) {
+      _animController.forward();
+    } else {
+      _animController.reverse();
+    }
+  }
+
+  Future<void> _delete() async {
+    setState(() => _dismissing = true);
+    await Future.delayed(const Duration(milliseconds: 600));
+    widget.onRemove();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
+    return ShatterAnimation(
+      shatter: _dismissing,
+      duration: const Duration(milliseconds: 700),
+      child: AnimatedBuilder(
+        animation: _expandAnim,
+        builder: (context, child) {
+          return Stack(
+            children: [
+              // Обычный айтем
+              Opacity(
+                opacity: (1.0 - _expandAnim.value).clamp(0.0, 1.0),
+                child: ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  leading: ContactAvatarWidget(
+                    contactId: widget.contact.id,
+                    originalAvatarUrl: widget.contact.photoBaseUrl,
+                    radius: 24,
+                    fallbackText: widget.contact.name.isNotEmpty ? widget.contact.name[0].toUpperCase() : '?',
+                  ),
+                  title: Text(
+                    widget.contact.name,
+                    style: TextStyle(color: colors.onSurface, fontWeight: FontWeight.w500),
+                  ),
+                  subtitle: (widget.contact.description != null && widget.contact.description!.isNotEmpty)
+                      ? Text(
+                          widget.contact.description!,
+                          style: TextStyle(color: colors.onSurfaceVariant, fontSize: 13),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        )
+                      : null,
+                  trailing: IconButton(
+                    icon: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 200),
+                      child: _expanded
+                          ? Icon(Icons.arrow_back, key: const ValueKey('back'), color: colors.onSurfaceVariant)
+                          : Icon(Icons.more_vert, key: const ValueKey('more'), color: colors.onSurfaceVariant),
+                    ),
+                    onPressed: _toggle,
+                  ),
+                  onTap: widget.onTap,
+                ),
+              ),
+
+              // Панель удаления
+              if (_expandAnim.value > 0)
+                Positioned.fill(
+                  child: Opacity(
+                    opacity: _expandAnim.value,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Color.lerp(
+                          colors.surface,
+                          colors.primaryContainer.withValues(alpha: 0.3),
+                          _expandAnim.value,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          IconButton(
+                            icon: Icon(Icons.arrow_back, color: colors.onSurface),
+                            onPressed: _toggle,
+                          ),
+                          Expanded(
+                            child: Text(
+                              widget.contact.name,
+                              style: TextStyle(color: colors.onSurface, fontWeight: FontWeight.w500),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          TextButton.icon(
+                            onPressed: _delete,
+                            icon: Icon(Icons.person_remove_outlined, color: colors.error),
+                            label: Text('Удалить', style: TextStyle(color: colors.error)),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
     );
   }
 }
