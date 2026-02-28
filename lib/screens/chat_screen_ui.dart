@@ -33,11 +33,14 @@ extension on _ChatScreenState {
       );
     }
 
+    // Берём participantCount из кэша чатов если не передан
+    int? participantCount = widget.participantCount ?? currentChat?.participantsCount;
+
     // Обычный субтитр
     return Text(
       widget.isChannel
-          ? "${widget.participantCount ?? 0} подписчиков"
-          : "${widget.participantCount ?? 0} участников",
+          ? "${participantCount ?? 0} подписчиков"
+          : "${participantCount ?? 0} участников",
       style: Theme.of(context).textTheme.bodySmall?.copyWith(
         color: Theme.of(context).colorScheme.onSurfaceVariant,
       ),
@@ -878,29 +881,42 @@ extension on _ChatScreenState {
 
       if (!amIAdmin) {
         final channelLink = (currentChat?['link'] as String?) ?? widget.channelLink;
+        final isSubscribed = _isSubscribedLocally || ApiService.instance.myChatIds.contains(widget.chatId);
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
           child: SizedBox(
             width: double.infinity,
-            child: FilledButton.icon(
-              icon: const Icon(Icons.notifications_active_outlined),
-              label: const Text('Подписаться на канал'),
-              onPressed: channelLink == null ? null : () async {
-                final link = channelLink.startsWith('@')
-                    ? channelLink.substring(1).trim()
-                    : channelLink.trim();
-                try {
-                  await ApiService.instance.subscribeToChannel(link);
-                  if (mounted) setState(() {});
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Ошибка подписки: $e')),
-                    );
-                  }
-                }
-              },
-            ),
+            child: isSubscribed
+                ? FilledButton.icon(
+                    icon: const Icon(Icons.check_circle_outline),
+                    label: const Text('Вы подписаны'),
+                    onPressed: null,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
+                      foregroundColor: Theme.of(context).colorScheme.onSecondaryContainer,
+                    ),
+                  )
+                : FilledButton.icon(
+                    icon: const Icon(Icons.notifications_active_outlined),
+                    label: const Text('Подписаться на канал'),
+                    onPressed: channelLink == null ? null : () async {
+                      final link = channelLink.startsWith('@')
+                          ? channelLink.substring(1).trim()
+                          : channelLink.trim();
+                      // Сразу показываем что подписаны
+                      setState(() => _isSubscribedLocally = true);
+                      try {
+                        await ApiService.instance.subscribeToChannel(link);
+                      } catch (e) {
+                        if (mounted) {
+                          setState(() => _isSubscribedLocally = false);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Ошибка подписки: $e')),
+                          );
+                        }
+                      }
+                    },
+                  ),
           ),
         );
       }
@@ -1810,7 +1826,9 @@ extension on _ChatScreenState {
           // Scroll-to-bottom FAB
           Positioned(
             right: 16,
-            bottom: 80,
+            bottom: MediaQuery.of(context).viewInsets.bottom > 0
+                ? MediaQuery.of(context).viewInsets.bottom + 80
+                : 80,
             child: ValueListenableBuilder<bool>(
               valueListenable: _showScrollToBottomNotifier,
               builder: (context, showButton, child) {

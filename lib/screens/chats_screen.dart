@@ -800,6 +800,7 @@ class _ChatsScreenState extends State<ChatsScreen>
                 )
                 .whereType<Chat>()
                 .toList();
+            ApiService.instance.updateMyChatIds(_allChats.map((c) => c.id).toList());
             // Обновляем контакты: добавляем/обновляем, не трогаем остальных
             for (final contactJson in contacts) {
               final contact = Contact.fromJson(
@@ -1873,6 +1874,7 @@ class _ChatsScreenState extends State<ChatsScreen>
                     )
                     .whereType<Chat>()
                     .toList();
+                ApiService.instance.updateMyChatIds(_allChats.map((c) => c.id).toList());
                 _chatsLoaded = true;
                 unawaited(_listenForUpdates());
 

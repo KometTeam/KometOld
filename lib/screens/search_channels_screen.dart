@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:gwid/api/api_service.dart';
 import 'package:gwid/models/channel.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class SearchChannelsScreen extends StatefulWidget {
   final Set<int> existingChatIds;
@@ -453,11 +454,27 @@ class _ChannelDetailsScreenState extends State<ChannelDetailsScreen> {
   bool _isLoading = false;
   String? _webAppUrl;
   String? _errorMessage;
+  bool _isSubscribed = false;
+
+  static String _prefsKey(int channelId) => 'channel_subscribed_$channelId';
 
   @override
   void initState() {
     super.initState();
     _listenToApiMessages();
+    _loadSubscribedStatus();
+  }
+
+  Future<void> _loadSubscribedStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    final subscribed = prefs.getBool(_prefsKey(widget.channel.id)) ?? false;
+    if (mounted) setState(() => _isSubscribed = subscribed);
+  }
+
+  Future<void> _saveSubscribedStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_prefsKey(widget.channel.id), true);
+    if (mounted) setState(() => _isSubscribed = true);
   }
 
   @override
@@ -484,6 +501,7 @@ class _ChannelDetailsScreenState extends State<ChannelDetailsScreen> {
         setState(() {
           _isLoading = false;
         });
+        _saveSubscribedStatus();
       }
 
       if (message['type'] == 'channel_error') {
@@ -760,7 +778,7 @@ class _ChannelDetailsScreenState extends State<ChannelDetailsScreen> {
                     const SizedBox(height: 12),
                     SizedBox(
                       width: double.infinity,
-                      child: widget.existingChatIds.contains(widget.channel.id)
+                      child: (widget.existingChatIds.contains(widget.channel.id) || _isSubscribed)
                           ? Container(
                               height: 50,
                               decoration: BoxDecoration(

@@ -86,16 +86,43 @@ extension on _ChatScreenState {
   }
 
   List<Map<String, dynamic>> _captureMentions() {
-    return _mentions.map((m) {
+    final fromController = _mentions.map((m) {
       return {'entityId': m.entityId, 'type': m.type, 'length': m.length};
     }).toList();
+
+    // Парсим @username из текста и добавляем USER_MENTION elements
+    final text = _textController.text;
+    final mentionRegex = RegExp(r'@([a-zA-Z0-9_]{3,})');
+    final textMentions = <Map<String, dynamic>>[];
+    for (final match in mentionRegex.allMatches(text)) {
+      final username = match.group(1)!;
+      final from = match.start;
+      final length = match.end - match.start;
+      // Не дублируем если уже есть из контроллера
+      final alreadyAdded = fromController.any((e) =>
+          e['type'] == 'USER_MENTION' &&
+          (e['entityName'] == username || e['from'] == from));
+      if (!alreadyAdded) {
+        textMentions.add({
+          'type': 'USER_MENTION',
+          'from': from,
+          'length': length,
+          'entityName': username,
+        });
+      }
+    }
+
+    return [...fromController, ...textMentions];
   }
 
   bool _validateMentions(List<Map<String, dynamic>> elements) {
+    // Разрешаем mentions у которых есть entityId или entityName
     for (final element in elements) {
       if (element['type'] == 'USER_MENTION') {
         final entityId = element['entityId'];
-        if (entityId == null || entityId is! int || entityId <= 0) {
+        final entityName = element['entityName'];
+        if ((entityId == null || entityId is! int || entityId <= 0) &&
+            (entityName == null || entityName.toString().isEmpty)) {
           return false;
         }
       }
@@ -2073,14 +2100,21 @@ extension on _ChatScreenState {
           return aDisplay.compareTo(bDisplay);
         });
 
-        if (!_showMentionDropdown) {
+        if (_filteredMentionableUsers.isEmpty) {
+          // Нет результатов — скрываем панель
+          if (_showMentionDropdown) {
+            _setStateIfMounted(() => _showMentionDropdown = false);
+            _removeMentionOverlay();
+          }
+        } else if (!_showMentionDropdown) {
           _setStateIfMounted(() {
             _showMentionDropdown = true;
           });
           _showMentionOverlay();
         } else {
           _setStateIfMounted(() {});
-          _showMentionOverlay();
+          // Обновляем позицию overlay при изменении клавиатуры
+          _mentionOverlay?.markNeedsBuild();
         }
       } else {
         if (_showMentionDropdown) {

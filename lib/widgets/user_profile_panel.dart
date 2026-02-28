@@ -239,51 +239,30 @@ class _UserProfilePanelState extends State<UserProfilePanel>
     final maxHeight = screenHeight * 0.70;
     final panelHeight = t > 0 ? (minHeight + (maxHeight - minHeight) * t) : null;
 
-    return GestureDetector(
-      onPanStart: _onDragStart,
-      onPanUpdate: _onDragUpdate,
-      onPanEnd: _onDragEnd,
-      child: AnimatedContainer(
-        duration: _isDragging ? Duration.zero : const Duration(milliseconds: 300),
-        curve: Curves.easeOutCubic,
-        height: panelHeight,
+    return Container(
         decoration: BoxDecoration(
           color: colors.surface,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
         ),
         child: Column(
-          mainAxisSize: t > 0 ? MainAxisSize.max : MainAxisSize.min,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            // Drag handle + expand button
-            GestureDetector(
-              onTap: () {
-                setState(() {
-                  _isDragging = false;
-                  _dragProgress = _dragProgress > 0.5 ? 0.0 : 1.0;
-                });
-              },
-              child: Container(
-                color: Colors.transparent,
-                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: colors.onSurfaceVariant.withValues(alpha: 0.4),
-                        borderRadius: BorderRadius.circular(2),
-                      ),
+            // Drag handle (только визуально, без drag функционала)
+            Container(
+              color: Colors.transparent,
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: colors.onSurfaceVariant.withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(2),
                     ),
-                    const SizedBox(width: 8),
-                    Icon(
-                      t > 0.5 ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_up,
-                      size: 20,
-                      color: colors.onSurfaceVariant.withValues(alpha: 0.6),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
             Padding(
@@ -414,41 +393,37 @@ class _UserProfilePanelState extends State<UserProfilePanel>
                     ),
                   ],
 
-                  // Кнопки (исчезают при оттягивании)
-                  if (buttonsOpacity > 0) ...[
-                    SizedBox(height: 24 * (1.0 - t * 2).clamp(0.0, 1.0)),
-                    Opacity(
-                      opacity: buttonsOpacity,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: _buildActionButtons(colors),
+                  const SizedBox(height: 16),
+
+                  // Описание (если есть) — листается, но не выталкивает кнопки
+                  if (_displayDescription != null && _displayDescription!.isNotEmpty) ...[
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 80),
+                      child: SingleChildScrollView(
+                        child: Text(
+                          _displayDescription!,
+                          style: TextStyle(
+                            color: colors.onSurfaceVariant,
+                            fontSize: 14,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
                       ),
                     ),
+                    const SizedBox(height: 16),
                   ],
 
-                  if (_displayDescription != null &&
-                      _displayDescription!.isNotEmpty &&
-                      buttonsOpacity > 0) ...[
-                    SizedBox(height: 24 * buttonsOpacity),
-                    Opacity(
-                      opacity: buttonsOpacity,
-                      child: Text(
-                        _displayDescription!,
-                        style: TextStyle(
-                          color: colors.onSurfaceVariant,
-                          fontSize: 14,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  ],
-                  SizedBox(height: MediaQuery.of(context).padding.bottom),
+                  // Кнопки — всегда внизу, всегда видны
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: _buildActionButtons(colors),
+                  ),
+                  SizedBox(height: MediaQuery.of(context).padding.bottom + 8),
                 ],
               ),
             ),
           ],
         ),
-      ),
     );
   }
 

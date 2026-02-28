@@ -144,7 +144,7 @@ class _ChannelsListScreenState extends State<ChannelsListScreen> {
   void _viewChannel(Channel channel) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => ChannelDetailsScreen(channel: channel, existingChatIds: _channels.map((c) => c.id).toSet()),
+        builder: (context) => ChannelDetailsScreen(channel: channel, existingChatIds: ApiService.instance.myChatIds),
       ),
     );
   }
@@ -164,7 +164,7 @@ class _ChannelsListScreenState extends State<ChannelsListScreen> {
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (context) => SearchChannelsScreen(existingChatIds: _channels.map((c) => c.id).toSet()),
+                  builder: (context) => SearchChannelsScreen(existingChatIds: ApiService.instance.myChatIds),
                 ),
               );
             },

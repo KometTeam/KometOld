@@ -143,6 +143,15 @@ class ApiService {
   // Глобальный кэш прочитанности: chatId -> последний прочитанный messageId (opcode 50)
   final Map<int, int> _peerReadMessageIds = {};
 
+  // Глобальный кэш ID наших чатов (обновляется из ChatsScreen)
+  final Set<int> _myChatIds = {};
+  Set<int> get myChatIds => Set.unmodifiable(_myChatIds);
+  void updateMyChatIds(List<int> ids) {
+    _myChatIds
+      ..clear()
+      ..addAll(ids);
+  }
+
   void updatePeerReadTimestamp(int chatId, int timestamp) {
     final current = _peerReadTimestamps[chatId];
     if (current == null || timestamp > current) {

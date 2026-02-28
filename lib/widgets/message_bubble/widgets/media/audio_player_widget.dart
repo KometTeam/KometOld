@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:math';
 import 'dart:ui' as ui;
 import 'package:gwid/services/cache_service.dart';
+import 'package:gwid/services/voice_message_player_service.dart';
 
 class AudioPlayerWidget extends StatefulWidget {
   final String url;
@@ -44,6 +46,7 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
   List<int>? _waveformData;
   bool _isDragging = false;
   double _dragProgress = 0.0;
+  StreamSubscription<String?>? _globalPlayerSubscription;
 
   @override
   void initState() {
@@ -63,6 +66,14 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
       _preCacheAudio();
     }
 
+    // Подписываемся на глобальный менеджер — если начали играть другое ГС, останавливаемся
+    _globalPlayerSubscription = VoiceMessagePlayerService.instance.currentUrlStream.listen((url) {
+      if (!mounted) return;
+      if (url != widget.url && _isPlaying) {
+        _audioPlayer.pause();
+      }
+    });
+
     _audioPlayer.playerStateStream.listen((state) {
       if (!mounted) return;
       setState(() {
@@ -71,6 +82,15 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
             state.processingState == ProcessingState.loading ||
             state.processingState == ProcessingState.buffering;
       });
+
+      if (state.playing) {
+        VoiceMessagePlayerService.instance.registerPlaying(
+          widget.url,
+          () { _audioPlayer.pause(); },
+        );
+      } else {
+        VoiceMessagePlayerService.instance.notifyStopped(widget.url);
+      }
 
       if (state.processingState == ProcessingState.completed) {
         _audioPlayer.seek(Duration.zero);
@@ -82,6 +102,7 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
             _position = Duration.zero;
           });
         }
+        VoiceMessagePlayerService.instance.notifyStopped(widget.url);
       }
     });
 
@@ -249,6 +270,8 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
 
   @override
   void dispose() {
+    _globalPlayerSubscription?.cancel();
+    VoiceMessagePlayerService.instance.notifyStopped(widget.url);
     _audioPlayer.dispose();
     super.dispose();
   }

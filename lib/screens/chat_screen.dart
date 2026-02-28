@@ -208,6 +208,7 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin, 
   // Core state fields
   bool _isDisposed = false;
   bool _isOpeningChannelSettings = false;
+  bool _isSubscribedLocally = false;
   final List<Message> _messages = [];
   List<ChatItem> _chatItems = [];
   List<Map<String, dynamic>> _cachedAllPhotos = [];
@@ -378,6 +379,10 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin, 
     _currentContact = widget.contact;
     _pinnedMessage = widget.pinnedMessage;
     _pinnedMessageNotifier.value = widget.pinnedMessage;
+    // Инициализируем статус подписки на канал
+    if (widget.isChannel) {
+      _isSubscribedLocally = ApiService.instance.myChatIds.contains(widget.chatId);
+    }
 
     _recordCancelReturnController = AnimationController(
       vsync: this,

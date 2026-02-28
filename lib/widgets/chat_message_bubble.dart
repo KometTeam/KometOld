@@ -364,10 +364,45 @@ class ChatMessageBubble extends StatelessWidget {
 
     void handleTap() {
       final myId = myUserId ?? 0;
-      if (originalSenderId == null || myId == 0) {
+      if (myId == 0) return;
+
+      // Если это пересланное из канала/группы — переходим туда
+      final forwardedChatId = link['chatId'] as int?;
+      final forwardedChatLink = link['chatLink'] as String?;
+      final forwardedChatName = link['chatName'] as String?;
+      // Переходим в канал только если есть chatName (признак канала/группы)
+      // и chatId отрицательный (у людей chatId положительный или отсутствует)
+      final isChannelOrGroup = forwardedChatId != null &&
+          forwardedChatId < 0 &&
+          forwardedChatName != null &&
+          forwardedChatName.isNotEmpty;
+      if (isChannelOrGroup) {
+        final channelContact = Contact(
+          id: forwardedChatId,
+          name: forwardedChatName ?? forwardedSenderName,
+          firstName: forwardedChatName ?? forwardedSenderName,
+          lastName: '',
+          photoBaseUrl: forwardedSenderAvatarUrl,
+          link: forwardedChatLink,
+          options: const ['BOT'],
+        );
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (ctx) => ChatScreen(
+              chatId: forwardedChatId,
+              contact: channelContact,
+              myId: myId,
+              isGroupChat: false,
+              isChannel: true,
+              channelLink: forwardedChatLink,
+            ),
+          ),
+        );
         return;
       }
 
+      // Иначе — показываем профиль пользователя
+      if (originalSenderId == null) return;
       showModalBottomSheet(
         context: context,
         isScrollControlled: true,
@@ -5364,6 +5399,7 @@ class ChatMessageBubble extends StatelessWidget {
     final underline = List<bool>.filled(text.length, false);
     final strike = List<bool>.filled(text.length, false);
     final mentionEntityIds = List<int?>.filled(text.length, null);
+    final linkUrls = List<String?>.filled(text.length, null);
 
     for (final el in elements) {
       final type = el['type'] as String?;
@@ -5393,6 +5429,13 @@ class ChatMessageBubble extends StatelessWidget {
               mentionEntityIds[i] = entityId;
             }
             break;
+          case 'LINK':
+            final attrs = el['attributes'] as Map?;
+            final url = attrs?['url'] as String?;
+            if (url != null && url.isNotEmpty) {
+              linkUrls[i] = url;
+            }
+            break;
         }
       }
     }
@@ -5415,6 +5458,10 @@ class ChatMessageBubble extends StatelessWidget {
 
     int? getEntityIdForIndex(int i) {
       return mentionEntityIds[i];
+    }
+
+    String? getLinkUrlForIndex(int i) {
+      return linkUrls[i];
     }
 
     // Regex для детекции URL в форматированном тексте (такой же как в DomainLinkifier)
@@ -5446,10 +5493,12 @@ class ChatMessageBubble extends StatelessWidget {
         allSegments.add((m.start, m.end, spanText.substring(m.start, m.end), true));
       }
       for (final m in urlMatches) {
-        // Не добавляем URL если он перекрывается с упоминанием
+        // Не добавляем URL если он перекрывается с упоминанием ИЛИ начинается с @
+        final rawMatch = spanText.substring(m.start, m.end);
+        if (rawMatch.startsWith('@')) continue;
         final overlaps = mentionMatches.any((mm) => m.start < mm.end && m.end > mm.start);
         if (!overlaps) {
-          allSegments.add((m.start, m.end, spanText.substring(m.start, m.end), false));
+          allSegments.add((m.start, m.end, rawMatch, false));
         }
       }
       allSegments.sort((a, b) => a.$1.compareTo(b.$1));
@@ -5557,16 +5606,43 @@ class ChatMessageBubble extends StatelessWidget {
       int end = start + 1;
       final style = styleForIndex(start);
       final entityId = getEntityIdForIndex(start);
+      final linkUrl = getLinkUrlForIndex(start);
       while (end < text.length &&
           styleForIndex(end) == style &&
-          getEntityIdForIndex(end) == entityId) {
+          getEntityIdForIndex(end) == entityId &&
+          getLinkUrlForIndex(end) == linkUrl) {
         end++;
       }
 
       final spanText = text.substring(start, end);
       final spanEntityId = getEntityIdForIndex(start);
+      final spanLinkUrl = getLinkUrlForIndex(start);
 
-      if (spanEntityId != null) {
+      if (spanLinkUrl != null) {
+        // Элемент типа LINK — показываем текст как кликабельную ссылку
+        final rawUrl = spanLinkUrl;
+        final fullUrl = rawUrl.startsWith('http://') ||
+                rawUrl.startsWith('https://') ||
+                rawUrl.startsWith('ftp://')
+            ? rawUrl
+            : 'https://$rawUrl';
+        final urlStyle = bubbleLinkStyle ??
+            style.copyWith(
+              color: Colors.blue,
+              decoration: TextDecoration.underline,
+              decorationColor: Colors.blue,
+            );
+        final recognizer = TapGestureRecognizer()
+          ..onTap = () async {
+            final uri = Uri.tryParse(fullUrl);
+            if (uri != null) {
+              await launchUrl(uri, mode: LaunchMode.externalApplication);
+            }
+          };
+        spans.add(
+          TextSpan(text: spanText, style: urlStyle, recognizer: recognizer),
+        );
+      } else if (spanEntityId != null) {
         final recognizer = TapGestureRecognizer()
           ..onTap = () {
             openUserProfileById(context, spanEntityId);

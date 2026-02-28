@@ -829,19 +829,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _handleGroupJoinSuccess(Map<String, dynamic> message) {
-    final payload = message['payload'];
-    final chat = payload['chat'];
-    final chatTitle = chat?['title'] ?? 'Группа';
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Успешно присоединились к группе "$chatTitle"!'),
-        backgroundColor: Colors.green,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.all(10),
-      ),
-    );
+    // Снекбар убран — пользователю и так понятно что присоединился
   }
 
   Future<void> _showSpoofUpdateDialogIfNeeded() async {
