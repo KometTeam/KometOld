@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 import 'dart:async';
+import 'dart:io' as io;
+import 'dart:typed_data';
+import 'package:http/http.dart' as http;
+import 'package:gwid/utils/download_path_helper.dart';
 
 class FullScreenVideoPlayer extends StatefulWidget {
   final String videoUrl;
@@ -31,6 +35,8 @@ class _FullScreenVideoPlayerState extends State<FullScreenVideoPlayer>
   Duration _currentPosition = Duration.zero;
   Duration _totalDuration = Duration.zero;
   List<DurationRange> _bufferedRanges = [];
+  bool _isDownloading = false;
+  double _downloadProgress = 0.0;
 
   @override
   void initState() {
@@ -54,6 +60,95 @@ class _FullScreenVideoPlayerState extends State<FullScreenVideoPlayer>
 
     _controlsAnimationController.forward();
     _initializePlayer();
+  }
+
+  Future<void> _downloadVideo() async {
+    if (_isDownloading) return;
+
+    setState(() {
+      _isDownloading = true;
+      _downloadProgress = 0.0;
+    });
+
+    try {
+      final downloadDir = await DownloadPathHelper.getDownloadDirectory();
+      if (downloadDir == null || !await downloadDir.exists()) {
+        throw Exception('Папка загрузок не найдена');
+      }
+
+      // Генерируем имя файла из URL
+      final uri = Uri.parse(widget.videoUrl);
+      String fileName = uri.pathSegments.isNotEmpty
+          ? uri.pathSegments.last
+          : 'video_${DateTime.now().millisecondsSinceEpoch}.mp4';
+      if (!fileName.contains('.')) fileName += '.mp4';
+
+      final filePath = '${downloadDir.path}/$fileName';
+      final file = io.File(filePath);
+
+      final request = http.Request('GET', uri);
+      final streamedResponse = await request.send();
+
+      if (streamedResponse.statusCode != 200) {
+        throw Exception('Ошибка сервера: ${streamedResponse.statusCode}');
+      }
+
+      final contentLength = streamedResponse.contentLength ?? 0;
+      final bytes = <int>[];
+      int received = 0;
+
+      await for (final chunk in streamedResponse.stream) {
+        bytes.addAll(chunk);
+        received += chunk.length;
+        if (contentLength > 0 && mounted) {
+          setState(() {
+            _downloadProgress = received / contentLength;
+          });
+        }
+      }
+
+      await file.writeAsBytes(Uint8List.fromList(bytes));
+
+      if (mounted) {
+        setState(() {
+          _isDownloading = false;
+          _downloadProgress = 0.0;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Сохранено: $fileName')),
+              ],
+            ),
+            backgroundColor: Colors.green.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isDownloading = false;
+          _downloadProgress = 0.0;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.white),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Не удалось скачать: $e')),
+              ],
+            ),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _initializePlayer() async {
@@ -349,6 +444,9 @@ class _FullScreenVideoPlayerState extends State<FullScreenVideoPlayer>
                   onSeekEnd: (position) {
                     _seekTo(position);
                   },
+                  onDownloadTap: _downloadVideo,
+                  isDownloading: _isDownloading,
+                  downloadProgress: _downloadProgress,
                   onBack: () => Navigator.pop(context),
                   onSpeedTap: () {
                     _showSpeedMenu();
@@ -399,6 +497,9 @@ class _VideoControls extends StatelessWidget {
   final VoidCallback onRewind;
   final VoidCallback onForward;
   final String Function(Duration) formatDuration;
+  final VoidCallback onDownloadTap;
+  final bool isDownloading;
+  final double downloadProgress;
 
   const _VideoControls({
     required this.colorScheme,
@@ -417,6 +518,9 @@ class _VideoControls extends StatelessWidget {
     required this.onRewind,
     required this.onForward,
     required this.formatDuration,
+    required this.onDownloadTap,
+    required this.isDownloading,
+    required this.downloadProgress,
   });
 
   @override
@@ -465,6 +569,33 @@ class _VideoControls extends StatelessWidget {
                       backgroundColor: Colors.black.withValues(alpha: 0.5),
                       shape: const CircleBorder(),
                     ),
+                  ),
+                  const SizedBox(width: 8),
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      if (isDownloading)
+                        SizedBox(
+                          width: 40,
+                          height: 40,
+                          child: CircularProgressIndicator(
+                            value: downloadProgress > 0 ? downloadProgress : null,
+                            strokeWidth: 2.5,
+                            color: Colors.white,
+                          ),
+                        ),
+                      IconButton(
+                        onPressed: isDownloading ? null : onDownloadTap,
+                        icon: Icon(
+                          isDownloading ? Icons.downloading : Icons.download_outlined,
+                          color: isDownloading ? Colors.white54 : Colors.white,
+                        ),
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.black.withValues(alpha: 0.5),
+                          shape: const CircleBorder(),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(width: 8),
                   FilledButton.tonal(
