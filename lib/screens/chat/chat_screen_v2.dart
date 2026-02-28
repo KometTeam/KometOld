@@ -82,6 +82,7 @@ class _ChatScreenV2State extends State<ChatScreenV2> {
                 onMessageLongPress: _showMessageOptions,
                 onLoadMore: _chatController.loadMoreMessages,
                 isGroupChat: widget.isGroupChat || widget.isChannel,
+                isChannel: widget.isChannel,
                 onGoToMessage: (messageId) =>
                     _chatController.scrollToMessage(messageId),
               ),

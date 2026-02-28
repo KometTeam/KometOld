@@ -25,6 +25,7 @@ class ChatMessageList extends StatelessWidget {
   final Function(String messageId)? onGoToMessage;
   final VoidCallback? onLoadMore;
   final bool isGroupChat;
+  final bool isChannel;
   
   const ChatMessageList({
     super.key,
@@ -38,6 +39,7 @@ class ChatMessageList extends StatelessWidget {
     this.onGoToMessage,
     this.onLoadMore,
     this.isGroupChat = false,
+    this.isChannel = false,
   });
 
   @override
@@ -65,6 +67,7 @@ class ChatMessageList extends StatelessWidget {
           onGoToMessage: onGoToMessage,
           onLoadMore: onLoadMore,
           isGroupChat: isGroupChat,
+          isChannel: isChannel,
           controller: controller,
         );
       },
@@ -82,6 +85,7 @@ class _MessageListView extends StatefulWidget {
   final Function(String messageId)? onGoToMessage;
   final VoidCallback? onLoadMore;
   final bool isGroupChat;
+  final bool isChannel;
   final ChatController controller;
   
   const _MessageListView({
@@ -94,6 +98,7 @@ class _MessageListView extends StatefulWidget {
     this.onGoToMessage,
     this.onLoadMore,
     this.isGroupChat = false,
+    this.isChannel = false,
     required this.controller,
   });
 
@@ -168,6 +173,7 @@ class _MessageListViewState extends State<_MessageListView> {
           onLongPress: () => widget.onMessageLongPress?.call(message),
           onReplyTap: widget.onGoToMessage,
           isGroupChat: widget.isGroupChat,
+          isChannel: widget.isChannel,
           isGrouped: isGrouped,
           senderContact: senderContact,
         );

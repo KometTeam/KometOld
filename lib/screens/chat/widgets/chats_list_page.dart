@@ -111,7 +111,7 @@ class _ChatsListPageState extends State<ChatsListPage>
             child: widget.buildChatListItem(chat, index, widget.folder),
           );
         },
-        areItemsTheSame: (a, b) => a.id == b.id && a.lastMessage.id == b.lastMessage.id && a.newMessages == b.newMessages,
+        areItemsTheSame: (a, b) => a.id == b.id,
         updateItemBuilder: (context, animation, chat) {
           return widget.buildChatListItem(
             chat,

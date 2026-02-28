@@ -202,6 +202,24 @@ class MessageHandler {
     return ApiService.instance.messages.listen((message) {
       if (!getMounted()) return;
 
+      if (message['type'] == 'auto_switched_account') {
+        // Автоматически переключились на другой аккаунт — перезагружаем UI
+        print('🔄 Автопереключение аккаунта: ${message['accountId']}');
+        if (getMounted()) {
+          final ctx = getContext();
+          ScaffoldMessenger.of(ctx).showSnackBar(
+            const SnackBar(
+              content: Text('Автоматически переключились на другой аккаунт'),
+              behavior: SnackBarBehavior.floating,
+              duration: Duration(seconds: 3),
+            ),
+          );
+          // Перезапускаем загрузку чатов
+          refreshChats();
+        }
+        return;
+      }
+
       if (message['type'] == 'invalid_token') {
         print(
           'Получено событие недействительного токена, перенаправляем на вход',

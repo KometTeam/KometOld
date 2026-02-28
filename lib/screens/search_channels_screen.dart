@@ -4,7 +4,9 @@ import 'package:gwid/api/api_service.dart';
 import 'package:gwid/models/channel.dart';
 
 class SearchChannelsScreen extends StatefulWidget {
-  const SearchChannelsScreen({super.key});
+  final Set<int> existingChatIds;
+
+  const SearchChannelsScreen({super.key, this.existingChatIds = const {}});
 
   @override
   State<SearchChannelsScreen> createState() => _SearchChannelsScreenState();
@@ -133,7 +135,7 @@ class _SearchChannelsScreenState extends State<SearchChannelsScreen> {
   void _viewChannel(Channel channel) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => ChannelDetailsScreen(channel: channel),
+        builder: (context) => ChannelDetailsScreen(channel: channel, existingChatIds: widget.existingChatIds),
       ),
     );
   }
@@ -438,8 +440,9 @@ class _SearchChannelsScreenState extends State<SearchChannelsScreen> {
 
 class ChannelDetailsScreen extends StatefulWidget {
   final Channel channel;
+  final Set<int> existingChatIds;
 
-  const ChannelDetailsScreen({super.key, required this.channel});
+  const ChannelDetailsScreen({super.key, required this.channel, this.existingChatIds = const {}});
 
   @override
   State<ChannelDetailsScreen> createState() => _ChannelDetailsScreenState();
@@ -757,17 +760,36 @@ class _ChannelDetailsScreenState extends State<ChannelDetailsScreen> {
                     const SizedBox(height: 12),
                     SizedBox(
                       width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: _isLoading ? null : _subscribeToChannel,
-                        icon: const Icon(Icons.subscriptions),
-                        label: const Text('Подписаться на канал'),
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size(double.infinity, 50),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
+                      child: widget.existingChatIds.contains(widget.channel.id)
+                          ? Container(
+                              height: 50,
+                              decoration: BoxDecoration(
+                                color: colors.secondaryContainer,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.check_circle, color: colors.onSecondaryContainer),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Вы уже подписаны',
+                                    style: TextStyle(color: colors.onSecondaryContainer, fontWeight: FontWeight.w500),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : OutlinedButton.icon(
+                              onPressed: _isLoading ? null : _subscribeToChannel,
+                              icon: const Icon(Icons.subscriptions),
+                              label: const Text('Подписаться на канал'),
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size(double.infinity, 50),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
                     ),
                   ],
                 ),

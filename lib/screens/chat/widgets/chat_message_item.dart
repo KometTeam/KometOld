@@ -30,6 +30,7 @@ class ChatMessageItem extends StatefulWidget {
   final bool showAvatar;
   final bool isGrouped;
   final bool isGroupChat;
+  final bool isChannel;
   final Contact? senderContact;
   
   const ChatMessageItem({
@@ -42,6 +43,7 @@ class ChatMessageItem extends StatefulWidget {
     this.showAvatar = true,
     this.isGrouped = false,
     this.isGroupChat = false,
+    this.isChannel = false,
     this.senderContact,
   });
 
@@ -129,7 +131,7 @@ class _ChatMessageItemState extends State<ChatMessageItem> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final showSenderInfo = !widget.isMe && widget.isGroupChat && widget.showAvatar;
+    final showSenderInfo = !widget.isMe && widget.isGroupChat && !widget.isChannel && widget.showAvatar;
     
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -160,7 +162,7 @@ class _ChatMessageItemState extends State<ChatMessageItem> {
                 ),
               ),
             )
-          else if (!widget.isMe && widget.isGroupChat)
+          else if (!widget.isMe && widget.isGroupChat && !widget.isChannel)
             const SizedBox(width: 36),
           
           Flexible(

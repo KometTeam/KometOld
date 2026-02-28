@@ -1083,6 +1083,26 @@ extension on _ChatScreenState {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
+          if (_currentContact.hasWebApp)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: GestureDetector(
+                onTap: _openWebApp,
+                child: Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primary,
+                    shape: BoxShape.circle,
+                  ),
+                  padding: const EdgeInsets.all(8),
+                  child: Icon(
+                    Icons.widgets_rounded,
+                    color: Theme.of(context).colorScheme.onPrimary,
+                    size: 20,
+                  ),
+                ),
+              ),
+            ),
           IconButton(
             icon: Icon(
               Icons.attach_file,
@@ -1584,6 +1604,13 @@ extension on _ChatScreenState {
             contact: widget.contact,
             isChannel: widget.isChannel,
             myId: _actualMyId,
+            chatLink: _chatLink,
+            participantsCount: _chatParticipantsCount,
+            messagesCount: _chatMessagesCount,
+            accessType: _chatAccessType,
+            createdAt: _chatCreatedAt,
+            joinedAt: _chatJoinedAt,
+            isOfficial: _chatIsOfficial,
           );
         },
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
@@ -2022,58 +2049,15 @@ extension on _ChatScreenState {
     }
 
     try {
-      print(
-        '📋 [ChannelSettings] Начинаем загрузку данных канала ${widget.chatId}...',
-      );
-
-      // Сохраняем контекст ДО await
-      final navigatorContext = context;
-
-      print('📋 [ChannelSettings] Вызываем getChannelDetails с timeout...');
-      final channelDetails = await ApiService.instance
-          .getChannelDetails(widget.chatId)
-          .timeout(
-            const Duration(seconds: 10),
-            onTimeout: () {
-              print('⏱️ [ChannelSettings] Timeout при загрузке данных канала');
-              throw TimeoutException(
-                'Таймаут загрузки данных канала',
-                const Duration(seconds: 10),
-              );
-            },
-          );
-      print('✅ [ChannelSettings] Данные канала получены');
-
-      if (!mounted) {
-        print('⚠️ [ChannelSettings] Widget не mounted после загрузки');
-        return;
-      }
-
-      if (channelDetails == null) {
-        print('⚠️ [ChannelSettings] channelDetails null, показываем ошибку');
-        ScaffoldMessenger.of(navigatorContext).showSnackBar(
-          const SnackBar(
-            content: Text('Не удалось загрузить данные канала'),
-            behavior: SnackBarBehavior.floating,
-            margin: EdgeInsets.only(bottom: 80, left: 8, right: 8),
-          ),
-        );
-      }
-
-      final safeChannelDetails =
-          channelDetails ?? <String, dynamic>{'id': widget.chatId};
-
-      print('📋 [ChannelSettings] Открываем ChannelSettingsScreen...');
-      Navigator.of(navigatorContext).push(
+      Navigator.of(context).push(
         MaterialPageRoute(
           builder: (ctx) => ChannelSettingsScreen(
             chatId: widget.chatId,
-            channelData: safeChannelDetails,
+            channelData: <String, dynamic>{'id': widget.chatId},
             myId: _actualMyId!,
           ),
         ),
       );
-      print('✅ [ChannelSettings] Экран открыт');
     } catch (e, stackTrace) {
       print('❌ [ChannelSettings] Ошибка открытия настроек канала: $e');
       print('❌ [ChannelSettings] Stack: $stackTrace');
@@ -2090,7 +2074,6 @@ extension on _ChatScreenState {
       }
     } finally {
       _isOpeningChannelSettings = false;
-      print('✅ [ChannelSettings] Флаг _isOpeningChannelSettings сброшен');
     }
   }
 
@@ -2341,12 +2324,23 @@ extension on _ChatScreenState {
                             final result = await _pickPhotosFlow(context);
                             if (!mounted) return;
                             if (result != null && result.paths.isNotEmpty) {
-                              await ApiService.instance.sendPhotoMessages(
-                                widget.chatId,
-                                localPaths: result.paths,
-                                caption: result.caption,
-                                senderId: _actualMyId,
-                              );
+                              if (result.isVideo) {
+                                for (final path in result.paths) {
+                                  await ApiService.instance.sendGalleryVideoMessage(
+                                    widget.chatId,
+                                    localPath: path,
+                                    caption: result.caption,
+                                    senderId: _actualMyId,
+                                  );
+                                }
+                              } else {
+                                await ApiService.instance.sendPhotoMessages(
+                                  widget.chatId,
+                                  localPaths: result.paths,
+                                  caption: result.caption,
+                                  senderId: _actualMyId,
+                                );
+                              }
                             }
                           },
                         ),
@@ -2534,12 +2528,23 @@ extension on _ChatScreenState {
       if (choice == 'media') {
         final result = await _pickPhotosFlow(context);
         if (result != null && result.paths.isNotEmpty) {
-          await ApiService.instance.sendPhotoMessages(
-            widget.chatId,
-            localPaths: result.paths,
-            caption: result.caption,
-            senderId: _actualMyId,
-          );
+          if (result.isVideo) {
+            for (final path in result.paths) {
+              await ApiService.instance.sendGalleryVideoMessage(
+                widget.chatId,
+                localPath: path,
+                caption: result.caption,
+                senderId: _actualMyId,
+              );
+            }
+          } else {
+            await ApiService.instance.sendPhotoMessages(
+              widget.chatId,
+              localPaths: result.paths,
+              caption: result.caption,
+              senderId: _actualMyId,
+            );
+          }
         }
       } else if (choice == 'file') {
         await ApiService.instance.sendFileMessage(
@@ -2602,17 +2607,20 @@ extension on _ChatScreenState {
 
       List<XFile>? pickedFiles;
 
+      bool isVideoChoice = false;
       if (choice == 'gallery') {
         pickedFiles = await picker.pickMultiImage();
       } else if (choice == 'video') {
         final file = await picker.pickVideo(source: ImageSource.gallery);
         if (file != null) pickedFiles = [file];
+        isVideoChoice = true;
       } else if (choice == 'camera') {
         final file = await picker.pickImage(source: ImageSource.camera);
         if (file != null) pickedFiles = [file];
       } else if (choice == 'camera_video') {
         final file = await picker.pickVideo(source: ImageSource.camera);
         if (file != null) pickedFiles = [file];
+        isVideoChoice = true;
       }
 
       if (pickedFiles == null || pickedFiles.isEmpty) return null;
@@ -2644,6 +2652,7 @@ extension on _ChatScreenState {
       return _PhotoPickerResult(
         paths: pickedFiles.map((f) => f.path).toList(),
         caption: caption,
+        isVideo: isVideoChoice,
       );
     } catch (e) {
       print('Ошибка выбора фото: $e');

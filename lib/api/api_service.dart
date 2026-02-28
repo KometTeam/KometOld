@@ -136,6 +136,87 @@ class ApiService {
   final Map<int, List<Message>> _messageCache = {};
 
   final Map<int, Contact> _contactCache = {};
+  Contact? getCachedContact(int id) => _contactCache[id];
+
+  // Глобальный кэш прочитанности: chatId -> последний прочитанный timestamp (opcode 130)
+  final Map<int, int> _peerReadTimestamps = {};
+  // Глобальный кэш прочитанности: chatId -> последний прочитанный messageId (opcode 50)
+  final Map<int, int> _peerReadMessageIds = {};
+
+  void updatePeerReadTimestamp(int chatId, int timestamp) {
+    final current = _peerReadTimestamps[chatId];
+    if (current == null || timestamp > current) {
+      _peerReadTimestamps[chatId] = timestamp;
+    }
+  }
+
+  void updatePeerReadMessageId(int chatId, int messageId) {
+    final current = _peerReadMessageIds[chatId];
+    if (current == null || messageId > current) {
+      _peerReadMessageIds[chatId] = messageId;
+    }
+  }
+
+  bool isPeerRead(int chatId, int messageTime, {int? messageId}) {
+    // Проверяем по timestamp (opcode 130)
+    final lastReadTs = _peerReadTimestamps[chatId];
+    if (lastReadTs != null && messageTime <= lastReadTs) return true;
+    // Проверяем по messageId (opcode 50)
+    if (messageId != null) {
+      final lastReadId = _peerReadMessageIds[chatId];
+      if (lastReadId != null && messageId <= lastReadId) return true;
+    }
+    return false;
+  }
+
+  void cacheContact(Map<String, dynamic> contactJson) {
+    try {
+      final contact = Contact.fromJson(contactJson);
+      _contactCache[contact.id] = contact;
+    } catch (_) {}
+  }
+
+  // Кэш инфо о чатах (opcode 48)
+  final Map<int, Map<String, dynamic>> _chatInfoCache = {};
+
+  Map<String, dynamic>? getChatInfo(int chatId) => _chatInfoCache[chatId];
+
+  Future<void> prefetchChatInfo(List<int> chatIds) async {
+    if (chatIds.isEmpty) return;
+    try {
+      // Разбиваем на батчи по 50
+      const batchSize = 50;
+      for (var i = 0; i < chatIds.length; i += batchSize) {
+        final batch = chatIds.sublist(i, (i + batchSize).clamp(0, chatIds.length));
+        final response = await sendRequest(48, {'chatIds': batch});
+        final chats = response['payload']?['chats'] as List?;
+        if (chats == null) continue;
+        for (final chat in chats) {
+          final chatData = chat as Map<String, dynamic>;
+          final id = chatData['id'] as int?;
+          if (id != null) _chatInfoCache[id] = chatData;
+        }
+      }
+    } catch (e) {
+      debugPrint('prefetchChatInfo error: $e');
+    }
+  }
+
+  // Настоящие контакты (не REMOVED, не боты) — из opcode 19/32
+  final Set<int> _realContactIds = {};
+
+  void setRealContacts(List<Contact> contacts) {
+    _realContactIds.clear();
+    for (final c in contacts) {
+      if (!c.isRemoved && !c.isBot) {
+        _realContactIds.add(c.id);
+      }
+    }
+  }
+
+  void addRealContact(int id) => _realContactIds.add(id);
+  void removeRealContact(int id) => _realContactIds.remove(id);
+  bool isRealContact(int id) => _realContactIds.contains(id);
   final Set<int> _missingContactIds = {};
   DateTime? _lastContactsUpdate;
   static const Duration _contactCacheExpiry = Duration(minutes: 5);

@@ -28,6 +28,16 @@ extension ApiServiceContacts on ApiService {
     _sendMessage(34, {'contactId': contactId, 'action': 'ADD'});
   }
 
+  Future<void> updateContactName(int contactId, String firstName, String lastName) async {
+    await waitUntilOnline();
+    _sendMessage(34, {
+      'contactId': contactId,
+      'action': 'UPDATE',
+      'firstName': firstName,
+      'lastName': lastName,
+    });
+  }
+
   Future<void> removeContact(int contactId) async {
     await waitUntilOnline();
     _sendMessage(34, {'contactId': contactId, 'action': 'REMOVE'});

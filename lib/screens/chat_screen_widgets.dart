@@ -320,11 +320,75 @@ class GroupProfileDraggableDialog extends StatelessWidget {
 }
 
 /// Диалог профиля контакта
+class _InfoRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final ColorScheme colors;
+  final VoidCallback? onTap;
+  final Widget? trailing;
+
+  const _InfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.colors,
+    this.onTap,
+    this.trailing,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: colors.onSurfaceVariant),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: colors.onSurfaceVariant,
+                    ),
+                  ),
+                  Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: onTap != null ? colors.primary : colors.onSurface,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (trailing != null) trailing!,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class ContactProfileDialog extends StatefulWidget {
   final Contact contact;
   final bool isChannel;
   final int? myId;
   final int? currentChatId;
+  final String? chatLink;
+  final int? participantsCount;
+  final int? messagesCount;
+  final String? accessType;
+  final DateTime? createdAt;
+  final DateTime? joinedAt;
+  final bool? isOfficial;
 
   const ContactProfileDialog({
     super.key,
@@ -332,6 +396,13 @@ class ContactProfileDialog extends StatefulWidget {
     this.isChannel = false,
     this.myId,
     this.currentChatId,
+    this.chatLink,
+    this.participantsCount,
+    this.messagesCount,
+    this.accessType,
+    this.createdAt,
+    this.joinedAt,
+    this.isOfficial,
   });
 
   @override
@@ -341,11 +412,20 @@ class ContactProfileDialog extends StatefulWidget {
 class _ContactProfileDialogState extends State<ContactProfileDialog> {
   String? _localDescription;
   StreamSubscription? _changesSubscription;
+  bool _isInContacts = false;
+  bool _isAddingContact = false;
+
+  // Drag state
+  double _dragProgress = 0.0; // 0=collapsed, 1=expanded
+  double _dragStartDy = 0.0;
+  bool _isDragging = false;
+  static const double _dragThreshold = 0.35;
 
   @override
   void initState() {
     super.initState();
     _loadLocalDescription();
+    _checkIfInContacts();
 
     _changesSubscription = ContactLocalNamesService().changes.listen((
       contactId,
@@ -354,6 +434,132 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
         _loadLocalDescription();
       }
     });
+  }
+
+  void _checkIfInContacts() {
+    if (mounted) {
+      setState(() => _isInContacts = ApiService.instance.isRealContact(widget.contact.id));
+    }
+  }
+
+  Future<void> _handleAddToContacts(BuildContext context) async {
+    if (_isAddingContact || _isInContacts) return;
+
+    // Диалог выбора имени и фамилии
+    final firstNameController = TextEditingController(
+      text: widget.contact.firstName.isNotEmpty
+          ? widget.contact.firstName
+          : widget.contact.name.split(' ').first,
+    );
+    final lastNameController = TextEditingController(
+      text: widget.contact.lastName.isNotEmpty
+          ? widget.contact.lastName
+          : (widget.contact.name.split(' ').length > 1
+              ? widget.contact.name.split(' ').skip(1).join(' ')
+              : ''),
+    );
+
+    // Валидация — запрещаем . , и спецсимволы
+    final validChars = RegExp(r'^[a-zA-Zа-яА-ЯёЁ0-9\s\-_]+$');
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Добавить в контакты'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: firstNameController,
+              decoration: const InputDecoration(
+                labelText: 'Имя',
+                hintText: 'Введите имя',
+              ),
+              textCapitalization: TextCapitalization.words,
+              inputFormatters: [
+                FilteringTextInputFormatter.deny(RegExp(r'[.,;:!?@#$%^&*()\+=\[\]{}<>|/\\~`"' "'" r']')),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: lastNameController,
+              decoration: const InputDecoration(
+                labelText: 'Фамилия',
+                hintText: 'Введите фамилию (необязательно)',
+              ),
+              textCapitalization: TextCapitalization.words,
+              inputFormatters: [
+                FilteringTextInputFormatter.deny(RegExp(r'[.,;:!?@#$%^&*()\+=\[\]{}<>|/\\~`"' "'" r']')),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final fn = firstNameController.text.trim();
+              if (fn.isEmpty) return;
+              if (fn.isNotEmpty && !validChars.hasMatch(fn)) return;
+              final ln = lastNameController.text.trim();
+              if (ln.isNotEmpty && !validChars.hasMatch(ln)) return;
+              Navigator.of(ctx).pop(true);
+            },
+            child: const Text('Добавить'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    final firstName = firstNameController.text.trim();
+    final lastName = lastNameController.text.trim();
+
+    setState(() => _isAddingContact = true);
+
+    try {
+      // Сначала ADD
+      await ApiService.instance.addContact(widget.contact.id);
+      // Потом UPDATE с именем
+      await ApiService.instance.updateContactName(
+        widget.contact.id,
+        firstName,
+        lastName,
+      );
+      // Сохраняем имя локально — сразу обновится везде в UI
+      await ContactLocalNamesService().saveContactData(widget.contact.id, {
+        'firstName': firstName,
+        'lastName': lastName,
+        'name': '$firstName $lastName'.trim(),
+      });
+      if (mounted) {
+        setState(() {
+          _isInContacts = true;
+          _isAddingContact = false;
+        });
+        ApiService.instance.addRealContact(widget.contact.id);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$firstName добавлен в контакты'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isAddingContact = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Ошибка: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _loadLocalDescription() async {
@@ -371,6 +577,256 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
   void dispose() {
     _changesSubscription?.cancel();
     super.dispose();
+  }
+
+  Widget _buildExpandedContent(BuildContext context, ColorScheme colors) {
+    final isGroupOrChannel = widget.contact.id < 0;
+
+    if (isGroupOrChannel) {
+      // Канал/группа — инфо
+      final dateFormat = DateFormat('d MMM yyyy', 'ru');
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Я не знаю как фиксить баг с инфо у каналов, пожалейте мои нервы, я мучаюсь вторую неделю.',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontSize: 14,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+          const SizedBox(height: 8),
+          // Официальный
+          if (widget.isOfficial == true) ...[  
+            _InfoRow(
+              icon: Icons.verified,
+              label: 'Статус',
+              value: 'Официальный канал',
+              colors: colors,
+            ),
+            const SizedBox(height: 8),
+          ],
+          // Ссылка
+          if (widget.chatLink != null && widget.chatLink!.isNotEmpty) ...[
+            _InfoRow(
+              icon: Icons.link,
+              label: 'Ссылка',
+              value: widget.chatLink!,
+              colors: colors,
+              onTap: () async {
+                final url = Uri.tryParse(widget.chatLink!);
+                if (url != null && await canLaunchUrl(url)) await launchUrl(url);
+              },
+              trailing: IconButton(
+                icon: const Icon(Icons.copy, size: 18),
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: widget.chatLink!));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Ссылка скопирована'), behavior: SnackBarBehavior.floating),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+          // Участники
+          if (widget.participantsCount != null && widget.participantsCount! > 0) ...[
+            _InfoRow(
+              icon: Icons.people,
+              label: 'Участников',
+              value: widget.participantsCount.toString(),
+              colors: colors,
+            ),
+            const SizedBox(height: 8),
+          ],
+          // Сообщений
+          if (widget.messagesCount != null && widget.messagesCount! > 0) ...[
+            _InfoRow(
+              icon: Icons.message,
+              label: 'Сообщений',
+              value: widget.messagesCount.toString(),
+              colors: colors,
+            ),
+            const SizedBox(height: 8),
+          ],
+          // Тип доступа
+          if (widget.accessType != null) ...[
+            _InfoRow(
+              icon: widget.accessType == 'PUBLIC' ? Icons.public : Icons.lock,
+              label: 'Тип',
+              value: widget.accessType == 'PUBLIC' ? 'Публичный' : 'Приватный',
+              colors: colors,
+            ),
+            const SizedBox(height: 8),
+          ],
+          // Дата создания
+          if (widget.createdAt != null) ...[  
+            _InfoRow(
+              icon: Icons.calendar_today,
+              label: 'Создан',
+              value: dateFormat.format(widget.createdAt!),
+              colors: colors,
+            ),
+            const SizedBox(height: 8),
+          ],
+          // Дата вступления
+          if (widget.joinedAt != null) ...[  
+            _InfoRow(
+              icon: Icons.login,
+              label: 'Вы вступили',
+              value: dateFormat.format(widget.joinedAt!),
+              colors: colors,
+            ),
+            const SizedBox(height: 8),
+          ],
+        ],
+      );
+    }
+
+    // Личный чат — кнопка контакта
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_isAddingContact)
+          const Center(child: CircularProgressIndicator())
+        else if (_isInContacts)
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: colors.surfaceContainerHighest,
+                    foregroundColor: colors.onSurfaceVariant,
+                  ),
+                  onPressed: null,
+                  icon: const Icon(Icons.check),
+                  label: const Text('У вас в контактах'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              // Кнопка переименовать
+              IconButton.filled(
+                style: IconButton.styleFrom(
+                  backgroundColor: colors.secondaryContainer,
+                  foregroundColor: colors.onSecondaryContainer,
+                ),
+                icon: const Icon(Icons.edit),
+                onPressed: () => _handleRenameContact(context),
+                tooltip: 'Переименовать',
+              ),
+            ],
+          )
+        else
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: () => _handleAddToContacts(context),
+              icon: const Icon(Icons.person_add),
+              label: const Text('Добавить в контакты'),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _handleRenameContact(BuildContext context) async {
+    final localData = ContactLocalNamesService().getContactData(widget.contact.id);
+    final firstNameController = TextEditingController(
+      text: localData?['firstName'] as String? ?? widget.contact.firstName,
+    );
+    final lastNameController = TextEditingController(
+      text: localData?['lastName'] as String? ?? widget.contact.lastName,
+    );
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Переименовать контакт'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: firstNameController,
+              decoration: const InputDecoration(labelText: 'Имя'),
+              textCapitalization: TextCapitalization.words,
+              inputFormatters: [
+                FilteringTextInputFormatter.deny(RegExp(r'[.,;:!?@#$%^&*()\+=\[\]{}<>|/\\~`"' "'" r']')),
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: lastNameController,
+              decoration: const InputDecoration(labelText: 'Фамилия'),
+              textCapitalization: TextCapitalization.words,
+              inputFormatters: [
+                FilteringTextInputFormatter.deny(RegExp(r'[.,;:!?@#$%^&*()\+=\[\]{}<>|/\\~`"' "'" r']')),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (firstNameController.text.trim().isEmpty) return;
+              Navigator.of(ctx).pop(true);
+            },
+            child: const Text('Сохранить'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    final firstName = firstNameController.text.trim();
+    final lastName = lastNameController.text.trim();
+
+    try {
+      await ApiService.instance.updateContactName(widget.contact.id, firstName, lastName);
+      await ContactLocalNamesService().saveContactData(widget.contact.id, {
+        'firstName': firstName,
+        'lastName': lastName,
+        'name': '$firstName $lastName'.trim(),
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Имя обновлено'), behavior: SnackBarBehavior.floating),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Ошибка: $e'), behavior: SnackBarBehavior.floating),
+        );
+      }
+    }
+  }
+
+  void _onPanStart(DragStartDetails details) {
+    _dragStartDy = details.globalPosition.dy;
+    _isDragging = true;
+  }
+
+  void _onPanUpdate(DragUpdateDetails details) {
+    if (!_isDragging) return;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final delta = _dragStartDy - details.globalPosition.dy;
+    // Только вверх — игнорируем drag вниз (его перехватывает dismiss)
+    if (delta < 0 && _dragProgress == 0.0) return;
+    final progress = ((_dragProgress * screenHeight * 0.8 + details.delta.dy * -1) / (screenHeight * 0.8)).clamp(0.0, 1.0);
+    setState(() => _dragProgress = progress);
+  }
+
+  void _onPanEnd(DragEndDetails details) {
+    setState(() {
+      _isDragging = false;
+      _dragProgress = _dragProgress >= _dragThreshold ? 1.0 : 0.0;
+    });
   }
 
   void _openChatWithContact(BuildContext context) async {
@@ -498,27 +954,10 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
     final isGroupOrChannel = widget.contact.id < 0;
 
     if (isGroupOrChannel) {
-      // Для групп и каналов показываем только релевантные кнопки
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          _ProfileActionButton(
-            icon: widget.isChannel ? Icons.newspaper : Icons.group,
-            label: widget.isChannel ? 'Открыть канал' : 'Открыть группу',
-            onPressed: () => _openGroupOrChannel(context),
-            colors: colors,
-          ),
-          _ProfileActionButton(
-            icon: Icons.info_outline,
-            label: 'Информация',
-            onPressed: () => _openChannelInfo(context),
-            colors: colors,
-          ),
-        ],
-      );
+      return const SizedBox.shrink();
     }
 
-    // Для личных чатов - стандартные кнопки
+    // Для личных чатов
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: [
@@ -531,12 +970,6 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
         _ProfileActionButton(
           icon: Icons.call,
           label: 'Позвонить',
-          onPressed: () {},
-          colors: colors,
-        ),
-        _ProfileActionButton(
-          icon: Icons.info_outline,
-          label: 'Подробнее',
           onPressed: () {},
           colors: colors,
         ),
@@ -559,72 +992,152 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
         : (widget.contact.description ?? '');
 
     final theme = context.watch<ThemeProvider>();
+    final t = _dragProgress;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final screenWidth = MediaQuery.of(context).size.width;
+
+    // Высота панели: от минимальной до полного экрана
+    final double panelMinHeight = 220.0;
+    final double panelMaxHeight = screenHeight;
+    final double panelHeight = panelMinHeight + (panelMaxHeight - panelMinHeight) * t;
+
+    // Аватарка: ВСЕГДА в Stack поверх всего, позиция и размер интерполируются
+    // t=0: круг 192×192, центр = центр верхней зоны (над панелью)
+    // t=1: прямоугольник screenWidth × screenHeight*0.5, top=0
+    final double avatarCollapsedSize = 192.0;
+    final double avatarExpandedH = screenHeight * 0.52;
+
+    // Размеры
+    final double avatarW = avatarCollapsedSize + (screenWidth - avatarCollapsedSize) * t;
+    final double avatarH = avatarCollapsedSize + (avatarExpandedH - avatarCollapsedSize) * t;
+
+    // Позиция: центр аватарки в верхней зоне → top:0 left:0
+    final double aboveHeight = screenHeight - panelMinHeight; // фиксированная верхняя зона при t=0
+    final double centerY0 = aboveHeight / 2; // центр Y при t=0
+    final double topAt0 = centerY0 - avatarCollapsedSize / 2;
+    final double topAt1 = 0.0;
+    final double leftAt0 = (screenWidth - avatarCollapsedSize) / 2;
+    final double leftAt1 = 0.0;
+
+    final double avatarTop = topAt0 + (topAt1 - topAt0) * t;
+    final double avatarLeft = leftAt0 + (leftAt1 - leftAt0) * t;
+
+    // borderRadius: 96 → 0
+    final double avatarBR = 96.0 * (1.0 - t);
+
+    // Кнопки и ник в шапке панели исчезают
+    final double buttonsOpacity = (1.0 - t * 2.5).clamp(0.0, 1.0);
+    final double nameOpacity = (1.0 - t * 2.0).clamp(0.0, 1.0);
+    // Ник поверх аватарки появляется
+    final double nameOnAvatarOpacity = ((t - 0.4) * 3.0).clamp(0.0, 1.0);
 
     return Dialog.fullscreen(
       backgroundColor: Colors.transparent,
-      child: Stack(
-        children: [
-          Positioned.fill(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => Navigator.of(context).pop(),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(
-                  sigmaX: theme.profileDialogBlur,
-                  sigmaY: theme.profileDialogBlur,
-                ),
-                child: Container(
-                  color: Colors.black.withValues(
-                    alpha: theme.profileDialogOpacity,
+      child: GestureDetector(
+        onPanStart: _onPanStart,
+        onPanUpdate: _onPanUpdate,
+        onPanEnd: _onPanEnd,
+        child: Stack(
+          children: [
+            // Blur фон
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => Navigator.of(context).pop(),
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(
+                    sigmaX: theme.profileDialogBlur,
+                    sigmaY: theme.profileDialogBlur,
+                  ),
+                  child: Container(
+                    color: Colors.black.withValues(
+                      alpha: theme.profileDialogOpacity,
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-          Column(
-            children: [
-              Expanded(
-                child: Center(
-                  child: TweenAnimationBuilder<double>(
-                    tween: Tween<double>(begin: 0.0, end: 1.0),
-                    duration: const Duration(milliseconds: 300),
-                    curve: Curves.easeOutCubic,
-                    builder: (context, value, child) {
-                      return Opacity(
-                        opacity: value,
-                        child: Transform.translate(
-                          offset: Offset(
-                            0,
-                            -0.3 *
-                                (1.0 - value) *
-                                MediaQuery.of(context).size.height *
-                                0.15,
+
+            // Нижняя панель рендерится раньше — аватарка поверх неё
+            // (порядок в Stack важен — аватарка ниже в коде = поверх панели)
+            // Аватарка — ОДНА, абсолютная позиция, морфирует плавно
+            Positioned(
+              top: avatarTop,
+              left: avatarLeft,
+              width: avatarW,
+              height: avatarH,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(avatarBR),
+                child: FittedBox(
+                  fit: BoxFit.cover,
+                  child: ContactAvatarWidget(
+                    contactId: widget.contact.id,
+                    originalAvatarUrl: widget.contact.photoBaseUrl,
+                    radius: 96,
+                    fallbackText: widget.contact.name.isNotEmpty
+                        ? widget.contact.name[0].toUpperCase()
+                        : '?',
+                  ),
+                ),
+              ),
+            ),
+
+            // Ник поверх аватарки (снизу слева)
+            if (nameOnAvatarOpacity > 0)
+              Positioned(
+                top: avatarTop,
+                left: avatarLeft,
+                width: avatarW,
+                height: avatarH,
+                child: IgnorePointer(
+                  child: Opacity(
+                    opacity: nameOnAvatarOpacity,
+                    child: Align(
+                      alignment: Alignment.bottomLeft,
+                      child: Container(
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.transparent,
+                              Colors.black.withValues(alpha: 0.75),
+                            ],
                           ),
-                          child: child,
                         ),
-                      );
-                    },
-                    child: Hero(
-                      tag: 'contact_avatar_${widget.contact.id}',
-                      child: ContactAvatarWidget(
-                        contactId: widget.contact.id,
-                        originalAvatarUrl: widget.contact.photoBaseUrl,
-                        radius: 96,
-                        fallbackText: widget.contact.name.isNotEmpty
-                            ? widget.contact.name[0].toUpperCase()
-                            : '?',
+                        padding: const EdgeInsets.fromLTRB(16, 40, 16, 14),
+                        child: Text(
+                          nickname,
+                          style: const TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-              Container(
+
+            // Нижняя панель
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: AnimatedContainer(
+                duration: _isDragging
+                    ? Duration.zero
+                    : const Duration(milliseconds: 300),
+                curve: Curves.easeOutCubic,
+                height: panelHeight,
                 width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
                 decoration: BoxDecoration(
                   color: colors.surface,
-                  borderRadius: const BorderRadius.vertical(
-                    top: Radius.circular(24),
+                  borderRadius: BorderRadius.vertical(
+                    top: Radius.circular(24 * (1.0 - t * 2).clamp(0.0, 1.0)),
                   ),
                   boxShadow: [
                     BoxShadow(
@@ -638,48 +1151,82 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            nickname,
-                            style: const TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w700,
+                    // Заголовок: ник + крестик
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 8, 0),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Opacity(
+                              opacity: nameOpacity,
+                              child: Text(
+                                nickname,
+                                style: const TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                            overflow: TextOverflow.ellipsis,
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () => Navigator.of(context).pop(),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (description.isNotEmpty && buttonsOpacity > 0)
+                      Flexible(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+                          child: Opacity(
+                            opacity: buttonsOpacity,
+                            child: SingleChildScrollView(
+                              child: Linkify(
+                                text: description,
+                                style: TextStyle(
+                                  color: colors.onSurfaceVariant,
+                                  fontSize: 14,
+                                ),
+                                onOpen: (link) async {
+                                  final url = Uri.tryParse(link.url);
+                                  if (url != null && await canLaunchUrl(url)) {
+                                    await launchUrl(url);
+                                  }
+                                },
+                              ),
+                            ),
                           ),
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.close),
-                          onPressed: () => Navigator.of(context).pop(),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    if (description.isNotEmpty)
-                      Linkify(
-                        text: description,
-                        style: TextStyle(
-                          color: colors.onSurfaceVariant,
-                          fontSize: 14,
-                        ),
-                        onOpen: (link) async {
-                          final url = Uri.tryParse(link.url);
-                          if (url != null && await canLaunchUrl(url)) {
-                            await launchUrl(url);
-                          }
-                        },
                       ),
-                    const SizedBox(height: 16),
-                    // Кнопки действий
-                    _buildActionButtons(context, colors),
+                    if (buttonsOpacity > 0) ...[
+                      const SizedBox(height: 16),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Opacity(
+                          opacity: buttonsOpacity,
+                          child: _buildActionButtons(context, colors),
+                        ),
+                      ),
+                    ],
+                    // Развёрнутая панель — доп. контент
+                    if (t > 0.5) ...[
+                      SizedBox(height: 16 * ((t - 0.5) * 2).clamp(0.0, 1.0)),
+                      Opacity(
+                        opacity: ((t - 0.5) * 2).clamp(0.0, 1.0),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: _buildExpandedContent(context, colors),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
-            ],
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1361,3 +1908,4 @@ class _KometSpecialMenu extends StatelessWidget {
     );
   }
 }
+

@@ -199,16 +199,29 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
         }
 
         if (_audioPlayer.processingState == ProcessingState.idle) {
+          setState(() => _isLoading = true);
           final cacheService = CacheService();
           var cachedFile = await cacheService.getCachedAudioFile(
             widget.url,
             customKey: widget.audioId?.toString(),
           );
 
-          if (cachedFile != null && await cachedFile.exists()) {
-            await _audioPlayer.setFilePath(cachedFile.path);
-          } else {
-            await _audioPlayer.setUrl(widget.url);
+          try {
+            if (cachedFile != null && await cachedFile.exists()) {
+              await _audioPlayer.setFilePath(cachedFile.path);
+            } else {
+              await _audioPlayer.setUrl(widget.url);
+            }
+          } catch (loadError) {
+            debugPrint('Audio load error: $loadError');
+            // Try direct URL as fallback
+            try {
+              await _audioPlayer.setUrl(widget.url);
+            } catch (e) {
+              debugPrint('Audio fallback error: $e');
+              if (mounted) setState(() => _isLoading = false);
+              return;
+            }
           }
         }
 

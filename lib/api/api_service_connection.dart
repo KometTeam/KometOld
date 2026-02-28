@@ -129,6 +129,9 @@ extension ApiServiceConnection on ApiService {
       message: 'Недействительный токен',
     );
 
+    // Сохраняем какой аккаунт был невалиден
+    final invalidAccountId = userId;
+
     authToken = null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('authToken');
@@ -140,6 +143,39 @@ extension ApiServiceConnection on ApiService {
     _socketConnected = false;
     _pingTimer?.cancel();
 
+    // Пробуем переключиться на другой доступный аккаунт
+    try {
+      final accountManager = AccountManager();
+      await accountManager.initialize();
+      final accounts = accountManager.accounts;
+
+      // Ищем первый аккаунт с токеном который не является текущим невалидным
+      final nextAccount = accounts.firstWhere(
+        (a) => a.id != invalidAccountId && a.token != null && a.token!.isNotEmpty,
+        orElse: () => throw Exception('Нет доступных аккаунтов'),
+      );
+
+      print('🔄 Токен недействителен ($invalidAccountId), переключаемся на ${nextAccount.id}');
+
+      await accountManager.switchAccount(nextAccount.id);
+      authToken = nextAccount.token;
+      userId = nextAccount.userId;
+
+      _resetSession();
+      _messageController.add({
+        'type': 'auto_switched_account',
+        'message': 'Автоматически переключились на другой аккаунт',
+        'accountId': nextAccount.id,
+      });
+
+      // Переподключаемся с новым аккаунтом
+      unawaited(connect());
+      return;
+    } catch (e) {
+      print('⚠️ Не удалось переключиться на другой аккаунт: $e');
+    }
+
+    // Нет других аккаунтов — уведомляем UI
     _messageController.add({
       'type': 'invalid_token',
       'message': 'Токен недействителен, требуется повторная авторизация',

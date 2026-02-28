@@ -142,6 +142,7 @@ class _ChatsScreenState extends State<ChatsScreen>
   bool _isInArchive = false;
   bool _archiveBannerDismissed = false;
   bool _isShowingContacts = false;
+  Set<int> _deletedContactIds = {};
 
   int get _myId =>
       _myProfile?.id ?? int.tryParse(ApiService.instance.userId ?? '0') ?? 0;
@@ -204,6 +205,24 @@ class _ChatsScreenState extends State<ChatsScreen>
     );
   }
 
+  String _deletedContactsKey() {
+    final uid = _myId != 0 ? _myId : int.tryParse(ApiService.instance.userId ?? '0') ?? 0;
+    return 'deleted_contacts_$uid';
+  }
+
+  Set<int> _loadDeletedContactsFromPrefs(SharedPreferences p) {
+    final ids = p.getStringList(_deletedContactsKey()) ?? [];
+    return ids.map((e) => int.tryParse(e) ?? -1).where((id) => id != -1).toSet();
+  }
+
+  Future<void> _saveDeletedContactsToPrefs() async {
+    final prefs = _prefs ?? await SharedPreferences.getInstance();
+    await prefs.setStringList(
+      _deletedContactsKey(),
+      _deletedContactIds.map((id) => id.toString()).toList(),
+    );
+  }
+
   Future<void> _toggleArchive(Chat chat) async {
     setState(() {
       if (_archivedChats.contains(chat.id)) {
@@ -222,9 +241,11 @@ class _ChatsScreenState extends State<ChatsScreen>
     if (_prefs == null || !_prefsLoaded) return;
     final newGetout = _loadGetoutFromPrefs(_prefs!);
     final newArchive = _loadArchiveFromPrefs(_prefs!);
+    final newDeletedContacts = _loadDeletedContactsFromPrefs(_prefs!);
     setState(() {
       _GETOUT = newGetout;
       _archivedChats = newArchive;
+      _deletedContactIds = newDeletedContacts;
     });
     _filterChats();
   }
@@ -238,9 +259,11 @@ class _ChatsScreenState extends State<ChatsScreen>
     if (uid != 0) {
       _GETOUT = _loadGetoutFromPrefs(p);
       _archivedChats = _loadArchiveFromPrefs(p);
+      _deletedContactIds = _loadDeletedContactsFromPrefs(p);
     } else {
       _GETOUT = {};
       _archivedChats = {};
+      _deletedContactIds = {};
     }
     _prefsLoaded = true;
     print('✅ [GETOUT] Загружено из prefs: $_GETOUT');
@@ -777,18 +800,14 @@ class _ChatsScreenState extends State<ChatsScreen>
                 )
                 .whereType<Chat>()
                 .toList();
-            // Обновляем контакты: удаляем старые, добавляем новые
-            final newContactIds = <int>{};
+            // Обновляем контакты: добавляем/обновляем, не трогаем остальных
             for (final contactJson in contacts) {
               final contact = Contact.fromJson(
                 (contactJson as Map).cast<String, dynamic>(),
               );
               _contacts[contact.id] = contact;
-              newContactIds.add(contact.id);
             }
-            
-            // Удаляем контакты, которых больше нет на сервере
-            _contacts.removeWhere((id, contact) => !newContactIds.contains(id));
+            ApiService.instance.setRealContacts(_contacts.values.where((c) => !c.isBot && !c.isRemoved).toList());
             
             _loadChatDrafts();
 
@@ -796,6 +815,7 @@ class _ChatsScreenState extends State<ChatsScreen>
               _myProfile = Profile.fromJson(profileData);
               _isProfileLoading = false;
             }
+
             _filterChats();
             setState(() {});
           }
@@ -1226,6 +1246,8 @@ class _ChatsScreenState extends State<ChatsScreen>
           print('🚫 [GETOUT] Фильтруем чат ${chat.id} (${chat.title})');
           return false;
         }
+        // Избранные всегда показываем
+        if (_isSavedMessages(chat)) return true;
         final msg = chat.lastMessage;
         if (msg.text.isNotEmpty) return true;
         return msg.attaches.any((a) {
@@ -1610,18 +1632,14 @@ class _ChatsScreenState extends State<ChatsScreen>
               (chat) => !newChatIds.contains(chat.id),
             );
 
-            // Обновляем контакты: удаляем старые, добавляем новые
-            final newContactIds = <int>{};
+            // Обновляем контакты: добавляем/обновляем, не трогаем остальных
             for (final contactJson in contacts) {
               final contact = Contact.fromJson(
                 (contactJson as Map).cast<String, dynamic>(),
               );
               _contacts[contact.id] = contact;
-              newContactIds.add(contact.id);
             }
-            
-            // Удаляем контакты, которых больше нет на сервере
-            _contacts.removeWhere((id, contact) => !newContactIds.contains(id));
+            ApiService.instance.setRealContacts(_contacts.values.where((c) => !c.isBot && !c.isRemoved).toList());
 
             if (profileData != null) {
               _myProfile = Profile.fromJson(profileData);
@@ -1863,7 +1881,9 @@ class _ChatsScreenState extends State<ChatsScreen>
                   (json) => Contact.fromJson(json as Map<String, dynamic>),
                 );
                 // Обновляем контакты - записываем только те, что пришли с сервера
-                _contacts = {for (var c in contacts) c.id: c};
+                _contacts = {
+                  for (var c in contacts) c.id: c,
+                };
 
                 final presence =
                     snapshot.data!['presence'] as Map<String, dynamic>?;
@@ -1932,10 +1952,10 @@ class _ChatsScreenState extends State<ChatsScreen>
                 final showArchiveBanner = isAllChatsTab && _archivedChatsList.isNotEmpty && !_archiveBannerDismissed;
                 return Column(
                   children: [
+                    _buildFolderTabs(),
                     if (_isShowingContacts)
                       Expanded(child: _buildContactsPanel()),
                     if (!_isShowingContacts) ...[
-                      _buildFolderTabs(),
                       AnimatedSize(
                         duration: const Duration(milliseconds: 250),
                         curve: Curves.easeInOut,
@@ -2392,12 +2412,11 @@ class _ChatsScreenState extends State<ChatsScreen>
                     leading: const Icon(Icons.call_outlined),
                     title: const Text('Звонки'),
                     onTap: () {
-                      final apiService = context.read<ApiService>();
                       Navigator.pop(context);
                       Navigator.of(context).push(
                         MaterialPageRoute(
                           builder: (context) => Provider<ApiService>.value(
-                            value: apiService,
+                            value: ApiService.instance,
                             child: const CallsScreen(),
                           ),
                         ),
@@ -3571,63 +3590,144 @@ class _ChatsScreenState extends State<ChatsScreen>
     );
   }
 
+  bool _showHiddenContacts = false;
+
   Widget _buildContactsPanel() {
     final colors = Theme.of(context).colorScheme;
-    final sortedContacts = _contacts.values.toList()
+    // DEBUG: показываем всех в _contacts
+    for (final c in _contacts.values) {
+      print('📋 CONTACT: id=${c.id} name=${c.name} isBot=${c.isBot} isRemoved=${c.isRemoved} status=${c.status}');
+    }
+    final sortedContacts = _contacts.values
+        .where((c) => !_deletedContactIds.contains(c.id) && !c.isBot && !c.isRemoved && c.id != _myId)
+        .toList()
       ..sort((a, b) => a.name.compareTo(b.name));
 
-    if (sortedContacts.isEmpty) {
-      return Center(
-        child: Text(
-          'Нет контактов',
-          style: TextStyle(color: colors.onSurfaceVariant),
-        ),
-      );
-    }
+    final hiddenContacts = _contacts.values
+        .where((c) => (c.isRemoved || c.isBot || _deletedContactIds.contains(c.id)) && c.id != _myId)
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
 
-    return ImplicitlyAnimatedList<Contact>(
-      items: sortedContacts,
-      areItemsTheSame: (a, b) => a.id == b.id,
-      itemBuilder: (context, animation, contact, index) {
-        return SizeFadeTransition(
-          animation: animation,
-          child: _ContactListItem(
-            contact: contact,
-            onTap: () {
-              final found = _allChats.any(
-                (c) => c.participantIds.contains(contact.id) &&
-                    c.participantIds.contains(_myId) &&
-                    c.type == 'DIALOG',
-              );
-              if (found) {
-                final chat = _allChats.firstWhere(
-                  (c) => c.participantIds.contains(contact.id) &&
-                      c.participantIds.contains(_myId) &&
-                      c.type == 'DIALOG',
-                );
-                setState(() => _isShowingContacts = false);
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => ChatScreen(
-                      chatId: chat.id,
-                      contact: contact,
-                      myId: _myId,
+    return Column(
+      children: [
+        // Плашка "Скрытые контакты"
+        if (hiddenContacts.isNotEmpty)
+          InkWell(
+            onTap: () => setState(() => _showHiddenContacts = !_showHiddenContacts),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              color: colors.surfaceContainerHighest,
+              child: Row(
+                children: [
+                  Icon(
+                    _showHiddenContacts ? Icons.expand_less : Icons.expand_more,
+                    color: colors.onSurfaceVariant,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Скрытые контакты (${hiddenContacts.length})',
+                    style: TextStyle(
+                      color: colors.onSurfaceVariant,
+                      fontSize: 14,
                     ),
                   ),
-                );
-              }
-            },
-            onRemove: () {
-              ApiService.instance.removeContact(contact.id);
-              setState(() {
-                _contacts.remove(contact.id);
-              });
-            },
+                ],
+              ),
+            ),
           ),
-        );
-      },
-      spawnIsolate: false,
+        // Основной список
+        if (sortedContacts.isEmpty && !_showHiddenContacts)
+          Expanded(
+            child: Center(
+              child: Text(
+                'Нет контактов',
+                style: TextStyle(color: colors.onSurfaceVariant),
+              ),
+            ),
+          )
+        else
+          Expanded(
+            child: ListView.builder(
+              itemCount: sortedContacts.length + (_showHiddenContacts ? hiddenContacts.length : 0),
+              itemBuilder: (context, index) {
+                if (index >= sortedContacts.length) {
+                  final contact = hiddenContacts[index - sortedContacts.length];
+                  return ListTile(
+                    leading: ContactAvatarWidget(contactId: contact.id, originalAvatarUrl: contact.photoBaseUrl, radius: 20, fallbackText: contact.name),
+                    title: Text(contact.name, style: TextStyle(color: colors.onSurface, fontSize: 15)),
+                    subtitle: Text(
+                      contact.isRemoved ? 'Удалён' : contact.isBot ? 'Бот' : 'Скрыт локально',
+                      style: TextStyle(color: colors.onSurfaceVariant, fontSize: 12),
+                    ),
+                    onTap: () async {
+                      final int chatId = _myId ^ contact.id;
+                      await ApiService.instance.subscribeToChat(chatId, true);
+                      if (!mounted) return;
+                      setState(() => _isShowingContacts = false);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => ChatScreen(
+                            chatId: chatId,
+                            contact: contact,
+                            myId: _myId,
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                }
+                final contact = sortedContacts[index];
+                return _ContactListItem(
+                  key: ValueKey(contact.id),
+                  contact: contact,
+                  onTap: () async {
+                    Chat? existingChat;
+                    try {
+                      existingChat = _allChats.firstWhere(
+                        (c) => c.participantIds.contains(contact.id) &&
+                            c.participantIds.contains(_myId) &&
+                            c.type == 'DIALOG',
+                      );
+                    } catch (_) {
+                      existingChat = null;
+                    }
+
+                    final int chatId;
+                    if (existingChat != null) {
+                      chatId = existingChat.id;
+                    } else {
+                      chatId = _myId ^ contact.id;
+                      await ApiService.instance.subscribeToChat(chatId, true);
+                    }
+
+                    if (!mounted) return;
+                    setState(() => _isShowingContacts = false);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ChatScreen(
+                          chatId: chatId,
+                          contact: contact,
+                          myId: _myId,
+                        ),
+                      ),
+                    );
+                  },
+                  onRemove: () {
+                    ApiService.instance.removeContact(contact.id);
+                    ApiService.instance.removeRealContact(contact.id);
+                    setState(() {
+                      _deletedContactIds.add(contact.id);
+                    });
+                    _saveDeletedContactsToPrefs();
+                  },
+                );
+              },
+            ),
+          ),
+      ],
     );
   }
 
@@ -3864,31 +3964,34 @@ class _ChatsScreenState extends State<ChatsScreen>
               Expanded(
                 child: _folders.length <= 3
                     ? Center(
-                        child: TabBar(
-                          controller: _folderTabController,
-                          isScrollable: false,
-                          tabAlignment: TabAlignment.center,
-                          labelColor: colors.primary,
-                          unselectedLabelColor: colors.onSurfaceVariant,
-                          indicator: UnderlineTabIndicator(
-                            borderSide: BorderSide(
-                              width: 3,
-                              color: colors.primary,
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 40),
+                          child: TabBar(
+                            controller: _folderTabController,
+                            isScrollable: false,
+                            tabAlignment: TabAlignment.center,
+                            labelColor: colors.primary,
+                            unselectedLabelColor: colors.onSurfaceVariant,
+                            indicator: UnderlineTabIndicator(
+                              borderSide: BorderSide(
+                                width: 3,
+                                color: colors.primary,
+                              ),
+                              insets: const EdgeInsets.symmetric(horizontal: 16),
                             ),
-                            insets: const EdgeInsets.symmetric(horizontal: 16),
+                            indicatorSize: TabBarIndicatorSize.label,
+                            labelStyle: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                            unselectedLabelStyle: const TextStyle(
+                              fontWeight: FontWeight.normal,
+                              fontSize: 14,
+                            ),
+                            dividerColor: Colors.transparent,
+                            tabs: tabs,
+                            onTap: (index) {},
                           ),
-                          indicatorSize: TabBarIndicatorSize.label,
-                          labelStyle: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14,
-                          ),
-                          unselectedLabelStyle: const TextStyle(
-                            fontWeight: FontWeight.normal,
-                            fontSize: 14,
-                          ),
-                          dividerColor: Colors.transparent,
-                          tabs: tabs,
-                          onTap: (index) {},
                         ),
                       )
                     : Padding(
@@ -5369,10 +5472,15 @@ class _ChatsScreenState extends State<ChatsScreen>
       final bool isPending =
           queueItem != null || message.id.startsWith('local_');
 
+      final messageIdInt = int.tryParse(message.id);
+      final isRead = ApiService.instance.isPeerRead(chat.id, message.time, messageId: messageIdInt);
+
       return Row(
         children: [
           if (isPending)
             Icon(Icons.access_time, size: 14, color: colors.onSurfaceVariant)
+          else if (isRead)
+            Icon(Icons.done_all, size: 14, color: colors.primary)
           else
             Icon(Icons.done, size: 14, color: colors.onSurfaceVariant),
           const SizedBox(width: 4),
@@ -6848,6 +6956,7 @@ class _ContactListItem extends StatefulWidget {
   final VoidCallback onRemove;
 
   const _ContactListItem({
+    super.key,
     required this.contact,
     required this.onTap,
     required this.onRemove,
@@ -6890,8 +6999,10 @@ class _ContactListItemState extends State<_ContactListItem>
   }
 
   Future<void> _delete() async {
+    if (!mounted) return;
     setState(() => _dismissing = true);
-    await Future.delayed(const Duration(milliseconds: 600));
+    // Ждём анимацию шаттера, потом убираем из списка
+    await Future.delayed(const Duration(milliseconds: 500));
     widget.onRemove();
   }
 

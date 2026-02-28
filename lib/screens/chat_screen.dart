@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:ui';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:intl/intl.dart';
@@ -166,8 +168,9 @@ class Mention {
 class _PhotoPickerResult {
   final List<String> paths;
   final String? caption;
+  final bool isVideo;
 
-  _PhotoPickerResult({required this.paths, this.caption});
+  _PhotoPickerResult({required this.paths, this.caption, this.isVideo = false});
 
   // Add getter for compatibility
   List<String> get images => paths;
@@ -224,6 +227,15 @@ class _ChatScreenState extends State<ChatScreen> with TickerProviderStateMixin, 
       ItemPositionsListener.create();
   final ValueNotifier<bool> _showScrollToBottomNotifier = ValueNotifier(false);
   final ValueNotifier<Message?> _pinnedMessageNotifier = ValueNotifier(null);
+
+  // Данные чата (загружаются через opcode 48)
+  String? _chatLink;
+  int? _chatParticipantsCount;
+  int? _chatMessagesCount;
+  String? _chatAccessType;
+  DateTime? _chatCreatedAt;
+  DateTime? _chatJoinedAt;
+  bool? _chatIsOfficial;
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
 
@@ -717,6 +729,86 @@ class _OutgoingCallDialogState extends State<_OutgoingCallDialog> {
           label: const Text('Позвонить'),
         ),
       ],
+    );
+  }
+}
+
+class _WebAppScreen extends StatefulWidget {
+  final String url;
+  final String title;
+
+  const _WebAppScreen({required this.url, required this.title});
+
+  @override
+  State<_WebAppScreen> createState() => _WebAppScreenState();
+}
+
+class _WebAppScreenState extends State<_WebAppScreen> {
+  InAppWebViewController? _webViewController;
+  bool _isLoading = true;
+
+  bool get _supportsWebView =>
+      defaultTargetPlatform == TargetPlatform.android ||
+      defaultTargetPlatform == TargetPlatform.iOS;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!_supportsWebView) {
+      // На Linux/Windows открываем в браузере и закрываем экран
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        final uri = Uri.tryParse(widget.url);
+        if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
+        if (mounted) Navigator.of(context).pop();
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_supportsWebView) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    final colors = Theme.of(context).colorScheme;
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.title),
+        backgroundColor: colors.surface,
+        foregroundColor: colors.onSurface,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () => _webViewController?.reload(),
+          ),
+        ],
+      ),
+      body: Stack(
+        children: [
+          InAppWebView(
+            initialUrlRequest: URLRequest(
+              url: WebUri(widget.url),
+            ),
+            initialSettings: InAppWebViewSettings(
+              javaScriptEnabled: true,
+              domStorageEnabled: true,
+              mediaPlaybackRequiresUserGesture: false,
+              allowsInlineMediaPlayback: true,
+            ),
+            onWebViewCreated: (controller) {
+              _webViewController = controller;
+            },
+            onLoadStart: (controller, url) {
+              setState(() => _isLoading = true);
+            },
+            onLoadStop: (controller, url) {
+              setState(() => _isLoading = false);
+            },
+          ),
+          if (_isLoading)
+            const Center(child: CircularProgressIndicator()),
+        ],
+      ),
     );
   }
 }

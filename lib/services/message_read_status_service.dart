@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:gwid/api/api_service.dart';
 
 /// Сервис для отслеживания статусов прочитанности сообщений
 /// Хранит TIMESTAMP последнего прочитанного сообщения для каждого чата
@@ -102,6 +103,9 @@ class MessageReadStatusService {
     if (currentLastRead == null || timestamp > currentLastRead) {
       print('✅ [opcode 130] Обновляем статус прочитанности: chatId=$chatId, lastReadTimestamp=$timestamp');
       _lastReadMessageIds[chatId] = timestamp;
+      
+      // Обновляем глобальный кэш в ApiService
+      ApiService.instance.updatePeerReadTimestamp(chatId, timestamp);
       
       // Сохраняем в persistent storage
       _saveToStorage();

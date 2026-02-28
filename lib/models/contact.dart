@@ -11,6 +11,7 @@ class Contact {
   final String? status;
   final List<String> options;
   final String? link;
+  final String? webApp;
 
   Contact({
     required this.id,
@@ -25,9 +26,12 @@ class Contact {
     this.status,
     this.options = const [],
     this.link,
+    this.webApp,
   });
 
   bool get isBot => options.contains('BOT');
+  bool get hasWebApp => options.contains('HAS_WEBAPP') && webApp != null;
+  bool get isRemoved => status == 'REMOVED';
 
   bool get isUserBlocked => isBlockedByMe || isBlocked;
 
@@ -109,6 +113,7 @@ class Contact {
       status: json['status'],
       options: List<String>.from(json['options'] ?? []),
       link: json['link']?.toString(),
+      webApp: json['webApp']?.toString(),
     );
   }
 }

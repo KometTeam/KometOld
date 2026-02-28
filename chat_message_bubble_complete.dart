@@ -1334,7 +1334,7 @@ class ChatMessageBubble extends StatelessWidget {
               : MainAxisAlignment.start,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            if (!isMe && isGroupChat) ...[
+            if (!isMe && (isGroupChat || isChannel)) ...[
               SizedBox(
                 width: 40,
                 child: isLastInGroup
@@ -1363,7 +1363,7 @@ class ChatMessageBubble extends StatelessWidget {
                       : CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (isGroupChat &&
+                    if ((isGroupChat || isChannel) &&
                         !isMe &&
                         senderName != null)
                       Padding(
@@ -1382,7 +1382,7 @@ class ChatMessageBubble extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                    if (isGroupChat &&
+                    if ((isGroupChat || isChannel) &&
                         !isMe &&
                         senderName != null)
                       const SizedBox(height: 2),
@@ -1532,7 +1532,7 @@ class ChatMessageBubble extends StatelessWidget {
               : MainAxisAlignment.start,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            if (!isMe && isGroupChat) ...[
+            if (!isMe && (isGroupChat || isChannel)) ...[
               SizedBox(
                 width: 40,
                 child: isLastInGroup
@@ -1824,7 +1824,7 @@ class ChatMessageBubble extends StatelessWidget {
                 : MainAxisAlignment.start,
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              if (!isMe && isGroupChat) ...[
+              if (!isMe && (isGroupChat || isChannel)) ...[
                 SizedBox(
                   width: 40,
                   child: isLastInGroup
@@ -1939,7 +1939,7 @@ class ChatMessageBubble extends StatelessWidget {
 
     final showNameHeader =
         videos.length == 1 &&
-        isGroupChat &&
+        (isGroupChat || isChannel) &&
         !isMe &&
         senderName != null;
 
@@ -2000,7 +2000,7 @@ class ChatMessageBubble extends StatelessWidget {
                       : MainAxisAlignment.start,
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    if (!isMe && isGroupChat) ...[
+                    if (!isMe && (isGroupChat || isChannel)) ...[
                       SizedBox(
                         width: 40,
                         child: index == 0 && isLastInGroup
@@ -2138,7 +2138,7 @@ class ChatMessageBubble extends StatelessWidget {
 
     final showNameHeader =
         files.length == 1 &&
-        isGroupChat &&
+        (isGroupChat || isChannel) &&
         !isMe &&
         senderName != null;
 
@@ -2155,7 +2155,7 @@ class ChatMessageBubble extends StatelessWidget {
                 : MainAxisAlignment.start,
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              if (!isMe && isGroupChat) ...[
+              if (!isMe && (isGroupChat || isChannel)) ...[
                 SizedBox(
                   width: 40,
                   child: isLastInGroup
@@ -4354,12 +4354,6 @@ class ChatMessageBubble extends StatelessWidget {
   void _openPhotoViewer(BuildContext context, Map<String, dynamic> attach) {
     List<Map<String, dynamic>>? galleryPhotos = allPhotos;
 
-    // Don't use gallery for non-PHOTO attachments (e.g., GIFs, which have different _type)
-    final attachType = attach['_type'] as String?;
-    if (attachType != null && attachType != 'PHOTO') {
-      galleryPhotos = null;
-    }
-
     if (galleryPhotos != null && galleryPhotos.isNotEmpty) {
       final attachUrl = (attach['url'] ?? attach['baseUrl'])?.toString() ?? '';
       final attachId = attach['id']?.toString() ?? '';
@@ -4616,7 +4610,7 @@ class ChatMessageBubble extends StatelessWidget {
     }
 
     return [
-      if (isGroupChat && !isMe && senderName != null)
+      if ((isGroupChat || isChannel) && !isMe && senderName != null)
         MouseRegion(
           cursor: SystemMouseCursors.click,
           child: GestureDetector(
@@ -4641,7 +4635,7 @@ class ChatMessageBubble extends StatelessWidget {
           ),
         ),
 
-      if (isGroupChat && !isMe && senderName != null)
+      if ((isGroupChat || isChannel) && !isMe && senderName != null)
         const SizedBox(height: 2),
       // Показываем кто переслал сообщение
       if (message.isForwarded && forwardedFrom != null)
@@ -5432,125 +5426,37 @@ class ChatMessageBubble extends StatelessWidget {
       unicode: true,
     );
 
-    final _mentionRegex = RegExp(r'@([a-zA-Z0-9_]{3,})', unicode: false);
-
-    void addSpansForSegment(String spanText, TextStyle style) {
-      // Сначала ищем упоминания @username
-      final mentionMatches = _mentionRegex.allMatches(spanText).toList();
-      // Потом URL
-      final urlMatches = _frtUrlRegex.allMatches(spanText).toList();
-
-      // Объединяем все совпадения и сортируем по позиции
-      final allSegments = <(int, int, String, bool)>[];  // (start, end, text, isMention)
-      for (final m in mentionMatches) {
-        allSegments.add((m.start, m.end, spanText.substring(m.start, m.end), true));
-      }
-      for (final m in urlMatches) {
-        // Не добавляем URL если он перекрывается с упоминанием
-        final overlaps = mentionMatches.any((mm) => m.start < mm.end && m.end > mm.start);
-        if (!overlaps) {
-          allSegments.add((m.start, m.end, spanText.substring(m.start, m.end), false));
-        }
-      }
-      allSegments.sort((a, b) => a.$1.compareTo(b.$1));
-
-      if (allSegments.isEmpty) {
+    void addSpansForText(String spanText, TextStyle style) {
+      final matches = _frtUrlRegex.allMatches(spanText).toList();
+      if (matches.isEmpty) {
         spans.add(TextSpan(text: spanText, style: style));
         return;
       }
-
       int pos = 0;
-      for (final seg in allSegments) {
-        if (seg.$1 > pos) {
-          spans.add(TextSpan(text: spanText.substring(pos, seg.$1), style: style));
+      for (final m in matches) {
+        if (m.start > pos) {
+          spans.add(TextSpan(text: spanText.substring(pos, m.start), style: style));
         }
-        if (seg.$4) {
-          // Это @mention
-          final mentionText = seg.$3;
-          final username = mentionText.startsWith('@') ? mentionText.substring(1) : mentionText;
-          final mentionStyle = bubbleLinkStyle ?? style.copyWith(
-            color: Colors.blue,
-            decoration: TextDecoration.underline,
-            decorationColor: Colors.blue,
-          );
-          final recognizer = TapGestureRecognizer()
-            ..onTap = () async {
-              // Ищем контакт/бота по ссылке через opcode 89
-              try {
-                final chatInfo = await ApiService.instance.getChatInfoByLink(username);
-                if (!context.mounted) return;
-                // Ответ может быть либо {id: ...} (чат), либо {contact: {...}, summary: ...} (юзер/бот)
-                final Map<String, dynamic> contactData = chatInfo.containsKey('contact')
-                    ? (chatInfo['contact'] as Map<String, dynamic>)
-                    : chatInfo;
-                final int? contactId = contactData['id'] as int?;
-                if (contactId == null) return;
-                final myId = ApiService.instance.myUserId;
-                if (myId == null) return;
-                final chatId = myId ^ contactId;
-                final nameData = (contactData['names'] as List?)?.firstOrNull as Map?;
-                final resolvedName = nameData?['name']?.toString()
-                    ?? contactData['name']?.toString()
-                    ?? contactData['title']?.toString()
-                    ?? mentionText;
-                final contact = ApiService.instance.getCachedContact(contactId) ??
-                    Contact(
-                      id: contactId,
-                      name: resolvedName,
-                      firstName: nameData?['firstName']?.toString() ?? resolvedName,
-                      lastName: nameData?['lastName']?.toString() ?? '',
-                      photoBaseUrl: contactData['baseUrl']?.toString(),
-                    );
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (ctx) => ChatScreen(
-                      chatId: chatId,
-                      contact: contact,
-                      myId: myId,
-                      isGroupChat: false,
-                      isChannel: false,
-                    ),
-                  ),
-                );
-              } catch (e) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Не удалось найти пользователя $mentionText'),
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
-                }
-              }
-            };
-          spans.add(TextSpan(text: mentionText, style: mentionStyle, recognizer: recognizer));
-        } else {
-          // Это URL
-          final rawUrl = seg.$3;
-          final fullUrl = rawUrl.startsWith('http://') || rawUrl.startsWith('https://') || rawUrl.startsWith('ftp://')
-              ? rawUrl
-              : 'https://$rawUrl';
-          final urlStyle = bubbleLinkStyle ?? style.copyWith(
-            color: Colors.blue,
-            decoration: TextDecoration.underline,
-            decorationColor: Colors.blue,
-          );
-          final recognizer = TapGestureRecognizer()
-            ..onTap = () async {
-              final uri = Uri.tryParse(fullUrl);
-              if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
-            };
-          spans.add(TextSpan(text: rawUrl, style: urlStyle, recognizer: recognizer));
-        }
-        pos = seg.$2;
+        final rawUrl = spanText.substring(m.start, m.end);
+        final fullUrl = rawUrl.startsWith('http://') || rawUrl.startsWith('https://') || rawUrl.startsWith('ftp://')
+            ? rawUrl
+            : 'https://$rawUrl';
+        final urlStyle = bubbleLinkStyle ?? style.copyWith(
+          color: Colors.blue,
+          decoration: TextDecoration.underline,
+          decorationColor: Colors.blue,
+        );
+        final recognizer = TapGestureRecognizer()
+          ..onTap = () async {
+            final uri = Uri.tryParse(fullUrl);
+            if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
+          };
+        spans.add(TextSpan(text: rawUrl, style: urlStyle, recognizer: recognizer));
+        pos = m.end;
       }
       if (pos < spanText.length) {
         spans.add(TextSpan(text: spanText.substring(pos), style: style));
       }
-    }
-
-    void addSpansForText(String spanText, TextStyle style) {
-      addSpansForSegment(spanText, style);
     }
 
     while (start < text.length) {

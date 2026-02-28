@@ -1004,15 +1004,8 @@ extension on _ChatScreenState {
                 _lastPeerReadMessageIdStr = messageIdStr;
               });
 
-              // Синхронизируем с новым сервисом статусов прочитанности
-              print(
-                '📖 [opcode 50] Обновляем статус через MessageReadStatusService',
-              );
-              MessageReadStatusService().handleReadStatusUpdate({
-                'chatId': widget.chatId,
-                'mark': messageId,
-                'setAsUnread': false,
-              });
+              // Обновляем глобальный кэш прочитанности по messageId
+              ApiService.instance.updatePeerReadMessageId(widget.chatId, messageId);
             }
           } else if (messageIdStr != null && messageIdStr.isNotEmpty) {
             if (_lastPeerReadMessageIdStr == null ||
@@ -2850,6 +2843,72 @@ extension on _ChatScreenState {
     if (mounted) {
       // ignore: invalid_use_of_protected_member
       setState(fn);
+    }
+  }
+
+  Future<void> _openWebApp() async {
+    try {
+      final response = await ApiService.instance.sendRequest(160, {
+        'botId': _currentContact.id,
+        'chatId': widget.chatId,
+      });
+      final url = response['payload']?['url'] as String?;
+      if (url == null || !mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (ctx) => _WebAppScreen(
+            url: url,
+            title: _currentContact.name,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Ошибка открытия приложения: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _loadChatInfo() async {
+    try {
+      // Сначала проверяем кэш
+      Map<String, dynamic>? chatData = ApiService.instance.getChatInfo(widget.chatId);
+      
+      // Если нет в кэше — запрашиваем
+      if (chatData == null) {
+        final response = await ApiService.instance.sendRequest(
+          48,
+          {'chatIds': [widget.chatId]},
+        );
+        final chats = response['payload']?['chats'] as List?;
+        if (chats == null || chats.isEmpty) return;
+        chatData = chats.first as Map<String, dynamic>;
+      }
+      
+      if (!mounted) return;
+      setState(() {
+        _chatLink = chatData!['link'] as String?;
+        _chatParticipantsCount = chatData['participantsCount'] as int?;
+        _chatMessagesCount = chatData['messagesCount'] as int?;
+        _chatAccessType = chatData['access'] as String?;
+        final created = chatData['created'];
+        if (created != null && created != 1) {
+          _chatCreatedAt = DateTime.fromMillisecondsSinceEpoch(created as int);
+        }
+        final joined = chatData['joinTime'];
+        if (joined != null && joined != 1) {
+          _chatJoinedAt = DateTime.fromMillisecondsSinceEpoch(joined as int);
+        }
+        final options = chatData['options'] as Map?;
+        _chatIsOfficial = options?['OFFICIAL'] as bool?;
+      });
+    } catch (e) {
+      debugPrint('Ошибка загрузки инфо чата: $e');
     }
   }
 }
