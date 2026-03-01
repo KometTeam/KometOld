@@ -1868,18 +1868,221 @@ extension on _ChatScreenState {
     );
   }
 
-  Widget _buildSystemMessage(Message message, Map<String, dynamic> control) {
+  Widget _buildSystemMessage(Message message, Map<String, dynamic> controlAttach) {
     String text = '';
-    final event = control['event']?.toString();
+    final event = controlAttach['event']?.toString();
 
-    if (event == 'new') {
-      text = 'Чат создан: ${control['title'] ?? ''}';
-    } else if (event == 'join') {
-      text = 'Пользователь присоединился к чату';
-    } else if (event == 'leave') {
-      text = 'Пользователь покинул чат';
-    } else {
-      text = message.text;
+    final senderContact = _contactDetailsCache[message.senderId];
+    final senderName = senderContact != null
+        ? getContactDisplayName(
+            contactId: senderContact.id,
+            originalName: senderContact.name,
+            originalFirstName: senderContact.firstName,
+            originalLastName: senderContact.lastName,
+          )
+        : 'ID ${message.senderId}';
+    final isMe = message.senderId == _actualMyId;
+    final senderDisplayName = isMe ? 'Вы' : senderName;
+
+    String formatUserList(List<int> userIds) {
+      if (userIds.isEmpty) {
+        return '';
+      }
+      final userNames = userIds
+          .map((id) {
+            if (id == _actualMyId) {
+              return 'Вы';
+            }
+            final contact = _contactDetailsCache[id];
+            if (contact != null) {
+              return getContactDisplayName(
+                contactId: contact.id,
+                originalName: contact.name,
+                originalFirstName: contact.firstName,
+                originalLastName: contact.lastName,
+              );
+            }
+            return 'участник с ID $id';
+          })
+          .where((name) => name.isNotEmpty)
+          .join(', ');
+      return userNames;
+    }
+
+
+    switch (event) {
+      case 'new':
+        final title = controlAttach['title'] ?? 'Новая группа';
+
+        // Костыль i think
+        // Best method is check for type of channel but i dont know how to get it
+        if (message.senderId == 0) {
+          text =  'Создана группа "$title"';
+        } else {
+          text = '$senderDisplayName создал(а) группу "$title"';
+        }
+
+
+      case 'add':
+        final userIds = List<int>.from(
+          (controlAttach['userIds'] as List?)?.map((id) => id as int) ?? [],
+        );
+        if (userIds.isEmpty) {
+          text = 'К чату присоединились новые участники';
+        }
+        final userNames = formatUserList(userIds);
+        if (userNames.isEmpty) {
+          text = 'К чату присоединились новые участники';
+        }
+        text = '$senderDisplayName добавил(а) в чат: $userNames';
+
+      case 'remove':
+      case 'kick':
+        final userIds = List<int>.from(
+          (controlAttach['userIds'] as List?)?.map((id) => id as int) ?? [],
+        );
+        if (userIds.isEmpty) {
+          text = '$senderDisplayName удалил(а) участников из чата';
+        }
+        final userNames = formatUserList(userIds);
+        if (userNames.isEmpty) {
+          text = '$senderDisplayName удалил(а) участников из чата';
+        }
+
+        if (userIds.contains(_actualMyId)) {
+          text = 'Вы были удалены из чата';
+        }
+        text = '$senderDisplayName удалил(а) из чата: $userNames';
+
+      case 'leave':
+        if (isMe) {
+          text = 'Вы покинули группу';
+        }
+        text = '$senderName покинул(а) группу';
+
+      case 'title':
+        final newTitle = controlAttach['title'] ?? '';
+
+        if (newTitle.isEmpty) {
+          if (message.senderId == _actualMyId) {
+            text = '$senderDisplayName изменили название группы';
+          } else {
+            text = '$senderDisplayName изменил(а) название группы';
+          }
+        }
+
+        if (message.senderId == _actualMyId) {
+            text = '$senderDisplayName изменили название группы на "$newTitle"';
+        } else {
+          text = '$senderDisplayName изменил(а) название группы на "$newTitle"';
+        }
+
+
+      case 'avatar':
+      case 'photo':
+        text = '$senderDisplayName изменил(а) фото группы';
+
+      case 'description':
+        text = '$senderDisplayName изменил(а) описание группы';
+
+      case 'admin':
+      case 'promote':
+        final userIds = List<int>.from(
+          (controlAttach['userIds'] as List?)?.map((id) => id as int) ?? [],
+        );
+        if (userIds.isEmpty) {
+          text = '$senderDisplayName назначил(а) администраторов';
+        }
+        final userNames = formatUserList(userIds);
+        if (userNames.isEmpty) {
+          text = '$senderDisplayName назначил(а) администраторов';
+        }
+
+        if (userIds.contains(_actualMyId) && userIds.length == 1) {
+          text = 'Вас назначили администратором';
+        }
+        text = '$senderDisplayName назначил(а) администраторами: $userNames';
+
+      case 'demote':
+      case 'remove_admin':
+        final userIds = List<int>.from(
+          (controlAttach['userIds'] as List?)?.map((id) => id as int) ?? [],
+        );
+        if (userIds.isEmpty) {
+          text = '$senderDisplayName снял(а) администраторов';
+        }
+        final userNames = formatUserList(userIds);
+        if (userNames.isEmpty) {
+          text = '$senderDisplayName снял(а) администраторов';
+        }
+
+        if (userIds.contains(_actualMyId) && userIds.length == 1) {
+          text = 'Вас сняли с должности администратора';
+        }
+        text = '$senderDisplayName снял(а) с должности администратора: $userNames';
+
+      case 'ban':
+        final userIds = List<int>.from(
+          (controlAttach['userIds'] as List?)?.map((id) => id as int) ?? [],
+        );
+        if (userIds.isEmpty) {
+          text = '$senderDisplayName заблокировал(а) участников';
+        }
+        final userNames = formatUserList(userIds);
+        if (userNames.isEmpty) {
+          text = '$senderDisplayName заблокировал(а) участников';
+        }
+
+        if (userIds.contains(_actualMyId)) {
+          text = 'Вы были заблокированы в чате';
+        }
+        text = '$senderDisplayName заблокировал(а): $userNames';
+
+      case 'unban':
+        final userIds = List<int>.from(
+          (controlAttach['userIds'] as List?)?.map((id) => id as int) ?? [],
+        );
+        if (userIds.isEmpty) {
+          text = '$senderDisplayName разблокировал(а) участников';
+        }
+        final userNames = formatUserList(userIds);
+        if (userNames.isEmpty) {
+          text = '$senderDisplayName разблокировал(а) участников';
+        }
+        text = '$senderDisplayName разблокировал(а): $userNames';
+
+      case 'join':
+        if (isMe) {
+          text = 'Вы присоединились к группе';
+        }
+        text = '$senderName присоединился(ась) к группе';
+
+      case 'pin':
+        final pinnedMessage = controlAttach['pinnedMessage'];
+        if (pinnedMessage != null && pinnedMessage is Map<String, dynamic>) {
+          final pinnedText = pinnedMessage['text'] as String?;
+          if (pinnedText != null && pinnedText.isNotEmpty) {
+            text = '$senderDisplayName закрепил(а) сообщение: "$pinnedText"';
+          }
+        }
+        text = '$senderDisplayName закрепил(а) сообщение';
+
+      default:
+        final eventTypeStr = event?.toString() ?? 'неизвестное';
+
+        if (eventTypeStr.toLowerCase() == 'system') {
+          final message = controlAttach['message'];
+          if (message is String && message.isNotEmpty) {
+            text = message;
+          } else {
+            text = 'Системное событие';
+          }
+        }
+        if (eventTypeStr == 'joinByLink') {
+          text = '$senderName присоединился(ась) по пригласительной ссылке...';
+        }
+
+        text = 'Событие: $eventTypeStr';
     }
 
     if (text.isEmpty) return const SizedBox.shrink();
