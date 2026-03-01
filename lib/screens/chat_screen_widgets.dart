@@ -411,6 +411,7 @@ class ContactProfileDialog extends StatefulWidget {
 
 class _ContactProfileDialogState extends State<ContactProfileDialog> {
   String? _localDescription;
+  String? _lastFetchedIp;
   StreamSubscription? _changesSubscription;
   bool _isInContacts = false;
   bool _isAddingContact = false;
@@ -430,6 +431,13 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
     // И ещё раз после первого кадра — на случай если контакты ещё грузились
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkIfInContacts();
+    });
+    // Загружаем последний известный IP
+    SharedPreferences.getInstance().then((prefs) {
+      final ip = prefs.getString('last_fetched_ip_${widget.contact.id}');
+      if (ip != null && mounted) {
+        setState(() => _lastFetchedIp = ip);
+      }
     });
 
     _changesSubscription = ContactLocalNamesService().changes.listen((
@@ -697,10 +705,87 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
       );
     }
 
-    // Личный чат — кнопка контакта
+    // Личный чат — инфо + кнопки
+    final contact = widget.contact;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // --- Информация о пользователе ---
+        _InfoRow(
+          icon: Icons.tag,
+          label: 'ID',
+          value: contact.id.toString(),
+          colors: colors,
+          trailing: IconButton(
+            icon: const Icon(Icons.copy, size: 16),
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: contact.id.toString()));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('ID скопирован'), behavior: SnackBarBehavior.floating),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 8),
+        if (contact.link != null && contact.link!.isNotEmpty) ...[
+          _InfoRow(
+            icon: Icons.link,
+            label: 'Ссылка',
+            value: contact.link!,
+            colors: colors,
+            onTap: () async {
+              final url = Uri.tryParse(contact.link!);
+              if (url != null && await canLaunchUrl(url)) await launchUrl(url);
+            },
+            trailing: IconButton(
+              icon: const Icon(Icons.copy, size: 16),
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: contact.link!));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Ссылка скопирована'), behavior: SnackBarBehavior.floating),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+        if (contact.isBot) ...[
+          _InfoRow(
+            icon: Icons.smart_toy,
+            label: 'Тип',
+            value: 'Бот',
+            colors: colors,
+          ),
+          const SizedBox(height: 8),
+        ],
+        if (contact.isRemoved) ...[
+          _InfoRow(
+            icon: Icons.person_off,
+            label: 'Статус',
+            value: 'Аккаунт удалён',
+            colors: colors,
+          ),
+          const SizedBox(height: 8),
+        ],
+        if (_lastFetchedIp != null) ...[
+          _InfoRow(
+            icon: Icons.wifi_find,
+            label: 'LastFetchedIP',
+            value: _lastFetchedIp!,
+            colors: colors,
+            trailing: IconButton(
+              icon: const Icon(Icons.copy, size: 16),
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: _lastFetchedIp!));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('IP скопирован'), behavior: SnackBarBehavior.floating),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+        const Divider(height: 16),
         if (_isAddingContact)
           const Center(child: CircularProgressIndicator())
         else if (_isInContacts)

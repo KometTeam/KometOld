@@ -129,9 +129,6 @@ extension ApiServiceConnection on ApiService {
       message: 'Недействительный токен',
     );
 
-    // Сохраняем какой аккаунт был невалиден
-    final invalidAccountId = userId;
-
     authToken = null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('authToken');
@@ -143,20 +140,34 @@ extension ApiServiceConnection on ApiService {
     _socketConnected = false;
     _pingTimer?.cancel();
 
-    // Пробуем переключиться на другой доступный аккаунт
+    // Удаляем невалидный аккаунт и переключаемся на следующий (если есть)
     try {
       final accountManager = AccountManager();
       await accountManager.initialize();
-      final accounts = accountManager.accounts;
 
-      // Ищем первый аккаунт с токеном который не является текущим невалидным
+      // Используем UUID аккаунта (не userId пользователя) для идентификации
+      final invalidAccount = accountManager.currentAccount;
+      final invalidAccountUuid = invalidAccount?.id;
+
+      print('🔄 Токен недействителен, удаляем аккаунт $invalidAccountUuid');
+
+      // Ищем следующий аккаунт до удаления
+      final accounts = accountManager.accounts;
       final nextAccount = accounts.firstWhere(
-        (a) => a.id != invalidAccountId && a.token != null && a.token!.isNotEmpty,
+        (a) => a.id != invalidAccountUuid && a.token.isNotEmpty,
         orElse: () => throw Exception('Нет доступных аккаунтов'),
       );
 
-      print('🔄 Токен недействителен ($invalidAccountId), переключаемся на ${nextAccount.id}');
+      // Удаляем невалидный аккаунт если он не единственный
+      if (invalidAccountUuid != null) {
+        try {
+          await accountManager.removeAccount(invalidAccountUuid);
+        } catch (e) {
+          print('⚠️ Не удалось удалить аккаунт: $e');
+        }
+      }
 
+      print('🔄 Переключаемся на аккаунт ${nextAccount.id}');
       await accountManager.switchAccount(nextAccount.id);
       authToken = nextAccount.token;
       userId = nextAccount.userId;
@@ -175,7 +186,22 @@ extension ApiServiceConnection on ApiService {
       print('⚠️ Не удалось переключиться на другой аккаунт: $e');
     }
 
-    // Нет других аккаунтов — уведомляем UI
+    // Нет других аккаунтов — удаляем данные и отправляем на экран входа
+    try {
+      final accountManager = AccountManager();
+      await accountManager.initialize();
+      final invalidAccountUuid = accountManager.currentAccount?.id;
+      if (invalidAccountUuid != null) {
+        // Единственный аккаунт — очищаем токен вместо удаления
+        await prefs.remove('multi_accounts');
+        await prefs.remove('current_account_id');
+      }
+    } catch (e) {
+      print('⚠️ Ошибка очистки аккаунтов: $e');
+    }
+
+    userId = null;
+
     _messageController.add({
       'type': 'invalid_token',
       'message': 'Токен недействителен, требуется повторная авторизация',
@@ -567,6 +593,11 @@ extension ApiServiceConnection on ApiService {
           _currentPasswordHint = challenge['hint'];
           _currentPasswordEmail = challenge['email'];
 
+          // Сохраняем факт наличия 2FA пароля
+          SharedPreferences.getInstance().then((prefs) {
+            prefs.setBool('has_2fa_password', true);
+          });
+
           _messageController.add({
             'type': 'password_required',
             'trackId': _currentPasswordTrackId,
@@ -595,7 +626,7 @@ extension ApiServiceConnection on ApiService {
         });
       }
 
-      // opcode 112: Начало установки 2FA - получаем trackId
+      // opcode 112: Начало установки/управления 2FA - получаем trackId
       if (decodedMessage['opcode'] == 112 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         final payload = decodedMessage['payload'];
@@ -603,6 +634,39 @@ extension ApiServiceConnection on ApiService {
           'type': '2fa_setup_started',
           'trackId': payload?['trackId'],
           'payload': payload,
+        });
+      }
+
+      // opcode 104: Информация о текущей 2FA (email, hint, enabled)
+      if (decodedMessage['opcode'] == 104 &&
+          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+        final payload = decodedMessage['payload'];
+        _messageController.add({
+          'type': '2fa_info',
+          'enabled': payload?['password']?['enabled'] ?? false,
+          'email': payload?['password']?['email'],
+          'hint': payload?['password']?['hint'],
+          'payload': payload,
+        });
+      }
+
+      // opcode 113: Результат проверки пароля 2FA
+      if (decodedMessage['opcode'] == 113 &&
+          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+        final payload = decodedMessage['payload'];
+        _messageController.add({
+          'type': '2fa_password_verified',
+          'trackId': payload?['trackId'],
+          'payload': payload,
+        });
+      }
+
+      // opcode 113 ERROR: Неверный пароль 2FA
+      if (decodedMessage['opcode'] == 113 &&
+          (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
+        _messageController.add({
+          'type': '2fa_password_wrong',
+          'payload': decodedMessage['payload'],
         });
       }
 
@@ -652,6 +716,15 @@ extension ApiServiceConnection on ApiService {
       // opcode 111: 2FA успешно установлен
       if (decodedMessage['opcode'] == 111 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+        // Сервер завершит все сессии кроме текущей — игнорируем opcode 97
+        _isTerminatingOtherSessions = true;
+        Future.delayed(const Duration(seconds: 5), () {
+          _isTerminatingOtherSessions = false;
+        });
+        // Сохраняем факт установки 2FA пароля
+        SharedPreferences.getInstance().then((prefs) {
+          prefs.setBool('has_2fa_password', true);
+        });
         _messageController.add({
           'type': '2fa_setup_complete',
           'payload': decodedMessage['payload'],
@@ -659,8 +732,8 @@ extension ApiServiceConnection on ApiService {
       }
 
       // 2FA Setup error handlers
-      if (decodedMessage['cmd'] == 3 &&
-          [107, 108, 109, 110, 111, 112].contains(decodedMessage['opcode'])) {
+      if ((decodedMessage['cmd'] == 768 || decodedMessage['cmd'] == 0x300) &&
+          [104, 107, 108, 109, 110, 111, 112, 113].contains(decodedMessage['opcode'])) {
         _messageController.add({
           'type': '2fa_error',
           'opcode': decodedMessage['opcode'],

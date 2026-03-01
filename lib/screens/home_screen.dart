@@ -833,7 +833,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _showSpoofUpdateDialogIfNeeded() async {
-    // Диалог убран
   }
 
   Future<void> _checkSpoofUpdateManually() async {

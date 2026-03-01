@@ -405,6 +405,15 @@ extension ApiServiceChats on ApiService {
 
       if (profile != null && authToken != null) {
         try {
+          // Определяем наличие 2FA по profileOptions — если есть значения > 0 (например 3, 4)
+          final rawProfileOptions = profile['profileOptions'] as List<dynamic>?;
+          if (rawProfileOptions != null) {
+            final has2fa = rawProfileOptions.any((o) => o is int && o > 0);
+            SharedPreferences.getInstance().then((prefs) {
+              prefs.setBool('has_2fa_password', has2fa);
+            });
+          }
+
           final accountManager = AccountManager();
           await accountManager.initialize();
           final currentAccount = accountManager.currentAccount;

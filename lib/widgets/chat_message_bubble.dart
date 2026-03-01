@@ -5619,7 +5619,6 @@ class ChatMessageBubble extends StatelessWidget {
       final spanLinkUrl = getLinkUrlForIndex(start);
 
       if (spanLinkUrl != null) {
-        // Элемент типа LINK — показываем текст как кликабельную ссылку
         final rawUrl = spanLinkUrl;
         final fullUrl = rawUrl.startsWith('http://') ||
                 rawUrl.startsWith('https://') ||

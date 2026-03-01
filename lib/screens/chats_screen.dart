@@ -4041,10 +4041,8 @@ class _ChatsScreenState extends State<ChatsScreen>
                         padding: const EdgeInsets.only(right: 48),
                         child: TabBar(
                           controller: _folderTabController,
-                          isScrollable: _folders.length > 2,
-                          tabAlignment: _folders.length > 2
-                              ? TabAlignment.start
-                              : TabAlignment.fill,
+                          isScrollable: true,
+                          tabAlignment: TabAlignment.start,
                           labelColor: colors.primary,
                           unselectedLabelColor: colors.onSurfaceVariant,
                           indicator: UnderlineTabIndicator(
@@ -7170,7 +7168,6 @@ class _StrikethroughPainter extends CustomPainter {
   bool shouldRepaint(_StrikethroughPainter old) => old.color != color;
 }
 
-/// Бегущая строка — скроллит текст если не помещается
 class _MarqueeText extends StatefulWidget {
   final String text;
   final TextStyle? style;
@@ -7208,7 +7205,6 @@ class _MarqueeTextState extends State<_MarqueeText> {
     final maxScroll = _scrollController.position.maxScrollExtent;
     if (maxScroll <= 0) return; // текст помещается — не скроллим
 
-    // Пауза перед стартом
     _timer = Timer(const Duration(seconds: 2), _scroll);
   }
 
@@ -7227,7 +7223,6 @@ class _MarqueeTextState extends State<_MarqueeText> {
         .then((_) {
       if (!mounted) return;
       _forward = !_forward;
-      // Пауза на конце перед возвратом
       _timer = Timer(const Duration(seconds: 1), _scroll);
     });
   }
@@ -7267,7 +7262,6 @@ class _MarqueeTextState extends State<_MarqueeText> {
         }
 
         // Текст не помещается — бегущая строка
-        // Перезапускаем если ширина изменилась или таймер не запущен
         if (_lastMaxWidth != maxWidth) {
           _lastMaxWidth = maxWidth;
           _stopTimer();

@@ -755,6 +755,10 @@ class _CallScreenState extends State<CallScreen> {
             _networkInfo!.remoteAddress = ip;
             _networkInfo!.remoteConnectionType = type;
             print('Remote IP updated: $ip ($type)');
+            SharedPreferences.getInstance().then((prefs) {
+              prefs.setString('last_fetched_ip', ip);
+              prefs.setString('last_fetched_ip_${widget.contactId}', ip);
+            });
           }
         });
       }

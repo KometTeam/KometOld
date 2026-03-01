@@ -48,7 +48,8 @@ class Profile {
       options: List<String>.from(profileData['options'] ?? []),
       accountStatus: profileData['accountStatus'] ?? 0,
       profileOptions: (json['profileOptions'] as List<dynamic>?)
-              ?.map((o) => ProfileOption.fromJson(o as Map<String, dynamic>))
+              ?.whereType<Map<String, dynamic>>()
+              .map((o) => ProfileOption.fromJson(o))
               .toList() ??
           const [],
     );
