@@ -194,10 +194,19 @@ extension ApiServiceContacts on ApiService {
     final userPresence = _presenceData[userId.toString()];
     if (userPresence != null && userPresence['seen'] != null) {
       final seenTimestamp = userPresence['seen'] as int;
-
+      if (seenTimestamp <= 0) return null;
       return DateTime.fromMillisecondsSinceEpoch(seenTimestamp * 1000);
     }
     return null;
+  }
+
+  bool isBlockedByUser(int userId) {
+    final userPresence = _presenceData[userId.toString()];
+    if (userPresence != null && userPresence['seen'] != null) {
+      final seenTimestamp = userPresence['seen'] as int;
+      return seenTimestamp < 0;
+    }
+    return false;
   }
 
   void updatePresenceData(Map<String, dynamic> presenceData) {

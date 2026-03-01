@@ -1673,6 +1673,7 @@ extension ApiServiceChats on ApiService {
         int? senderId,
         int maxNotReadyRetries = 6,
         Function(double)? onProgress,
+        bool isCircle = false,
       }) async {
     await waitUntilOnline();
 
@@ -1724,7 +1725,7 @@ extension ApiServiceChats on ApiService {
 
     Future<void> trySendWithToken() async {
       final attachment = {
-        'videoType': 1,
+        'videoType': isCircle ? 1 : 0,
         '_type': 'VIDEO',
         'token': token,
         'duration': durationSeconds,

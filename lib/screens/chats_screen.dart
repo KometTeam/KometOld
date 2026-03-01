@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' hide MessageHandler;
+import 'package:share_plus/share_plus.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:intl/intl.dart';
 import 'package:gwid/api/api_service.dart';
@@ -1718,6 +1720,77 @@ class _ChatsScreenState extends State<ChatsScreen>
         return DateFormat('d MMM', 'ru').format(dt);
       }
     }
+  }
+
+  Future<void> _shareInviteLink() async {
+    // Сначала из памяти, потом из prefs как резерв
+    String? inviteLink = ApiService.instance.serverInviteLink;
+    String? inviteShort = ApiService.instance.serverInviteShort;
+    if (inviteLink == null) {
+      final prefs = await SharedPreferences.getInstance();
+      inviteLink = prefs.getString('server_invite_link');
+      inviteShort = prefs.getString('server_invite_short');
+    }
+
+    final link = inviteLink ?? '';
+    if (link.isEmpty || !mounted) return;
+
+    final message = 'Я использую MAX! Можешь найти меня по этой ссылке: $link';
+
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade400,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Поделиться ссылкой',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(Icons.copy),
+              title: const Text('Скопировать ссылку'),
+              subtitle: Text(link, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12)),
+              onTap: () async {
+                Navigator.pop(ctx);
+                await Clipboard.setData(ClipboardData(text: message));
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Ссылка скопирована'),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.share),
+              title: const Text('Поделиться через...'),
+              onTap: () {
+                Navigator.pop(ctx);
+                SharePlus.instance.share(ShareParams(text: message));
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _openSferum() async {
@@ -3964,45 +4037,14 @@ class _ChatsScreenState extends State<ChatsScreen>
                 ),
               ),
               Expanded(
-                child: _folders.length <= 3
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.only(right: 40),
-                          child: TabBar(
-                            controller: _folderTabController,
-                            isScrollable: false,
-                            tabAlignment: TabAlignment.center,
-                            labelColor: colors.primary,
-                            unselectedLabelColor: colors.onSurfaceVariant,
-                            indicator: UnderlineTabIndicator(
-                              borderSide: BorderSide(
-                                width: 3,
-                                color: colors.primary,
-                              ),
-                              insets: const EdgeInsets.symmetric(horizontal: 16),
-                            ),
-                            indicatorSize: TabBarIndicatorSize.label,
-                            labelStyle: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
-                            ),
-                            unselectedLabelStyle: const TextStyle(
-                              fontWeight: FontWeight.normal,
-                              fontSize: 14,
-                            ),
-                            dividerColor: Colors.transparent,
-                            tabs: tabs,
-                            onTap: (index) {},
-                          ),
-                        ),
-                      )
-                    : Padding(
-                        padding: const EdgeInsets.only(
-                          right: 48,
-                        ), // Место для кнопки +
+                child: Padding(
+                        padding: const EdgeInsets.only(right: 48),
                         child: TabBar(
                           controller: _folderTabController,
-                          isScrollable: true,
+                          isScrollable: _folders.length > 2,
+                          tabAlignment: _folders.length > 2
+                              ? TabAlignment.start
+                              : TabAlignment.fill,
                           labelColor: colors.primary,
                           unselectedLabelColor: colors.onSurfaceVariant,
                           indicator: UnderlineTabIndicator(
@@ -4706,9 +4748,9 @@ class _ChatsScreenState extends State<ChatsScreen>
       );
     }
 
-    return Text(
-      _myProfile?.displayName ?? 'Komet',
-      key: const ValueKey('status_username'),
+    return _MarqueeText(
+      key: ValueKey('status_username_${_myProfile?.displayName}'),
+      text: _myProfile?.displayName ?? 'Komet',
       style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
     );
   }
@@ -4830,6 +4872,11 @@ class _ChatsScreenState extends State<ChatsScreen>
                   onPressed: _openSferum,
                   tooltip: 'Сферум',
                 ),
+              IconButton(
+                icon: const Icon(Icons.share_outlined),
+                onPressed: _shareInviteLink,
+                tooltip: 'Поделиться',
+              ),
               IconButton(
                 icon: const Icon(Icons.download, color: Colors.white),
                 onPressed: () {
@@ -7121,4 +7168,123 @@ class _StrikethroughPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_StrikethroughPainter old) => old.color != color;
+}
+
+/// Бегущая строка — скроллит текст если не помещается
+class _MarqueeText extends StatefulWidget {
+  final String text;
+  final TextStyle? style;
+
+  const _MarqueeText({super.key, required this.text, this.style});
+
+  @override
+  State<_MarqueeText> createState() => _MarqueeTextState();
+}
+
+class _MarqueeTextState extends State<_MarqueeText> {
+  final ScrollController _scrollController = ScrollController();
+  Timer? _timer;
+  bool _forward = true;
+  double? _lastMaxWidth;
+
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
+  void didUpdateWidget(_MarqueeText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.text != widget.text) {
+      _lastMaxWidth = null;
+      _stopTimer();
+      WidgetsBinding.instance.addPostFrameCallback((_) => _startIfNeeded());
+    }
+  }
+
+  void _startIfNeeded() {
+    if (!mounted) return;
+    if (!_scrollController.hasClients) return;
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    if (maxScroll <= 0) return; // текст помещается — не скроллим
+
+    // Пауза перед стартом
+    _timer = Timer(const Duration(seconds: 2), _scroll);
+  }
+
+  void _scroll() {
+    if (!mounted || !_scrollController.hasClients) return;
+    final max = _scrollController.position.maxScrollExtent;
+    if (max <= 0) return;
+
+    final target = _forward ? max : 0.0;
+    final current = _scrollController.offset;
+    final distance = (target - current).abs();
+    final duration = Duration(milliseconds: (distance * 6).round().clamp(500, 8000));
+
+    _scrollController
+        .animateTo(target, duration: duration, curve: Curves.linear)
+        .then((_) {
+      if (!mounted) return;
+      _forward = !_forward;
+      // Пауза на конце перед возвратом
+      _timer = Timer(const Duration(seconds: 1), _scroll);
+    });
+  }
+
+  void _stopTimer() {
+    _timer?.cancel();
+    _timer = null;
+    if (_scrollController.hasClients) {
+      _scrollController.jumpTo(0);
+    }
+    _forward = true;
+  }
+
+  @override
+  void dispose() {
+    _stopTimer();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxWidth = constraints.maxWidth;
+        // Измеряем ширину текста
+        final tp = TextPainter(
+          text: TextSpan(text: widget.text, style: widget.style),
+          maxLines: 1,
+          textDirection: Directionality.of(context),
+        )..layout();
+        final textWidth = tp.width;
+
+        if (textWidth <= maxWidth) {
+          // Текст помещается — просто показываем
+          return Text(widget.text, style: widget.style);
+        }
+
+        // Текст не помещается — бегущая строка
+        // Перезапускаем если ширина изменилась или таймер не запущен
+        if (_lastMaxWidth != maxWidth) {
+          _lastMaxWidth = maxWidth;
+          _stopTimer();
+          WidgetsBinding.instance.addPostFrameCallback((_) => _startIfNeeded());
+        } else if (_timer == null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => _startIfNeeded());
+        }
+        return SizedBox(
+          width: maxWidth,
+          child: SingleChildScrollView(
+            controller: _scrollController,
+            scrollDirection: Axis.horizontal,
+            physics: const NeverScrollableScrollPhysics(),
+            child: Text(widget.text, style: widget.style),
+          ),
+        );
+      },
+    );
+  }
 }

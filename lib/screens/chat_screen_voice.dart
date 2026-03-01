@@ -879,6 +879,7 @@ extension on _ChatScreenState {
         width: targetSize,
         height: targetSize,
         senderId: _actualMyId,
+        isCircle: true,
         onProgress: (progress) {
           if (mounted) {
             // ignore: invalid_use_of_protected_member

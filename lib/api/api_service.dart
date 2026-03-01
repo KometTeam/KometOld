@@ -83,6 +83,10 @@ class ApiService {
   }
   static final ApiService instance = ApiService._privateConstructor();
 
+  /// Ссылка-приглашение из config.server (заполняется при логине)
+  String? serverInviteLink;
+  String? serverInviteShort;
+
   int? _userId;
   int? get myUserId => _userId;
   late int _sessionId;

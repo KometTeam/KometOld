@@ -425,7 +425,12 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
   void initState() {
     super.initState();
     _loadLocalDescription();
-    _checkIfInContacts();
+    // Проверяем сразу синхронно
+    _isInContacts = ApiService.instance.isRealContact(widget.contact.id);
+    // И ещё раз после первого кадра — на случай если контакты ещё грузились
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkIfInContacts();
+    });
 
     _changesSubscription = ContactLocalNamesService().changes.listen((
       contactId,
@@ -439,6 +444,14 @@ class _ContactProfileDialogState extends State<ContactProfileDialog> {
   void _checkIfInContacts() {
     if (mounted) {
       setState(() => _isInContacts = ApiService.instance.isRealContact(widget.contact.id));
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant ContactProfileDialog oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.contact.id != widget.contact.id) {
+      _checkIfInContacts();
     }
   }
 
@@ -1704,7 +1717,12 @@ class _ContactPresenceSubtitle extends StatefulWidget {
   final int chatId;
   final int userId;
 
-  const _ContactPresenceSubtitle({required this.chatId, required this.userId});
+  final bool isBlockedByUser;
+  const _ContactPresenceSubtitle({
+    required this.chatId,
+    required this.userId,
+    this.isBlockedByUser = false,
+  });
 
   @override
   State<_ContactPresenceSubtitle> createState() =>
@@ -1722,11 +1740,20 @@ class _ContactPresenceSubtitleState extends State<_ContactPresenceSubtitle> {
   void initState() {
     super.initState();
 
+    if (widget.isBlockedByUser ||
+        ApiService.instance.isBlockedByUser(widget.userId)) {
+      _status = 'Вас заблокировал';
+      return;
+    }
+
     final lastSeen = ApiService.instance.getLastSeen(widget.userId);
     if (lastSeen != null) {
       _lastSeen = lastSeen;
       _status = _formatLastSeen(_lastSeen);
     }
+
+    if (widget.isBlockedByUser ||
+        ApiService.instance.isBlockedByUser(widget.userId)) return;
 
     _sub = ApiService.instance.messages.listen((msg) {
       try {
