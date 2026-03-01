@@ -27,6 +27,8 @@ class ChatInputController extends ChangeNotifier {
   // Reply state
   Message? _replyingToMessage;
   Message? get replyingToMessage => _replyingToMessage;
+  String? _replyingToSenderName;
+  String? get replyingToSenderName => _replyingToSenderName;
 
   // Send state
   SendState _sendState = SendState.idle;
@@ -70,8 +72,9 @@ class ChatInputController extends ChangeNotifier {
   bool get canSend => hasText && !isSending;
 
   /// Установить сообщение для ответа
-  void setReplyTo(Message? message) {
+  void setReplyTo(Message? message, {String? senderName}) {
     _replyingToMessage = message;
+    _replyingToSenderName = senderName;
     focusNode.requestFocus();
     _notifyListenersSafe();
   }
@@ -79,6 +82,7 @@ class ChatInputController extends ChangeNotifier {
   /// Отменить ответ
   void clearReply() {
     _replyingToMessage = null;
+    _replyingToSenderName = null;
     _notifyListenersSafe();
   }
 

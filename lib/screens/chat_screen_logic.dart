@@ -2008,6 +2008,13 @@ extension on _ChatScreenState {
     _mentionOverlay = OverlayEntry(
       builder: (context) {
         final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
+        // Базовая высота панели ввода + отступ
+        const double inputBarHeight = 70.0;
+        // Дополнительная высота панели ответа/редактирования
+        final double replyPanelHeight = _replyingToMessage != null ? 50.0 : 0.0;
+        final double editPanelHeight = _editingMessage != null ? 42.0 : 0.0;
+        final double totalBottom = keyboardHeight + inputBarHeight + replyPanelHeight + editPanelHeight;
+
         return ValueListenableBuilder<bool>(
           valueListenable: _showScrollToBottomNotifier,
           builder: (context, showScrollButton, child) {
@@ -2018,7 +2025,7 @@ extension on _ChatScreenState {
               right: showScrollButton
                   ? MentionPanelPosition.right + 60
                   : MentionPanelPosition.right,
-              bottom: keyboardHeight + MentionPanelPosition.bottom,
+              bottom: totalBottom,
               child: Material(
                 color: Colors.transparent,
                 child: _MentionDropdownPanel(
@@ -2855,6 +2862,7 @@ extension on _ChatScreenState {
 
   void _replyToMessage(Message message) {
     _setStateIfMounted(() => _replyingToMessage = message);
+    _mentionOverlay?.markNeedsBuild();
     _saveInputState();
   }
 

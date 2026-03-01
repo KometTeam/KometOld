@@ -4397,16 +4397,22 @@ class ChatMessageBubble extends StatelessWidget {
 
     if (galleryPhotos != null && galleryPhotos.isNotEmpty) {
       final attachUrl = (attach['url'] ?? attach['baseUrl'])?.toString() ?? '';
-      final attachId = attach['id']?.toString() ?? '';
-      final initialIndex = galleryPhotos.indexWhere((p) {
-        if (attachId.isNotEmpty && p['id']?.toString() == attachId) return true;
+      // photoId может быть в поле 'photoId' или 'id'
+      final attachPhotoId = (attach['photoId'] ?? attach['id'])?.toString() ?? '';
+      int initialIndex = -1;
+      for (int i = 0; i < galleryPhotos.length; i++) {
+        final p = galleryPhotos[i];
+        final pPhotoId = (p['photoId'] ?? p['id'])?.toString() ?? '';
         final pUrl = (p['url'] ?? p['baseUrl'])?.toString() ?? '';
-        if (pUrl == attachUrl) return true;
-        // Сравниваем без query параметров
-        final pBase = pUrl.split('?').first;
-        final aBase = attachUrl.split('?').first;
-        return pBase.isNotEmpty && pBase == aBase;
-      });
+        // Сравниваем по photoId (наиболее надёжно)
+        final idMatch = attachPhotoId.isNotEmpty && pPhotoId.isNotEmpty && pPhotoId == attachPhotoId;
+        // Сравниваем по полному URL (не обрезаем по ?, т.к. r= это уникальный токен фото)
+        final urlMatch = pUrl.isNotEmpty && attachUrl.isNotEmpty && pUrl == attachUrl;
+        if (idMatch || urlMatch) {
+          initialIndex = i;
+          break;
+        }
+      }
       if (initialIndex != -1) {
         _openPhotoGallery(context, galleryPhotos, initialIndex);
         return;

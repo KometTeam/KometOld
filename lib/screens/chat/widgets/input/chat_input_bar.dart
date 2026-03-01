@@ -33,19 +33,22 @@ class ChatInputBar extends StatelessWidget {
               ),
             ),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
           child: SafeArea(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (controller.replyingToMessage != null)
-                  _ReplyIndicator(
-                    message: controller.replyingToMessage!,
-                    onCancel: controller.clearReply,
-                  ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (controller.replyingToMessage != null)
+                    _ReplyIndicator(
+                      message: controller.replyingToMessage!,
+                      senderName: controller.replyingToSenderName,
+                      onCancel: controller.clearReply,
+                    ),
 
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     IconButton(
                       onPressed: onAttachTap,
@@ -204,6 +207,7 @@ class ChatInputBar extends StatelessWidget {
                   ],
                 ),
               ],
+              ),
             ),
           ),
         );
@@ -214,9 +218,14 @@ class ChatInputBar extends StatelessWidget {
 
 class _ReplyIndicator extends StatelessWidget {
   final Message message;
+  final String? senderName;
   final VoidCallback onCancel;
 
-  const _ReplyIndicator({required this.message, required this.onCancel});
+  const _ReplyIndicator({
+    required this.message,
+    required this.onCancel,
+    this.senderName,
+  });
 
   String? _getPhotoUrl() {
     if (message.attaches.isEmpty) return null;
@@ -234,27 +243,27 @@ class _ReplyIndicator extends StatelessWidget {
   }
 
   String _getPreviewText() {
+    if (message.text.isNotEmpty) return message.text;
     if (message.attaches.isNotEmpty) {
       final hasPhoto = message.attaches.any((a) {
         final type = a['_type'] ?? a['type'];
         return type == 'PHOTO' || type == 'IMAGE';
       });
-
-      if (hasPhoto && message.text.isEmpty) {
-        return 'Фото';
-      }
+      if (hasPhoto) return 'Фото';
+      return 'Медиафайл';
     }
-    return message.text;
+    return 'Сообщение';
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final photoUrl = _getPhotoUrl();
+    final displayName = senderName ?? 'Ответ';
 
     return Container(
-      margin: EdgeInsets.zero,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(8),
@@ -263,23 +272,25 @@ class _ReplyIndicator extends StatelessWidget {
         ),
       ),
       child: Row(
+        mainAxisSize: MainAxisSize.max,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           if (photoUrl != null) ...[
             ClipRRect(
               borderRadius: BorderRadius.circular(4),
               child: Image.network(
                 photoUrl,
-                width: 40,
-                height: 40,
+                width: 36,
+                height: 36,
                 fit: BoxFit.cover,
                 errorBuilder: (context, error, stackTrace) {
                   return Container(
-                    width: 40,
-                    height: 40,
+                    width: 36,
+                    height: 36,
                     color: theme.colorScheme.surfaceContainer,
                     child: Icon(
                       Icons.image,
-                      size: 20,
+                      size: 18,
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
                   );
@@ -287,13 +298,13 @@ class _ReplyIndicator extends StatelessWidget {
                 loadingBuilder: (context, child, loadingProgress) {
                   if (loadingProgress == null) return child;
                   return Container(
-                    width: 40,
-                    height: 40,
+                    width: 36,
+                    height: 36,
                     color: theme.colorScheme.surfaceContainer,
                     child: Center(
                       child: SizedBox(
-                        width: 20,
-                        height: 20,
+                        width: 18,
+                        height: 18,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
                           value: loadingProgress.expectedTotalBytes != null
@@ -316,31 +327,42 @@ class _ReplyIndicator extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'Ответ',
+                  displayName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: theme.colorScheme.primary,
                     fontWeight: FontWeight.bold,
                     fontSize: 12,
                   ),
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 1),
                 Text(
                   _getPreviewText(),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: theme.colorScheme.onSurfaceVariant,
-                    fontSize: 14,
+                    fontSize: 12,
                   ),
                 ),
               ],
             ),
           ),
-          IconButton(
-            onPressed: onCancel,
-            icon: const Icon(Icons.close, size: 18),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
+
+          const SizedBox(width: 4),
+          // Кнопка закрытия — фиксированный размер, не может пропасть
+          SizedBox(
+            width: 32,
+            height: 32,
+            child: IconButton(
+              onPressed: onCancel,
+              icon: const Icon(Icons.close, size: 16),
+              padding: EdgeInsets.zero,
+              style: IconButton.styleFrom(
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
           ),
         ],
       ),

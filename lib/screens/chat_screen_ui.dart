@@ -1140,73 +1140,6 @@ extension on _ChatScreenState {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (_replyingToMessage != null)
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 8, left: 8, right: 8),
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 3,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.primary,
-                            borderRadius: BorderRadius.circular(1.5),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 220),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                _getSenderName(_replyingToMessage!),
-                                style: Theme.of(context).textTheme.bodySmall
-                                    ?.copyWith(
-                                      fontWeight: FontWeight.bold,
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.primary,
-                                    ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                _replyingToMessage!.text.isNotEmpty
-                                    ? _replyingToMessage!.text
-                                    : _replyingToMessage!.attaches.isNotEmpty
-                                    ? 'Медиафайл'
-                                    : 'Сообщение',
-                                style: Theme.of(context).textTheme.bodySmall,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.close, size: 20),
-                          onPressed: () {
-                            // ignore: invalid_use_of_protected_member
-                            setState(() {
-                              _replyingToMessage = null;
-                            });
-                          },
-                          visualDensity: VisualDensity.compact,
-                        ),
-                      ],
-                    ),
-                  ),
                 if (_editingMessage != null)
                   Container(
                     margin: const EdgeInsets.only(bottom: 8, left: 8, right: 8),
@@ -1458,7 +1391,80 @@ extension on _ChatScreenState {
       top: false,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
-        child: inputBar,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (_replyingToMessage != null)
+              Container(
+                margin: const EdgeInsets.only(bottom: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border(
+                    left: BorderSide(
+                      color: Theme.of(context).colorScheme.primary,
+                      width: 3,
+                    ),
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            _getSenderName(_replyingToMessage!),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _replyingToMessage!.text.isNotEmpty
+                                ? _replyingToMessage!.text
+                                : _replyingToMessage!.attaches.isNotEmpty
+                                    ? 'Медиафайл'
+                                    : 'Сообщение',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(
+                      width: 32,
+                      height: 32,
+                      child: IconButton(
+                        icon: const Icon(Icons.close, size: 16),
+                        padding: EdgeInsets.zero,
+                        style: IconButton.styleFrom(
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        onPressed: () {
+                          // ignore: invalid_use_of_protected_member
+                          setState(() {
+                            _replyingToMessage = null;
+                          });
+                          _mentionOverlay?.markNeedsBuild();
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            inputBar,
+          ],
+        ),
       ),
     );
   }
@@ -1795,24 +1801,58 @@ extension on _ChatScreenState {
 
               // Messages list
               Expanded(
-                child: _isLoadingHistory && _messages.isEmpty
-                    ? const Center(child: CircularProgressIndicator())
-                    : _messages.isEmpty && !widget.isChannel
-                    ? EmptyChatWidget(
-                        sticker: _emptyChatSticker,
-                        onStickerTap: _sendEmptyChatSticker,
-                      )
-                    : ScrollablePositionedList.builder(
-                        itemCount: _chatItems.length,
-                        itemScrollController: _itemScrollController,
-                        itemPositionsListener: _itemPositionsListener,
-                        reverse: true,
-                        itemBuilder: (context, index) {
-                          final item =
-                              _chatItems[_chatItems.length - 1 - index];
-                          return RepaintBoundary(child: _buildChatItem(item));
+                child: Stack(
+                  children: [
+                    _isLoadingHistory && _messages.isEmpty
+                        ? const Center(child: CircularProgressIndicator())
+                        : _messages.isEmpty && !widget.isChannel
+                        ? EmptyChatWidget(
+                            sticker: _emptyChatSticker,
+                            onStickerTap: _sendEmptyChatSticker,
+                          )
+                        : ScrollablePositionedList.builder(
+                            itemCount: _chatItems.length,
+                            itemScrollController: _itemScrollController,
+                            itemPositionsListener: _itemPositionsListener,
+                            reverse: true,
+                            itemBuilder: (context, index) {
+                              final item =
+                                  _chatItems[_chatItems.length - 1 - index];
+                              return RepaintBoundary(child: _buildChatItem(item));
+                            },
+                          ),
+
+                    // Scroll-to-bottom FAB
+                    Positioned(
+                      right: 16,
+                      bottom: 12,
+                      child: ValueListenableBuilder<bool>(
+                        valueListenable: _showScrollToBottomNotifier,
+                        builder: (context, showButton, child) {
+                          return AnimatedScale(
+                            scale: showButton ? 1.0 : 0.0,
+                            duration: const Duration(milliseconds: 200),
+                            curve: Curves.easeInOut,
+                            child: AnimatedOpacity(
+                              opacity: showButton ? 1.0 : 0.0,
+                              duration: const Duration(milliseconds: 200),
+                              child: FloatingActionButton.small(
+                                heroTag: 'scroll_to_bottom',
+                                onPressed: _jumpToBottom,
+                                backgroundColor: Theme.of(
+                                  context,
+                                ).colorScheme.surfaceContainerHighest,
+                                foregroundColor: Theme.of(context).colorScheme.onSurface,
+                                elevation: 3,
+                                child: const Icon(Icons.keyboard_arrow_down),
+                              ),
+                            ),
+                          );
                         },
                       ),
+                    ),
+                  ],
+                ),
               ),
 
               // Text input
@@ -1823,37 +1863,6 @@ extension on _ChatScreenState {
           // Floating video circle preview (Telegram-style)
           if (_isVideoRecordingUi) _buildVideoCirclePreview(),
 
-          // Scroll-to-bottom FAB
-          Positioned(
-            right: 16,
-            bottom: MediaQuery.of(context).viewInsets.bottom > 0
-                ? MediaQuery.of(context).viewInsets.bottom + 80
-                : 80,
-            child: ValueListenableBuilder<bool>(
-              valueListenable: _showScrollToBottomNotifier,
-              builder: (context, showButton, child) {
-                return AnimatedScale(
-                  scale: showButton ? 1.0 : 0.0,
-                  duration: const Duration(milliseconds: 200),
-                  curve: Curves.easeInOut,
-                  child: AnimatedOpacity(
-                    opacity: showButton ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 200),
-                    child: FloatingActionButton.small(
-                      heroTag: 'scroll_to_bottom',
-                      onPressed: _jumpToBottom,
-                      backgroundColor: Theme.of(
-                        context,
-                      ).colorScheme.surfaceContainerHighest,
-                      foregroundColor: Theme.of(context).colorScheme.onSurface,
-                      elevation: 3,
-                      child: const Icon(Icons.keyboard_arrow_down),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
         ],
       ),
     );

@@ -166,7 +166,12 @@ class _ChatScreenV2State extends State<ChatScreenV2> {
               title: const Text('Ответить'),
               onTap: () {
                 Navigator.pop(context);
-                _inputController.setReplyTo(message);
+                final senderName = message.senderId == widget.myId
+                    ? 'Вы'
+                    : widget.isGroupChat
+                        ? null
+                        : widget.contact.name;
+                _inputController.setReplyTo(message, senderName: senderName);
               },
             ),
             if (message.senderId == widget.myId)
