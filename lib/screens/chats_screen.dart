@@ -5483,7 +5483,7 @@ class _ChatsScreenState extends State<ChatsScreen>
       final link = message.link as Map<String, dynamic>;
       final forwardedMessage = _extractForwardedMessage(link, message);
       if (forwardedMessage != null) {
-        final forwardedFrom = _getForwardedSenderName(link);
+        final forwardedFrom = _getSenderDisplayName(chat, message);
         final snippet = _buildForwardedSnippet(forwardedMessage);
         final prefix = forwardedFrom?.isNotEmpty == true
             ? forwardedFrom!
