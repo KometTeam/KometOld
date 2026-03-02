@@ -1,6 +1,8 @@
 package com.gwid.app.gwid
 
 import android.content.Intent
+import android.os.Build
+import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -141,6 +143,8 @@ class MainActivity : FlutterActivity() {
         callMethodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CALL_CHANNEL).also { channel ->
             // Register MethodChannel in CallActionReceiver
             CallActionReceiver.setMethodChannel(channel)
+
+            val activeCallHelper = ActiveCallNotificationHelper(this)
             
             channel.setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -149,6 +153,20 @@ class MainActivity : FlutterActivity() {
                         val callerName = call.argument<String>("callerName") ?: "Unknown"
                         val callerId = call.argument<Number>("callerId")?.toLong() ?: 0L
                         val avatarPath = call.argument<String>("avatarPath")
+
+                        // Включаем экран и показываем поверх локскрина только для входящего звонка
+                        runOnUiThread {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                                setShowWhenLocked(true)
+                                setTurnScreenOn(true)
+                            } else {
+                                @Suppress("DEPRECATION")
+                                window.addFlags(
+                                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                                )
+                            }
+                        }
                         
                         callNotificationHelper.showIncomingCallNotification(
                             conversationId = conversationId,
@@ -161,6 +179,42 @@ class MainActivity : FlutterActivity() {
                     
                     "cancelIncomingCallNotification" -> {
                         callNotificationHelper.cancelIncomingCallNotification()
+
+                        // Снимаем флаги — звонок отклонён/принят, локскрин больше не нужен
+                        runOnUiThread {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                                setShowWhenLocked(false)
+                                setTurnScreenOn(false)
+                            } else {
+                                @Suppress("DEPRECATION")
+                                window.clearFlags(
+                                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                                )
+                            }
+                        }
+                        result.success(null)
+                    }
+
+                    // ── Ongoing-уведомление активного звонка ─────────────────────
+                    "showOngoingCallNotification" -> {
+                        val contactName = call.argument<String>("contactName") ?: "Собеседник"
+                        val isMuted    = call.argument<Boolean>("isMuted") ?: false
+                        val duration   = call.argument<Int>("durationSec") ?: 0
+                        activeCallHelper.showOrUpdateNotification(contactName, isMuted, duration)
+                        result.success(null)
+                    }
+
+                    "updateOngoingCallNotification" -> {
+                        val contactName = call.argument<String>("contactName") ?: "Собеседник"
+                        val isMuted    = call.argument<Boolean>("isMuted") ?: false
+                        val duration   = call.argument<Int>("durationSec") ?: 0
+                        activeCallHelper.showOrUpdateNotification(contactName, isMuted, duration)
+                        result.success(null)
+                    }
+
+                    "cancelOngoingCallNotification" -> {
+                        activeCallHelper.cancelNotification()
                         result.success(null)
                     }
                     

@@ -5,6 +5,7 @@ import 'package:gwid/api/api_service.dart';
 import 'package:gwid/services/floating_call_manager.dart';
 import 'package:gwid/services/call_overlay_service.dart';
 import 'package:gwid/services/call_recording_service.dart';
+import 'package:gwid/services/call_notification_service.dart';
 import 'package:gwid/widgets/contact_avatar_widget.dart';
 import 'package:gwid/widgets/animated_mesh_gradient.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -152,6 +153,9 @@ class _CallScreenState extends State<CallScreen> {
 
     // Устанавливаем callback для завершения звонка из панели/кнопки
     FloatingCallManager.instance.onEndCall = _endCall;
+
+    // Подписываемся на события из ongoing-уведомления (кнопки шторки)
+    _setupNotificationCallbacks();
 
     // Инициализируем audio player для саундпада
     _soundpadPlayer = AudioPlayer();
@@ -513,6 +517,9 @@ class _CallScreenState extends State<CallScreen> {
           print('📴 Звонок завершен собеседником');
           // Защита от двойного вызова
           if (_callState != CallState.ended && !_isCleaningUp) {
+            // Убираем уведомление немедленно
+            CallNotificationService.instance.cancelOngoingCallNotification();
+
             // Сначала закрываем панель информации если открыта
             if (_showNetworkInfo && mounted) {
               setState(() => _showNetworkInfo = false);
@@ -869,6 +876,13 @@ class _CallScreenState extends State<CallScreen> {
         FloatingCallManager.instance.startCall();
         print('✅ FloatingCallManager активирован (onTrack)');
 
+        // Показываем ongoing-уведомление в шторке
+        CallNotificationService.instance.showOngoingCallNotification(
+          contactName: widget.contactName,
+          isMuted: _isMuted,
+          durationSec: _callDuration,
+        );
+
         // Начинаем отслеживать уровень звука
         _startAudioLevelMonitoring();
         _startLocalAudioLevelMonitoring();
@@ -884,6 +898,13 @@ class _CallScreenState extends State<CallScreen> {
         // Активируем FloatingCallManager чтобы показать панель звонка
         FloatingCallManager.instance.startCall();
         print('✅ FloatingCallManager активирован (onConnectionState)');
+
+        // Показываем ongoing-уведомление в шторке (если onTrack не сработал раньше)
+        CallNotificationService.instance.showOngoingCallNotification(
+          contactName: widget.contactName,
+          isMuted: _isMuted,
+          durationSec: _callDuration,
+        );
 
         // Получаем первую статистику сразу
         _updateNetworkStats();
@@ -1168,6 +1189,12 @@ class _CallScreenState extends State<CallScreen> {
     _durationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (_callState == CallState.connected && mounted) {
         setState(() => _callDuration++);
+        // Обновляем таймер в ongoing-уведомлении каждую секунду
+        CallNotificationService.instance.updateOngoingCallNotification(
+          contactName: widget.contactName,
+          isMuted: _isMuted,
+          durationSec: _callDuration,
+        );
       }
     });
   }
@@ -1325,6 +1352,25 @@ class _CallScreenState extends State<CallScreen> {
     }
   }
 
+  /// Настраиваем callbacks от CallNotificationService (кнопки в шторке).
+  void _setupNotificationCallbacks() {
+    if (!Platform.isAndroid) return;
+    final svc = CallNotificationService.instance;
+
+    // Кнопка «Выкл. микро» / «Вкл. микро» из уведомления
+    svc.onCallMuteToggled = (bool isMuted) {
+      if (!mounted) return;
+      // Приводим состояние в соответствие с запросом из уведомления
+      if (_isMuted != isMuted) _toggleMute();
+    };
+
+    // Кнопка «Сбросить» из уведомления
+    svc.onCallEndedFromNotification = () {
+      if (!mounted) return;
+      _endCall();
+    };
+  }
+
   void _toggleMute() {
     if (_localStream != null) {
       setState(() => _isMuted = !_isMuted);
@@ -1346,6 +1392,13 @@ class _CallScreenState extends State<CallScreen> {
           'isAnimojiEnabled': false,
         },
       });
+
+      // Обновляем ongoing-уведомление с новым состоянием микрофона
+      CallNotificationService.instance.updateOngoingCallNotification(
+        contactName: widget.contactName,
+        isMuted: _isMuted,
+        durationSec: _callDuration,
+      );
     }
   }
 
@@ -2405,6 +2458,15 @@ class _CallScreenState extends State<CallScreen> {
 
     _isCleaningUp = true;
     print('🧹 Начинаем cleanup...');
+
+    // Убираем ongoing-уведомление из шторки
+    CallNotificationService.instance.cancelOngoingCallNotification();
+
+    // Сбрасываем callbacks чтобы не получать события после завершения
+    if (Platform.isAndroid) {
+      CallNotificationService.instance.onCallMuteToggled = null;
+      CallNotificationService.instance.onCallEndedFromNotification = null;
+    }
 
     // Закрываем DataChannel overlay если открыт
     _dataChannelOverlayEntry?.remove();

@@ -50,6 +50,31 @@ class CallActionReceiver : BroadcastReceiver() {
                     "conversationId" to conversationId
                 ))
             }
+
+            // ── Кнопка «Выкл. микро» из ongoing-уведомления ──────────────────────
+            ActiveCallNotificationHelper.ACTION_MUTE_CALL -> {
+                android.util.Log.d("CallActionReceiver", "Mute call from notification")
+                methodChannel?.invokeMethod("onCallMuteToggled", mapOf("isMuted" to true))
+            }
+
+            // ── Кнопка «Вкл. микро» из ongoing-уведомления ───────────────────────
+            ActiveCallNotificationHelper.ACTION_UNMUTE_CALL -> {
+                android.util.Log.d("CallActionReceiver", "Unmute call from notification")
+                methodChannel?.invokeMethod("onCallMuteToggled", mapOf("isMuted" to false))
+            }
+
+            // ── Кнопка «Сбросить» из ongoing-уведомления ─────────────────────────
+            ActiveCallNotificationHelper.ACTION_END_CALL_ONGOING -> {
+                android.util.Log.d("CallActionReceiver", "End call from notification")
+                // Убираем само уведомление немедленно
+                ActiveCallNotificationHelper(context).cancelNotification()
+                methodChannel?.invokeMethod("onCallEndedFromNotification", null)
+                // Открываем приложение чтобы CallScreen мог корректно закрыться
+                val launchIntent = Intent(context, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                }
+                context.startActivity(launchIntent)
+            }
         }
     }
 }

@@ -4042,7 +4042,7 @@ class _ChatsScreenState extends State<ChatsScreen>
                         child: TabBar(
                           controller: _folderTabController,
                           isScrollable: true,
-                          tabAlignment: TabAlignment.start,
+                          tabAlignment: TabAlignment.center,
                           labelColor: colors.primary,
                           unselectedLabelColor: colors.onSurfaceVariant,
                           indicator: UnderlineTabIndicator(
