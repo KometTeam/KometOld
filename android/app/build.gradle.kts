@@ -68,16 +68,20 @@ android {
     }
 
     buildTypes {
-        release {
-            isMinifyEnabled = true
-            isShrinkResources = true
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-            signingConfig = signingConfigs.getByName("debug")
+    getByName("release") {
+        isMinifyEnabled = true
+        isShrinkResources = true
+        proguardFiles(
+            getDefaultProguardFile("proguard-android-optimize.txt"),
+            "proguard-rules.pro"
+        )
+        
+        if (keyPropertiesFile.exists() || System.getenv("RELEASE_STORE_FILE") != null) {
+            signingConfig = signingConfigs.getByName("release")
         }
     }
+}
+
 }
 
 flutter {
