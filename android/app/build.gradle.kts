@@ -80,10 +80,15 @@ android {
                 "proguard-rules.pro"
             )
 
-            val hasEnvVars = System.getenv("RELEASE_STORE_FILE") != null &&
-                System.getenv("RELEASE_STORE_PASSWORD") != null &&
-                System.getenv("RELEASE_KEY_ALIAS") != null &&
-                System.getenv("RELEASE_KEY_PASSWORD") != null
+            val envStoreFile = System.getenv("RELEASE_STORE_FILE")
+            val envStorePassword = System.getenv("RELEASE_STORE_PASSWORD")
+            val envKeyAlias = System.getenv("RELEASE_KEY_ALIAS")
+            val envKeyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+
+            val hasEnvVars = !envStoreFile.isNullOrBlank() &&
+                !envStorePassword.isNullOrBlank() &&
+                !envKeyAlias.isNullOrBlank() &&
+                !envKeyPassword.isNullOrBlank()
 
             if (hasEnvVars || keyPropertiesFile.exists()) {
                 signingConfig = signingConfigs.getByName("release")
