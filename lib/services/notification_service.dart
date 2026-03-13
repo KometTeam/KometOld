@@ -70,7 +70,6 @@ class NotificationService {
       iOS: iosSettings,
       macOS: macosSettings,
       linux: linuxSettings,
-      windows: windowsSettings,
     );
 
     await _flutterLocalNotificationsPlugin.initialize(

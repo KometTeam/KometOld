@@ -18,7 +18,6 @@ import 'package:flutter/services.dart';
 import 'package:gwid/models/chat.dart';
 import 'package:gwid/models/contact.dart';
 import 'package:gwid/models/message.dart';
-import 'package:gwid/models/bot_command.dart';
 import 'package:gwid/widgets/chat_message_bubble.dart';
 import 'package:gwid/widgets/complaint_dialog.dart';
 import 'package:gwid/widgets/pinned_message_widget.dart';

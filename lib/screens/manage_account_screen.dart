@@ -6,8 +6,6 @@ import 'package:flutter/services.dart';
 import 'package:gwid/api/api_service.dart';
 import 'package:gwid/models/profile.dart';
 import 'package:gwid/screens/phone_entry_screen.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class ManageAccountScreen extends StatefulWidget {
   final Profile? myProfile;
@@ -579,14 +577,7 @@ class _ManageAccountScreenState extends State<ManageAccountScreen> {
                   ),
 
                 const SizedBox(height: 32),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _buildLogoutButton(),
-                    const SizedBox(height: 12),
-                    _buildDeleteAccountButton(),
-                  ],
-                ),
+                _buildLogoutButton(),
               ],
             ),
           ),
