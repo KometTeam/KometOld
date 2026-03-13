@@ -47,6 +47,8 @@ class Contact {
     int? accountStatus,
     String? status,
     List<String>? options,
+    String? link,
+    String? webApp,
   }) {
     return Contact(
       id: id ?? this.id,
@@ -61,6 +63,7 @@ class Contact {
       status: status ?? this.status,
       options: options ?? this.options,
       link: link ?? this.link,
+      webApp: webApp ?? this.webApp,
     );
   }
 
