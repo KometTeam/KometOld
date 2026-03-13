@@ -271,7 +271,9 @@ class ChatCacheService {
       // the chat screen is never explicitly disposed (e.g. app termination).
       _flushTimers.remove(chatId)?.cancel();
       _flushTimers[chatId] = Timer(_flushDebounce, () {
-        unawaited(flushPendingCache(chatId));
+        flushPendingCache(chatId).catchError((e, stackTrace) {
+          print('Ошибка сброса кэша для чата $chatId: $e');
+        });
       });
     } catch (e) {
       print('Ошибка добавления сообщения в кэш: $e');
