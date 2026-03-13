@@ -90,14 +90,6 @@ class _NotificationSettingsScreenState
                       onChanged: (value) async {
                         await _settingsService.setNotificationsEnabled(value);
                         setState(() => _notificationsEnabled = value);
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Настройки обновлены'),
-                              backgroundColor: Colors.green,
-                            ),
-                          );
-                        }
                       },
                     ),
                   ],
@@ -136,14 +128,6 @@ class _NotificationSettingsScreenState
                                 value,
                               );
                               setState(() => _privateChatsEnabled = value);
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Настройки обновлены'),
-                                    backgroundColor: Colors.green,
-                                  ),
-                                );
-                              }
                             }
                           : null,
                     ),
@@ -156,14 +140,6 @@ class _NotificationSettingsScreenState
                           ? (value) async {
                               await _settingsService.setGroupsEnabled(value);
                               setState(() => _groupsEnabled = value);
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Настройки обновлены'),
-                                    backgroundColor: Colors.green,
-                                  ),
-                                );
-                              }
                             }
                           : null,
                     ),
@@ -176,14 +152,6 @@ class _NotificationSettingsScreenState
                           ? (value) async {
                               await _settingsService.setChannelsEnabled(value);
                               setState(() => _channelsEnabled = value);
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Настройки обновлены'),
-                                    backgroundColor: Colors.green,
-                                  ),
-                                );
-                              }
                             }
                           : null,
                     ),
@@ -199,14 +167,6 @@ class _NotificationSettingsScreenState
                           ? (value) async {
                               await _settingsService.setReactionsEnabled(value);
                               setState(() => _reactionsEnabled = value);
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Настройки обновлены'),
-                                    backgroundColor: Colors.green,
-                                  ),
-                                );
-                              }
                             }
                           : null,
                     ),
@@ -299,14 +259,6 @@ class _NotificationSettingsScreenState
       if (selectedValue != null) {
         await _settingsService.setVibrationMode(selectedValue);
         setState(() => _vibrationMode = selectedValue);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Настройки вибрации обновлены'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
       }
     });
   }
@@ -395,14 +347,6 @@ class _NotificationSettingsScreenState
                         onChanged: (value) async {
                           await _settingsService.setNotificationsEnabled(value);
                           setState(() => _notificationsEnabled = value);
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Настройки обновлены'),
-                                backgroundColor: Colors.green,
-                              ),
-                            );
-                          }
                         },
                       ),
                     ],
@@ -441,14 +385,6 @@ class _NotificationSettingsScreenState
                                   value,
                                 );
                                 setState(() => _privateChatsEnabled = value);
-                                if (mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('Настройки обновлены'),
-                                      backgroundColor: Colors.green,
-                                    ),
-                                  );
-                                }
                               }
                             : null,
                       ),
@@ -461,14 +397,6 @@ class _NotificationSettingsScreenState
                             ? (value) async {
                                 await _settingsService.setGroupsEnabled(value);
                                 setState(() => _groupsEnabled = value);
-                                if (mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('Настройки обновлены'),
-                                      backgroundColor: Colors.green,
-                                    ),
-                                  );
-                                }
                               }
                             : null,
                       ),
@@ -483,14 +411,6 @@ class _NotificationSettingsScreenState
                                   value,
                                 );
                                 setState(() => _channelsEnabled = value);
-                                if (mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('Настройки обновлены'),
-                                      backgroundColor: Colors.green,
-                                    ),
-                                  );
-                                }
                               }
                             : null,
                       ),
@@ -508,14 +428,6 @@ class _NotificationSettingsScreenState
                                   value,
                                 );
                                 setState(() => _reactionsEnabled = value);
-                                if (mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('Настройки обновлены'),
-                                      backgroundColor: Colors.green,
-                                    ),
-                                  );
-                                }
                               }
                             : null,
                       ),

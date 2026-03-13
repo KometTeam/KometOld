@@ -6,10 +6,6 @@ import '../core/packets/packet_protocol.dart';
 import '../services/websocket_service.dart';
 import '../services/pending_requests_service.dart';
 
-/// Упрощенный API клиент для работы с сервером
-/// 
-/// Использует WebSocketService для соединения и PendingRequestsService
-/// для отслеживания запросов.
 class ApiClient {
   static final ApiClient _instance = ApiClient._internal();
   factory ApiClient() => _instance;

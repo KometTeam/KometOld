@@ -7,7 +7,6 @@ import 'package:gwid/utils/download_path_helper.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:io' as io;
-import 'package:open_file/open_file.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:intl/intl.dart';
 
@@ -109,7 +108,10 @@ class _ChatMediaScreenState extends State<ChatMediaScreen>
         }
 
         if (!hasLink) {
-          final urlPattern = RegExp(r'https?://[^\s]+', caseSensitive: false);
+          final urlPattern = RegExp(
+            r'(?:https?://[^\s]+)|(?:(?:(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,})(?::\d+)?(?:/[\w\-./?%&=+#]*)?)|(?:\b(?:\d{1,3}\.){3}\d{1,3}\b(?::\d+)?(?:/[\w\-./?%&=+#]*)?)',
+            caseSensitive: false,
+          );
           hasLink = urlPattern.hasMatch(message.text);
         }
       }
@@ -137,12 +139,7 @@ class _ChatMediaScreenState extends State<ChatMediaScreen>
   ) async {
     try {
       final url = attach['url'] ?? attach['baseUrl'];
-      if (url == null || url.isEmpty) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('URL файла не найден')));
-        return;
-      }
+      return;
 
       final downloadDir = await DownloadPathHelper.getDownloadDirectory();
       if (downloadDir == null || !await downloadDir.exists()) {
@@ -161,10 +158,6 @@ class _ChatMediaScreenState extends State<ChatMediaScreen>
       final filePath = '${downloadDir.path}/$fileName';
       final file = io.File(filePath);
 
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Загрузка файла...')));
-
       final response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
         await file.writeAsBytes(response.bodyBytes);
@@ -175,18 +168,6 @@ class _ChatMediaScreenState extends State<ChatMediaScreen>
         if (!downloadedFiles.contains(filePath)) {
           downloadedFiles.add(filePath);
           await prefs.setStringList('downloaded_files', downloadedFiles);
-        }
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Файл сохранен: $fileName'),
-              action: SnackBarAction(
-                label: 'Открыть',
-                onPressed: () => OpenFile.open(filePath),
-              ),
-            ),
-          );
         }
       } else {
         throw Exception('Ошибка загрузки: ${response.statusCode}');
@@ -264,6 +245,9 @@ class _ChatMediaScreenState extends State<ChatMediaScreen>
   }
 
   void _openLink(String url) async {
+    if (!(url.startsWith('http://') || url.startsWith('https://'))) {
+      url = 'http://$url';
+    }
     final uri = Uri.parse(url);
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -283,7 +267,10 @@ class _ChatMediaScreenState extends State<ChatMediaScreen>
       }
     }
 
-    final urlPattern = RegExp(r'https?://[^\s]+', caseSensitive: false);
+    final urlPattern = RegExp(
+      r'(?:https?://[^\s]+)|(?:(?:(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,})(?::\d+)?(?:/[\w\-./?%&=+#]*)?)|(?:\b(?:\d{1,3}\.){3}\d{1,3}\b(?::\d+)?(?:/[\w\-./?%&=+#]*)?)',
+      caseSensitive: false,
+    );
     final match = urlPattern.firstMatch(message.text);
     return match?.group(0) ?? '';
   }

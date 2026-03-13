@@ -1,0 +1,3138 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:gwid/models/call_response.dart';
+import 'package:gwid/api/api_service.dart';
+import 'package:gwid/services/floating_call_manager.dart';
+import 'package:gwid/services/call_overlay_service.dart';
+import 'package:gwid/widgets/contact_avatar_widget.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:permission_handler/permission_handler.dart';
+import 'dart:io' show Platform;
+import 'dart:async';
+import 'dart:convert';
+
+/// Экран активного звонка с WebRTC
+class CallScreen extends StatefulWidget {
+  final CallResponse callData;
+  final String contactName;
+  final int contactId;
+  final String? contactAvatarUrl;
+  final bool isOutgoing;
+  final bool isVideo;
+  final bool enableDataChannel; // Флаг для включения DataChannel
+  final VoidCallback? onMinimize; // Callback для минимизации через Overlay
+  final DateTime? callStartTime; // Опциональное время начала (для восстановления таймера)
+
+  const CallScreen({
+    super.key,
+    required this.callData,
+    required this.contactName,
+    required this.contactId,
+    this.contactAvatarUrl,
+    required this.isOutgoing,
+    this.isVideo = false,
+    this.enableDataChannel = false,
+    this.onMinimize,
+    this.callStartTime,
+  });
+
+  @override
+  State<CallScreen> createState() => _CallScreenState();
+}
+
+class _CallScreenState extends State<CallScreen> {
+  // WebRTC
+  RTCPeerConnection? _peerConnection;
+  MediaStream? _localStream;
+  MediaStream? _remoteStream;
+  final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
+  final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
+  
+  // DataChannel
+  RTCDataChannel? _dataChannel;
+  bool _isDataChannelOpen = false;
+  String _dataChannelStatus = 'Отключен';
+  final List<String> _dataChannelLogs = [];
+  final List<TemporaryChatMessage> _temporaryChatMessages = [];
+
+  // WebSocket signaling
+  WebSocketChannel? _signalingChannel;
+  StreamSubscription? _signalingSubscription;
+  int _sequenceNumber = 1;
+
+  // UI State
+  CallState _callState = CallState.connecting;
+  bool _isMuted = false;
+  bool _isSpeakerOn = false;
+  bool _isVideoEnabled = false;
+  bool _isRemoteVideoEnabled = false;
+  bool _isRemoteMuted = false;
+  int _callDuration = 0;
+  Timer? _durationTimer;
+  late DateTime _callStartTime;
+  
+  // Network Info
+  NetworkInfo? _networkInfo;
+  bool _showNetworkInfo = false;
+  Timer? _statsTimer;
+  
+  // Participant info
+  int? _remoteParticipantInternalId; // INTERNAL ID второго участника
+  
+  // Audio level tracking
+  bool _isRemoteSpeaking = false;
+  Timer? _audioLevelTimer;
+  
+  // Cleanup protection
+  bool _isCleaningUp = false;
+  
+  // Drag to minimize
+  double _dragOffset = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _callStartTime = widget.callStartTime ?? DateTime.now();
+    _isVideoEnabled = widget.isVideo;
+    _isRemoteVideoEnabled = widget.isVideo;
+    _initializeCall();
+    
+    // Слушаем изменения FloatingCallManager для разворачивания
+    FloatingCallManager.instance.addListener(_onFloatingCallStateChanged);
+    
+    // Устанавливаем callback для завершения звонка из панели/кнопки
+    FloatingCallManager.instance.onEndCall = _endCall;
+  }
+  
+  void _onFloatingCallStateChanged() {
+    if (mounted) {
+      setState(() {
+        // При разворачивании - сбрасываем dragOffset
+        if (!FloatingCallManager.instance.isMinimized) {
+          _dragOffset = 0;
+        }
+      });
+    }
+  }
+
+  Future<void> _initializeCall() async {
+    try {
+      // Инициализируем рендереры
+      await _localRenderer.initialize();
+      await _remoteRenderer.initialize();
+
+      print('📞 Инициализация звонка через WebSocket signaling');
+      print('🆔 МОЙ ID: ${widget.callData.internalCallerParams.id.internal}');
+      print('🆔 ID СОБЕСЕДНИКА: ${widget.contactId}');
+      print('🆔 isOutgoing: ${widget.isOutgoing}');
+
+      // Подключаемся к WebSocket signaling серверу
+      await _connectToSignaling();
+
+      // Создаем peer connection
+      await _createPeerConnection();
+
+      // Устанавливаем локальный стрим
+      await _setupLocalMedia();
+
+      // ИСХОДЯЩИЙ ЗВОНОК: создаем и отправляем offer
+      if (widget.isOutgoing) {
+        await _createAndSendOffer();
+        print('✅ WebRTC инициализирован (исходящий), ожидаем ответа...');
+      } else {
+        // ВХОДЯЩИЙ ЗВОНОК: отправляем accept-call и ждём offer от звонящего
+        _sendAcceptCall();
+        print('✅ WebRTC инициализирован (входящий), ожидаем offer от звонящего...');
+      }
+
+      setState(() => _callState = CallState.ringing);
+      _startDurationTimer();
+    } catch (e) {
+      print('❌ Ошибка инициализации звонка: $e');
+      _showErrorAndClose('Не удалось установить соединение');
+    }
+  }
+
+  Future<void> _connectToSignaling() async {
+    try {
+      var wsUrl = widget.callData.internalCallerParams.endpoint;
+      print('🔌 Оригинальный endpoint: $wsUrl');
+      
+      // Добавляем ОБЯЗАТЕЛЬНЫЕ параметры как у официального клиента!
+      final uri = Uri.parse(wsUrl);
+      final newUri = uri.replace(queryParameters: {
+        ...uri.queryParameters,
+        'platform': 'WEB',
+        'appVersion': '1.1',
+        'version': '5',
+        'device': 'browser',
+        'capabilities': '2A03F',
+        'clientType': 'ONE_ME', // КРИТИЧЕСКИ ВАЖНО!
+        'tgt': 'start', // ВАЖНО!
+      });
+      
+      print('🔌 Итоговый URL: $newUri');
+      print('🔑 Query params: ${newUri.queryParameters.keys}');
+      
+      _signalingChannel = WebSocketChannel.connect(newUri);
+      
+      // Слушаем сообщения от сервера СРАЗУ (до ready)
+      _signalingSubscription = _signalingChannel!.stream.listen(
+        (data) {
+          try {
+            // Обработка текстовых ping/pong
+            if (data == 'ping') {
+              print('📩 Получен ping, отправляем pong');
+              _signalingChannel!.sink.add('pong');
+              return;
+            }
+            
+            print('📩 RAW WebSocket data: $data');
+            final message = json.decode(data as String) as Map<String, dynamic>;
+            _handleSignalingMessage(message);
+          } catch (e) {
+            print('⚠️ Ошибка парсинга signaling сообщения: $e');
+            print('⚠️ Data was: $data');
+          }
+        },
+        onError: (error) {
+          print('❌ WebSocket ошибка: $error');
+          print('❌ Error type: ${error.runtimeType}');
+          _showErrorAndClose('Ошибка соединения');
+        },
+        onDone: () {
+          print('🔌 WebSocket закрыт');
+          final closeCode = _signalingChannel?.closeCode;
+          final closeReason = _signalingChannel?.closeReason;
+          print('🔌 Close code: $closeCode');
+          print('🔌 Close reason: $closeReason');
+          
+          if (_callState != CallState.ended) {
+            print('⚠️ WebSocket закрылся неожиданно во время звонка!');
+          }
+        },
+      );
+      
+      // Ждем подключения
+      await _signalingChannel!.ready;
+      print('✅ WebSocket подключен');
+      print('🔍 WebSocket readyState: ${_signalingChannel!.closeCode}');
+      print('🔍 WebSocket протокол: ${_signalingChannel!.protocol}');
+      
+      // Отправляем mediaSettings (как в официальном клиенте!)
+      if (widget.isOutgoing) {
+        // Для исходящих звонков тоже нужно отправить media settings
+        _sendSignalingMessage({
+          'command': 'change-media-settings',
+          'sequence': _sequenceNumber++,
+          'mediaSettings': {
+            'isAudioEnabled': true,
+            'isVideoEnabled': widget.isVideo,
+            'isScreenSharingEnabled': false,
+            'isFastScreenSharingEnabled': false,
+            'isAudioSharingEnabled': false,
+            'isAnimojiEnabled': false,
+          }
+        });
+        print('📤 Отправлены media settings');
+      }
+      
+      print('⏳ Ожидание входящих сообщений от сервера...');
+    } catch (e) {
+      print('❌ Ошибка подключения к WebSocket: $e');
+      print('❌ Stack trace: ${StackTrace.current}');
+      rethrow;
+    }
+  }
+
+  void _handleConnectionNotification(Map<String, dynamic> message) {
+    try {
+      final conversation = message['conversation'] as Map<String, dynamic>?;
+      if (conversation == null) {
+        print('⚠️ conversation отсутствует в notification:connection');
+        return;
+      }
+      
+      final participants = conversation['participants'] as List<dynamic>?;
+      if (participants == null || participants.isEmpty) {
+        print('⚠️ participants пуст');
+        return;
+      }
+      
+      final myInternalId = widget.callData.internalCallerParams.id.internal;
+      print('🔍 Ищем второго участника. Мой INTERNAL ID: $myInternalId');
+      
+      // Ищем второго участника (не меня)
+      for (final p in participants) {
+        if (p is! Map<String, dynamic>) continue;
+        
+        final participantId = p['id'] as int?;
+        if (participantId != null && participantId != myInternalId) {
+          _remoteParticipantInternalId = participantId;
+          
+          final externalId = p['externalId']?['id'] as String?;
+          print('✅ Найден второй участник:');
+          print('   INTERNAL ID: $participantId');
+          print('   EXTERNAL ID: $externalId');
+          print('   Мой contactId (external): ${widget.contactId}');
+          break;
+        }
+      }
+      
+      if (_remoteParticipantInternalId == null) {
+        print('❌ Не удалось найти INTERNAL ID второго участника!');
+      }
+      
+      // Парсим геолокацию из endpoint
+      final endpoint = message['endpoint'] as String?;
+      if (endpoint != null) {
+        _parseGeoFromEndpoint(endpoint);
+      }
+      
+      // Парсим TURN/STUN серверы
+      final conversationParams = message['conversationParams'] as Map<String, dynamic>?;
+      if (conversationParams != null) {
+        final turn = conversationParams['turn'] as Map<String, dynamic>?;
+        final stun = conversationParams['stun'] as Map<String, dynamic>?;
+        
+        setState(() {
+          _networkInfo ??= NetworkInfo();
+          
+          if (turn != null) {
+            final urls = turn['urls'] as List<dynamic>?;
+            if (urls != null) {
+              _networkInfo!.turnServers = urls.cast<String>();
+            }
+          }
+          
+          if (stun != null) {
+            final urls = stun['urls'] as List<dynamic>?;
+            if (urls != null) {
+              _networkInfo!.stunServers = urls.cast<String>();
+            }
+          }
+          
+          print('✅ NetworkInfo обновлен: TURN=${_networkInfo!.turnServers.length}, STUN=${_networkInfo!.stunServers.length}, Geo=${_networkInfo!.remoteGeo}');
+        });
+      }
+    } catch (e) {
+      print('❌ Ошибка парсинга connection notification: $e');
+    }
+  }
+  
+  void _parseGeoFromEndpoint(String endpoint) {
+    try {
+      final uri = Uri.parse(endpoint);
+      final params = uri.queryParameters;
+      
+      final country = params['locCc'];
+      final region = params['locReg'];
+      final isp = params['ispAsOrg'];
+      final asn = int.tryParse(params['ispAsNo'] ?? '');
+      
+      if (country != null || isp != null) {
+        setState(() {
+          _networkInfo ??= NetworkInfo();
+          // Это НАША геолокация (из endpoint в notification connection)
+          _networkInfo!.localCountry = country;
+          _networkInfo!.localIsp = isp;
+          _networkInfo!.localAsn = asn;
+          
+          // Формируем полную строку геолокации
+          final parts = <String>[];
+          if (country != null) parts.add(country);
+          if (region != null) parts.add('Region $region');
+          if (isp != null) parts.add(isp);
+          
+          _networkInfo!.localGeo = parts.isNotEmpty ? parts.join(', ') : null;
+        });
+      }
+    } catch (e) {
+      print('⚠️ Ошибка парсинга геолокации из endpoint: $e');
+    }
+  }
+
+  void _handleSignalingMessage(Map<String, dynamic> message) {
+    print('📥 Signaling message type: ${message['type'] ?? message['command'] ?? message['notification']}');
+    print('📥 Full message: ${message.toString().substring(0, message.toString().length > 500 ? 500 : message.toString().length)}...');
+    
+    // Парсим сетевую информацию из аналитики
+    _parseNetworkInfo(message);
+    
+    final type = message['type'] as String?;
+    final command = message['command'] as String?;
+    
+    // Обработка ответов от сервера
+    if (type == 'response') {
+      final response = message['response'] as String?;
+      print('📨 Получен response: $response');
+      
+      // Ответ на transmit-data или другие команды
+      if (response == 'transmit-data') {
+        print('✅ SDP успешно отправлен на сервер');
+      }
+      return;
+    }
+    
+    // Обработка notification (от сервера)
+    final notification = message['notification'] as String?;
+    if (notification != null) {
+      print('🔔 Notification: $notification');
+      
+      switch (notification) {
+        case 'connection':
+          // ПЕРВОЕ сообщение от сервера с информацией об участниках!
+          print('🎉 Получено notification:connection');
+          _handleConnectionNotification(message);
+          break;
+          
+        case 'transmitted-data':
+          // Данные от ДРУГОГО участника (не от нас!)
+          final participantId = message['participantId'] as int?;
+          final myId = widget.callData.internalCallerParams.id.internal;
+          
+          print('🔍 transmitted-data: participantId=$participantId, myId=$myId');
+          
+          if (participantId != null && participantId != myId) {
+            print('📨 Получены данные от участника $participantId');
+            final data = message['data'] as Map<String, dynamic>?;
+            if (data != null) {
+              print('📦 Data keys: ${data.keys.toList()}');
+              
+              // Проверяем есть ли SDP
+              if (data.containsKey('sdp')) {
+                print('🎯 Получен SDP от участника!');
+                _handleRemoteDescription(data['sdp'] as Map<String, dynamic>);
+              }
+              // Проверяем есть ли ICE candidate
+              if (data.containsKey('candidate')) {
+                print('🧊 Получен ICE candidate от участника!');
+                _handleRemoteCandidate(data['candidate'] as Map<String, dynamic>);
+              }
+            } else {
+              print('⚠️ Data is null!');
+            }
+          } else {
+            print('⏭️ Пропускаем transmitted-data от себя или без participantId');
+          }
+          break;
+          
+        case 'accepted-call':
+          print('✅ Звонок принят другим участником!');
+          print('⏳ Ожидаем SDP answer от второго участника...');
+          // НЕ меняем статус на connected, ждём SDP answer!
+          setState(() => _callState = CallState.ringing);
+          break;
+          
+        case 'hungup':
+        case 'closed-conversation':
+          print('📴 Звонок завершен собеседником');
+          // Защита от двойного вызова
+          if (_callState != CallState.ended && !_isCleaningUp) {
+            // Сначала закрываем панель информации если открыта
+            if (_showNetworkInfo && mounted) {
+              setState(() => _showNetworkInfo = false);
+            }
+            
+            if (mounted) {
+              setState(() => _callState = CallState.ended);
+            }
+            
+            // Закрываем UI с небольшой задержкой чтобы UI успел обновиться
+            Future.delayed(const Duration(milliseconds: 100), () {
+              if (mounted) {
+                if (widget.onMinimize != null) {
+                  CallOverlayService.instance.closeCall();
+                } else {
+                  try {
+                    Navigator.of(context).pop();
+                  } catch (e) {
+                    print('❌ Ошибка Navigator.pop: $e');
+                  }
+                }
+              }
+            });
+            
+            // Cleanup запускаем параллельно, без ожидания и блокировки UI
+            Future.delayed(Duration.zero, () {
+              _cleanup().catchError((e) {
+                print('❌ Ошибка cleanup после hangup: $e');
+              });
+            });
+          }
+          break;
+          
+        case 'media-settings-changed':
+          // Обработка изменения настроек медиа (микрофон/видео собеседника)
+          print('🎙️ Получено media-settings-changed');
+          final participantId = message['participantId'] as int?;
+          final myId = widget.callData.internalCallerParams.id.internal;
+          
+          // Обрабатываем только изменения от собеседника, не от себя
+          if (participantId != null && participantId != myId) {
+            final mediaSettings = message['mediaSettings'] as Map<String, dynamic>?;
+            if (mediaSettings != null) {
+              // Если mediaSettings пустой {}, значит всё выключено
+              final isAudioEnabled = mediaSettings['isAudioEnabled'] as bool? ?? false;
+              final isVideoEnabled = mediaSettings['isVideoEnabled'] as bool? ?? false;
+              
+              print('🔊 Собеседник изменил настройки: audio=$isAudioEnabled, video=$isVideoEnabled');
+              
+              if (mounted) {
+                setState(() {
+                  _isRemoteMuted = !isAudioEnabled;
+                  _isRemoteVideoEnabled = isVideoEnabled;
+                });
+              }
+            }
+          }
+          break;
+        
+        case 'settings-update':
+          // Получаем лимиты качества от сервера
+          print('📊 Получено settings-update');
+          final camera = message['camera'] as Map<String, dynamic>?;
+          final settings = message['settings'] as Map<String, dynamic>?;
+          
+          if (camera != null || settings != null) {
+            setState(() {
+              _networkInfo ??= NetworkInfo();
+              
+              // Лимиты камеры
+              if (camera != null) {
+                _networkInfo!.maxVideoBitrate = camera['maxBitrateK'] as int?;
+                _networkInfo!.maxVideoResolution = camera['maxDimension'] as int?;
+              }
+              
+              // Пороги качества сети
+              if (settings != null) {
+                final badNet = settings['badNet'] as Map<String, dynamic>?;
+                final goodNet = settings['goodNet'] as Map<String, dynamic>?;
+                
+                if (badNet != null) {
+                  _networkInfo!.badNetRtt = badNet['rtt'] as int?;
+                  _networkInfo!.badNetLoss = (badNet['loss'] as num?)?.toDouble();
+                }
+                if (goodNet != null) {
+                  _networkInfo!.goodNetRtt = goodNet['rtt'] as int?;
+                  _networkInfo!.goodNetLoss = (goodNet['loss'] as num?)?.toDouble();
+                }
+              }
+              
+              print('✅ Settings-update сохранены: maxBitrate=${_networkInfo!.maxVideoBitrate}, badNetRtt=${_networkInfo!.badNetRtt}');
+            });
+          }
+          break;
+          
+        default:
+          print('ℹ️ Notification: $notification');
+      }
+      return;
+    }
+    
+    // Обработка команд
+    switch (command) {
+      case 'ping':
+        // Отвечаем на ping (JSON формат)
+        _sendSignalingMessage({'command': 'pong', 'sequence': _sequenceNumber++});
+        break;
+        
+      default:
+        print('⚠️ Неизвестная команда: $command');
+    }
+  }
+
+  Future<void> _handleRemoteDescription(Map<String, dynamic> data) async {
+    try {
+      final sdp = data['sdp'] as String;
+      final type = data['type'] as String;
+      
+      print('📨 Получен remote SDP ($type), длина: ${sdp.length}');
+      
+      final description = RTCSessionDescription(sdp, type);
+      await _peerConnection!.setRemoteDescription(description);
+      
+      print('✅ Remote description установлен');
+      
+      // Если получили offer, нужно создать answer
+      if (type == 'offer') {
+        print('📤 Создаем answer на полученный offer');
+        final answer = await _peerConnection!.createAnswer();
+        await _peerConnection!.setLocalDescription(answer);
+        
+        // Отправляем answer
+        _sendCredentials(answer);
+        print('✅ Answer отправлен');
+      }
+    } catch (e) {
+      print('❌ Ошибка установки remote description: $e');
+    }
+  }
+
+  Future<void> _handleRemoteCandidate(Map<String, dynamic> data) async {
+    try {
+      final candidateStr = data['candidate'] as String;
+      
+      print('🧊 Получен remote ICE candidate');
+      
+      // Парсим IP собеседника из candidate
+      _parseRemoteCandidate(candidateStr);
+      
+      final candidate = RTCIceCandidate(
+        candidateStr,
+        data['sdpMid'] as String?,
+        data['sdpMLineIndex'] as int?,
+      );
+      
+      await _peerConnection!.addCandidate(candidate);
+      
+      print('✅ Remote candidate добавлен');
+    } catch (e) {
+      print('❌ Ошибка добавления remote candidate: $e');
+    }
+  }
+  
+  void _parseRemoteCandidate(String candidateStr) {
+    try {
+      // Парсим: candidate:ID COMPONENT PROTOCOL PRIORITY IP PORT typ TYPE [raddr RADDR rport RPORT] [generation GEN] [network-id NID] [network-cost COST]
+      final parts = candidateStr.split(' ');
+      if (parts.length >= 8) {
+        final ip = parts[4];
+        final port = int.tryParse(parts[5]) ?? 0;
+        final priority = int.tryParse(parts[3]) ?? 0;
+        
+        String type = 'unknown';
+        String? relayServer;
+        String? stunServer;
+        String? networkId;
+        int? networkCost;
+        
+        // Ищем тип кандидата
+        for (int i = 0; i < parts.length - 1; i++) {
+          if (parts[i] == 'typ') {
+            type = parts[i + 1];
+          } else if (parts[i] == 'raddr' && i + 1 < parts.length) {
+            // Адрес через который проходит (для relay/srflx)
+            if (type == 'relay') {
+              relayServer = parts[i + 1];
+            } else if (type == 'srflx') {
+              stunServer = parts[i + 1];
+            }
+          } else if (parts[i] == 'network-id' && i + 1 < parts.length) {
+            networkId = parts[i + 1];
+          } else if (parts[i] == 'network-cost' && i + 1 < parts.length) {
+            networkCost = int.tryParse(parts[i + 1]);
+          }
+        }
+        
+        setState(() {
+          _networkInfo ??= NetworkInfo();
+          
+          // Добавляем кандидат в список
+          final candidate = IceCandidate(
+            ip: ip,
+            port: port,
+            type: type,
+            priority: priority,
+            networkId: networkId,
+            networkCost: networkCost,
+            relayServer: relayServer,
+            stunServer: stunServer,
+          );
+          
+          // Избегаем дубликатов
+          if (!_networkInfo!.remoteCandidates.any((c) => c.ip == ip && c.port == port)) {
+            _networkInfo!.remoteCandidates.add(candidate);
+          }
+          
+          // Обновляем основной IP (приоритет: srflx > host > relay)
+          final shouldUpdate = _networkInfo!.remoteAddress == null ||
+              (type == 'srflx' && _networkInfo!.remoteConnectionType != 'srflx') ||
+              (type == 'host' && _networkInfo!.remoteConnectionType == 'relay');
+          
+          if (shouldUpdate) {
+            _networkInfo!.remoteAddress = ip;
+            _networkInfo!.remoteConnectionType = type;
+            print('Remote IP updated: $ip ($type)');
+          }
+        });
+      }
+    } catch (e) {
+      print('Error parsing remote candidate: $e');
+    }
+  }
+
+  void _sendSignalingMessage(Map<String, dynamic> message) {
+    if (_signalingChannel == null) {
+      print('⚠️ WebSocket не подключен');
+      return;
+    }
+    
+    final jsonString = json.encode(message);
+    _signalingChannel!.sink.add(jsonString);
+    print('📤 Отправлено signaling сообщение: ${message['command']}');
+  }
+
+  void _sendAcceptCall() {
+    print('📞 Отправляем accept-call');
+    _sendSignalingMessage({
+      'command': 'accept-call',
+      'sequence': _sequenceNumber++,
+      'mediaSettings': {
+        'isAudioEnabled': true,
+        'isVideoEnabled': widget.isVideo,
+        'isScreenSharingEnabled': false,
+        'isFastScreenSharingEnabled': false,
+        'isAudioSharingEnabled': false,
+        'isAnimojiEnabled': false,
+      }
+    });
+  }
+
+
+  Future<void> _createPeerConnection() async {
+    final configuration = {
+      'iceServers': [
+        // STUN серверы
+        ...widget.callData.internalCallerParams.stun.urls.map((url) => {
+          'urls': url,
+        }),
+        // TURN серверы
+        {
+          'urls': widget.callData.internalCallerParams.turn.urls,
+          'username': widget.callData.internalCallerParams.turn.username,
+          'credential': widget.callData.internalCallerParams.turn.credential,
+        },
+      ],
+      'sdpSemantics': 'unified-plan',
+    };
+
+    _peerConnection = await createPeerConnection(configuration);
+    
+    // Создаём DataChannel если включен
+    if (widget.enableDataChannel && widget.isOutgoing) {
+      print('🔌 Создание DataChannel (исходящий звонок)');
+      await _createDataChannel();
+    }
+    
+    // Обработчик входящего DataChannel
+    _peerConnection!.onDataChannel = (RTCDataChannel channel) {
+      print('📥 Получен входящий DataChannel: ${channel.label}');
+      if (widget.enableDataChannel) {
+        _setupDataChannel(channel);
+      } else {
+        print('❌ DataChannel отключен, закрываем канал');
+        channel.close();
+        _addDataChannelLog('❌ Отклонено: DATA_CHANNEL отключен');
+      }
+    };
+
+    // Слушаем ICE candidates
+    _peerConnection!.onIceCandidate = (RTCIceCandidate candidate) {
+      if (candidate.candidate != null) {
+        print('🧊 Локальный ICE Candidate: ${candidate.candidate}');
+        // Отправляем через WebSocket
+        _sendIceCandidate(candidate);
+      }
+    };
+
+    // Слушаем удаленный стрим
+    _peerConnection!.onTrack = (RTCTrackEvent event) {
+      print('🎥 Получен удаленный трек: ${event.track.kind}');
+      if (event.streams.isNotEmpty) {
+        setState(() {
+          _remoteStream = event.streams[0];
+          _remoteRenderer.srcObject = _remoteStream;
+          _callState = CallState.connected;
+        });
+        
+        // Активируем FloatingCallManager чтобы показать панель звонка
+        FloatingCallManager.instance.startCall();
+        print('✅ FloatingCallManager активирован (onTrack)');
+        
+        // Начинаем отслеживать уровень звука
+        _startAudioLevelMonitoring();
+      }
+    };
+
+    // Слушаем состояние соединения
+    _peerConnection!.onConnectionState = (RTCPeerConnectionState state) {
+      print('🔌 Connection State: $state');
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+        setState(() => _callState = CallState.connected);
+        
+        // Активируем FloatingCallManager чтобы показать панель звонка
+        FloatingCallManager.instance.startCall();
+        print('✅ FloatingCallManager активирован (onConnectionState)');
+        
+        // Получаем первую статистику сразу
+        _updateNetworkStats();
+        
+        // Запускаем периодическое обновление статистики каждую секунду
+        _statsTimer?.cancel();
+        _statsTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+          _updateNetworkStats();
+        });
+      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+        _showErrorAndClose('Соединение потеряно');
+      }
+    };
+  }
+
+  Future<void> _setupLocalMedia() async {
+    try {
+      // Запрашиваем разрешения
+      if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
+        // Всегда запрашиваем микрофон
+        final micPermission = await Permission.microphone.request();
+        if (!micPermission.isGranted) {
+          throw Exception('Нет разрешения на микрофон');
+        }
+        
+        // Запрашиваем камеру если нужно видео
+        if (widget.isVideo) {
+          final cameraPermission = await Permission.camera.request();
+          if (!cameraPermission.isGranted) {
+            print('⚠️ Нет разрешения на камеру, продолжаем только с аудио');
+            setState(() => _isVideoEnabled = false);
+          }
+        }
+      }
+      
+      final constraints = {
+        'audio': true,
+        'video': _isVideoEnabled ? {
+          'facingMode': 'user',
+          'width': {'ideal': 1280},
+          'height': {'ideal': 720},
+        } : false,
+      };
+
+      print('📹 Запрашиваем медиа: audio=true, video=$_isVideoEnabled');
+      _localStream = await navigator.mediaDevices.getUserMedia(constraints);
+      _localRenderer.srcObject = _localStream;
+
+      print('✅ Медиа получены: ${_localStream!.getTracks().length} треков');
+      _localStream!.getTracks().forEach((track) {
+        print('   - ${track.kind}: ${track.id}');
+      });
+
+      // Добавляем треки в peer connection
+      _localStream!.getTracks().forEach((track) {
+        _peerConnection!.addTrack(track, _localStream!);
+      });
+
+      if (mounted) {
+        setState(() {});
+      }
+    } catch (e) {
+      print('❌ Ошибка получения медиа: $e');
+      
+      // Пробуем получить хотя бы аудио
+      if (widget.isVideo && _isVideoEnabled) {
+        print('⚠️ Пробуем без видео...');
+        try {
+          _isVideoEnabled = false;
+          final audioConstraints = {'audio': true, 'video': false};
+          _localStream = await navigator.mediaDevices.getUserMedia(audioConstraints);
+          _localRenderer.srcObject = _localStream;
+          _localStream!.getTracks().forEach((track) {
+            _peerConnection!.addTrack(track, _localStream!);
+          });
+          if (mounted) setState(() {});
+        } catch (e2) {
+          print('❌ Не удалось получить даже аудио: $e2');
+          rethrow;
+        }
+      } else {
+        rethrow;
+      }
+    }
+  }
+
+  Future<void> _createAndSendOffer() async {
+    try {
+      final offer = await _peerConnection!.createOffer({
+        'offerToReceiveAudio': true,
+        'offerToReceiveVideo': true, // Всегда готовы принять видео от собеседника
+      });
+
+      await _peerConnection!.setLocalDescription(offer);
+
+      print('📤 SDP Offer создан, длина: ${offer.sdp?.length} символов');
+      
+      // Отправляем SDP offer через WebSocket signaling
+      _sendCredentials(offer);
+      
+      print('✅ SDP offer отправлен через WebSocket');
+    } catch (e) {
+      print('❌ Ошибка создания/отправки offer: $e');
+      rethrow;
+    }
+  }
+
+  void _sendCredentials(RTCSessionDescription description) {
+    // Используем INTERNAL ID второго участника, если получили
+    final recipientId = _remoteParticipantInternalId ?? widget.contactId;
+    
+    print('📤 Отправляем SDP на participantId=$recipientId (internal=${_remoteParticipantInternalId != null})');
+    
+    final message = {
+      'command': 'transmit-data',
+      'sequence': _sequenceNumber++,
+      'participantId': recipientId, // INTERNAL ID собеседника!
+      'data': {
+        'sdp': {
+          'type': description.type,
+          'sdp': description.sdp,
+        },
+        'animojiVersion': 1,
+      },
+      'participantType': 'USER',
+    };
+    
+    _sendSignalingMessage(message);
+  }
+
+  void _sendIceCandidate(RTCIceCandidate candidate) {
+    if (candidate.candidate != null) {
+      _parseLocalCandidate(candidate.candidate!);
+    }
+    
+    // Используем INTERNAL ID второго участника, если получили
+    final recipientId = _remoteParticipantInternalId ?? widget.contactId;
+    
+    final message = {
+      'command': 'transmit-data',
+      'sequence': _sequenceNumber++,
+      'participantId': recipientId, // INTERNAL ID собеседника!
+      'data': {
+        'candidate': {
+          'candidate': candidate.candidate,
+          'sdpMid': candidate.sdpMid,
+          'sdpMLineIndex': candidate.sdpMLineIndex,
+        }
+      },
+      'participantType': 'USER',
+    };
+    
+    _sendSignalingMessage(message);
+  }
+  
+  void _parseLocalCandidate(String candidateStr) {
+    try {
+      final parts = candidateStr.split(' ');
+      if (parts.length >= 8) {
+        final ip = parts[4];
+        final port = int.tryParse(parts[5]) ?? 0;
+        final priority = int.tryParse(parts[3]) ?? 0;
+        
+        String type = 'unknown';
+        String? relayServer;
+        String? stunServer;
+        String? networkId;
+        int? networkCost;
+        
+        for (int i = 0; i < parts.length - 1; i++) {
+          if (parts[i] == 'typ') {
+            type = parts[i + 1];
+          } else if (parts[i] == 'raddr' && i + 1 < parts.length) {
+            if (type == 'relay') {
+              relayServer = parts[i + 1];
+            } else if (type == 'srflx') {
+              stunServer = parts[i + 1];
+            }
+          } else if (parts[i] == 'network-id' && i + 1 < parts.length) {
+            networkId = parts[i + 1];
+          } else if (parts[i] == 'network-cost' && i + 1 < parts.length) {
+            networkCost = int.tryParse(parts[i + 1]);
+          }
+        }
+        
+        setState(() {
+          _networkInfo ??= NetworkInfo();
+          
+          final candidate = IceCandidate(
+            ip: ip,
+            port: port,
+            type: type,
+            priority: priority,
+            networkId: networkId,
+            networkCost: networkCost,
+            relayServer: relayServer,
+            stunServer: stunServer,
+          );
+          
+          if (!_networkInfo!.localCandidates.any((c) => c.ip == ip && c.port == port)) {
+            _networkInfo!.localCandidates.add(candidate);
+          }
+          
+          if (type == 'srflx' && (_networkInfo!.localAddress == null || _networkInfo!.localAddress == '0.0.0.0')) {
+            _networkInfo!.localAddress = ip;
+            _networkInfo!.localConnectionType = type;
+            print('Local public IP: $ip ($type)');
+          }
+        });
+      }
+    } catch (e) {
+      print('Error parsing local candidate: $e');
+    }
+  }
+  
+  void _parseNetworkInfo(Map<String, dynamic> message) {
+    try {
+      final items = message['items'] as List<dynamic>?;
+      if (items == null) return;
+      
+      for (var item in items) {
+        if (item is! Map<String, dynamic>) continue;
+        
+        final name = item['name'] as String?;
+        
+        if (name == 'websocket_connected' || name == 'signaling_connected' || name == 'call_start' || name == 'first_media_received') {
+          final localAddress = item['local_address'] as String?;
+          final localConnectionType = item['local_connection_type'] as String?;
+          final remoteAddress = item['remote_address'] as String?;
+          final remoteConnectionType = item['remote_connection_type'] as String?;
+          final transport = item['transport'] as String?;
+          final networkType = item['network_type'] as String?;
+          final rtt = item['rtt'] as int?;
+          
+          if (localAddress != null || remoteAddress != null) {
+            setState(() {
+              _networkInfo ??= NetworkInfo();
+              if (localAddress != null) _networkInfo!.localAddress = localAddress;
+              if (localConnectionType != null) _networkInfo!.localConnectionType = localConnectionType;
+              if (remoteAddress != null) _networkInfo!.remoteAddress = remoteAddress;
+              if (remoteConnectionType != null) _networkInfo!.remoteConnectionType = remoteConnectionType;
+              if (transport != null) _networkInfo!.transport = transport;
+              if (networkType != null) _networkInfo!.networkType = networkType;
+              if (rtt != null) _networkInfo!.rtt = rtt;
+            });
+            
+            print('Network Info updated:');
+            print('   Local: ${_networkInfo!.localAddress} (${_networkInfo!.localConnectionType})');
+            print('   Remote: ${_networkInfo!.remoteAddress} (${_networkInfo!.remoteConnectionType})');
+            print('   Transport: ${_networkInfo!.transport}, RTT: ${_networkInfo!.rtt}ms');
+          }
+        }
+      }
+    } catch (e) {
+      print('Error parsing network info: $e');
+    }
+  }
+
+
+
+  void _startDurationTimer() {
+    _durationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_callState == CallState.connected && mounted) {
+        setState(() => _callDuration++);
+      }
+    });
+  }
+  
+  void _startAudioLevelMonitoring() {
+    // Симуляция определения речи (в реальности нужен анализ аудио)
+    // Для простоты будем рандомно показывать "говорит"
+    _audioLevelTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
+      if (_remoteStream != null && _callState == CallState.connected && mounted) {
+        // TODO: Реализовать реальное определение уровня звука через Web Audio API
+        // Пока просто рандом для демонстрации
+        setState(() {
+          _isRemoteSpeaking = DateTime.now().millisecondsSinceEpoch % 3 == 0;
+        });
+      }
+    });
+  }
+
+  void _toggleMute() {
+    if (_localStream != null) {
+      setState(() => _isMuted = !_isMuted);
+      final audioTracks = _localStream!.getAudioTracks();
+      for (var track in audioTracks) {
+        track.enabled = !_isMuted;
+      }
+      
+      // Отправляем обновление медиа настроек
+      _sendSignalingMessage({
+        'command': 'change-media-settings',
+        'sequence': _sequenceNumber++,
+        'mediaSettings': {
+          'isAudioEnabled': !_isMuted,
+          'isVideoEnabled': _isVideoEnabled,
+          'isScreenSharingEnabled': false,
+          'isFastScreenSharingEnabled': false,
+          'isAudioSharingEnabled': false,
+          'isAnimojiEnabled': false,
+        }
+      });
+    }
+  }
+
+  Future<void> _toggleVideo() async {
+    if (_localStream == null || _isCleaningUp) return;
+    
+    // Сохраняем новое состояние сразу чтобы избежать мерцания кнопки
+    final newVideoState = !_isVideoEnabled;
+    if (mounted) setState(() => _isVideoEnabled = newVideoState);
+    
+    try {
+      if (!newVideoState) {
+        // Выключаем видео
+        print('📹 Выключаем видео...');
+        // Копируем список треков чтобы избежать concurrent modification
+        final videoTracks = _localStream!.getVideoTracks().toList();
+        for (var track in videoTracks) {
+          track.enabled = false;
+          await track.stop();
+          _localStream!.removeTrack(track);
+        }
+        
+        // Отправляем обновление медиа настроек
+        _sendSignalingMessage({
+          'command': 'change-media-settings',
+          'sequence': _sequenceNumber++,
+          'mediaSettings': {
+            'isAudioEnabled': !_isMuted,
+            'isVideoEnabled': false,
+            'isScreenSharingEnabled': false,
+            'isFastScreenSharingEnabled': false,
+            'isAudioSharingEnabled': false,
+            'isAnimojiEnabled': false,
+          }
+        });
+      } else {
+        // Включаем видео
+        print('📹 Включаем видео...');
+        
+        // Запрашиваем разрешение на камеру
+        if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
+          final cameraPermission = await Permission.camera.request();
+          if (!cameraPermission.isGranted) {
+            print('❌ Нет разрешения на камеру');
+            return;
+          }
+        }
+        
+        // Получаем видео поток
+        final videoStream = await navigator.mediaDevices.getUserMedia({
+          'video': {'facingMode': 'user'}
+        });
+        
+        if (_localStream == null || _isCleaningUp || !mounted) {
+          // Если звонок уже завершился - останавливаем треки
+          videoStream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        
+        // Добавляем видео треки в локальный стрим
+        final newVideoTracks = videoStream.getVideoTracks();
+        for (var track in newVideoTracks) {
+          await _localStream!.addTrack(track);
+          
+          // Добавляем трек в peer connection
+          if (_peerConnection != null) {
+            await _peerConnection!.addTrack(track, _localStream!);
+          }
+        }
+        
+        // Обновляем рендерер
+        _localRenderer.srcObject = _localStream;
+        
+        // Создаём новый offer с видео и отправляем
+        if (_peerConnection != null) {
+          final offer = await _peerConnection!.createOffer({
+            'offerToReceiveAudio': true,
+            'offerToReceiveVideo': true,
+          });
+          await _peerConnection!.setLocalDescription(offer);
+          
+          final recipientId = _remoteParticipantInternalId ?? widget.contactId;
+          _sendSignalingMessage({
+            'command': 'transmit-data',
+            'sequence': _sequenceNumber++,
+            'participantId': recipientId,
+            'data': {
+              'sdp': {
+                'type': offer.type,
+                'sdp': offer.sdp,
+              }
+            },
+            'participantType': 'USER',
+          });
+          print('✅ Новый offer с видео отправлен');
+        }
+        
+        // Отправляем обновление медиа настроек
+        _sendSignalingMessage({
+          'command': 'change-media-settings',
+          'sequence': _sequenceNumber++,
+          'mediaSettings': {
+            'isAudioEnabled': !_isMuted,
+            'isVideoEnabled': true,
+            'isScreenSharingEnabled': false,
+            'isFastScreenSharingEnabled': false,
+            'isAudioSharingEnabled': false,
+            'isAnimojiEnabled': false,
+          }
+        });
+      }
+    } catch (e) {
+      print('❌ Ошибка переключения видео: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Не удалось ${_isVideoEnabled ? 'выключить' : 'включить'} видео'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _toggleSpeaker() {
+    setState(() => _isSpeakerOn = !_isSpeakerOn);
+    // TODO: Реализовать переключение динамика через platform channel
+  }
+
+  void _minimizeCall() {
+    print('🔽 Минимизация звонка');
+    
+    // Если есть callback - используем его (для Overlay режима)
+    if (widget.onMinimize != null) {
+      widget.onMinimize!();
+      return;
+    }
+    
+    // Иначе используем старый способ через Navigator
+    FloatingCallManager.instance.minimizeCall(
+      callerName: widget.contactName,
+      callerAvatarUrl: widget.contactAvatarUrl,
+      callerId: widget.contactId,
+      callResponse: widget.callData,
+      callStartTime: _callStartTime,
+      isVideo: widget.isVideo,
+    );
+    
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  void _endCall() async {
+    // Защита от множественных вызовов
+    if (_isCleaningUp) {
+      print('⚠️ Cleanup уже в процессе, пропускаем');
+      return;
+    }
+    
+    try {
+      print('📴 Завершение звонка...');
+      
+      setState(() => _callState = CallState.ended);
+      
+      final hangupType = _callState == CallState.connected ? 'HUNGUP' : 'CANCELED';
+      
+      if (_signalingChannel != null) {
+        try {
+          final hangupMessage = {
+            'command': 'hangup',
+            'sequence': _sequenceNumber++,
+            'reason': hangupType,
+          };
+          _sendSignalingMessage(hangupMessage);
+          print('Sent hangup command via WebSocket: $hangupType');
+        } catch (e) {
+          print('⚠️ Ошибка отправки hangup через WebSocket: $e');
+        }
+      }
+      
+      // REST API hangup с таймаутом
+      try {
+        await ApiService.instance.hangupCall(
+          conversationId: widget.callData.conversationId,
+          hangupType: hangupType,
+          duration: _callDuration * 1000,
+        ).timeout(const Duration(seconds: 3));
+      } catch (e) {
+        print('⚠️ Ошибка REST API hangup (продолжаем cleanup): $e');
+      }
+      
+      await _cleanup();
+      
+      // Если используется Overlay - закрываем через сервис
+      if (widget.onMinimize != null) {
+        CallOverlayService.instance.closeCall();
+      } else {
+        // Иначе через Navigator
+        FloatingCallManager.instance.endCall();
+        if (mounted) {
+          Navigator.of(context).pop();
+        }
+      }
+    } catch (e) {
+      print('❌ Ошибка при завершении звонка: $e');
+      
+      await _cleanup();
+      
+      // Если используется Overlay - закрываем через сервис
+      if (widget.onMinimize != null) {
+        CallOverlayService.instance.closeCall();
+      } else {
+        FloatingCallManager.instance.endCall();
+        if (mounted) {
+          Navigator.of(context).pop();
+        }
+      }
+    }
+  }
+
+  void _showErrorAndClose(String message) {
+    if (!mounted) return;
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+      ),
+    );
+    
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) Navigator.of(context).pop();
+    });
+  }
+  
+  // ========== DataChannel методы ==========
+  
+  Future<void> _createDataChannel() async {
+    try {
+      final RTCDataChannelInit config = RTCDataChannelInit();
+      config.ordered = true;
+      
+      _dataChannel = await _peerConnection!.createDataChannel('komet-data', config);
+      _setupDataChannel(_dataChannel!);
+      
+      print('✅ DataChannel создан: ${_dataChannel!.label}');
+      _addDataChannelLog('✅ DataChannel создан');
+    } catch (e) {
+      print('❌ Ошибка создания DataChannel: $e');
+      _addDataChannelLog('❌ Ошибка создания: $e');
+    }
+  }
+  
+  void _setupDataChannel(RTCDataChannel channel) {
+    _dataChannel = channel;
+    
+    _dataChannel!.onDataChannelState = (RTCDataChannelState state) {
+      print('📡 DataChannel state: $state');
+      
+      if (mounted) {
+        setState(() {
+          switch (state) {
+            case RTCDataChannelState.RTCDataChannelOpen:
+              _isDataChannelOpen = true;
+              _dataChannelStatus = '✅ Подключен';
+              _addDataChannelLog('✅ DataChannel открыт');
+              break;
+            case RTCDataChannelState.RTCDataChannelConnecting:
+              _dataChannelStatus = '⏳ Подключение...';
+              _addDataChannelLog('⏳ Подключение...');
+              break;
+            case RTCDataChannelState.RTCDataChannelClosing:
+              _dataChannelStatus = '⏳ Закрывается...';
+              _addDataChannelLog('⏳ Закрывается...');
+              break;
+            case RTCDataChannelState.RTCDataChannelClosed:
+              _isDataChannelOpen = false;
+              _dataChannelStatus = '❌ Закрыт';
+              _addDataChannelLog('❌ DataChannel закрыт');
+              break;
+          }
+        });
+      }
+    };
+    
+    _dataChannel!.onMessage = (RTCDataChannelMessage message) {
+      print('📩 Получено сообщение через DataChannel');
+      
+      if (message.isBinary) {
+        print('⚠️ Получены бинарные данные (пока не поддерживается)');
+        return;
+      }
+      
+      try {
+        final data = json.decode(message.text) as Map<String, dynamic>;
+        final type = data['type'] as String?;
+        
+        if (type == 'chat') {
+          final text = data['text'] as String?;
+          if (text != null && mounted) {
+            setState(() {
+              _temporaryChatMessages.add(TemporaryChatMessage(
+                text: text,
+                time: DateTime.now(),
+                isMine: false,
+              ));
+            });
+            _addDataChannelLog('📩 Получено: $text');
+          }
+        }
+      } catch (e) {
+        print('❌ Ошибка парсинга сообщения: $e');
+        _addDataChannelLog('❌ Ошибка парсинга: $e');
+      }
+    };
+  }
+  
+  void _sendDataChannelMessage(String text) {
+    if (_dataChannel == null || !_isDataChannelOpen) {
+      _addDataChannelLog('❌ DataChannel не подключен');
+      return;
+    }
+    
+    try {
+      final message = json.encode({
+        'type': 'chat',
+        'text': text,
+        'time': DateTime.now().millisecondsSinceEpoch,
+      });
+      
+      _dataChannel!.send(RTCDataChannelMessage(message));
+      
+      if (mounted) {
+        setState(() {
+          _temporaryChatMessages.add(TemporaryChatMessage(
+            text: text,
+            time: DateTime.now(),
+            isMine: true,
+          ));
+        });
+      }
+      
+      _addDataChannelLog('📤 Отправлено: $text');
+      print('📤 Отправлено через DataChannel: $text');
+    } catch (e) {
+      print('❌ Ошибка отправки через DataChannel: $e');
+      _addDataChannelLog('❌ Ошибка отправки: $e');
+    }
+  }
+  
+  void _addDataChannelLog(String log) {
+    if (mounted) {
+      setState(() {
+        _dataChannelLogs.add('[${DateTime.now().toString().substring(11, 19)}] $log');
+        if (_dataChannelLogs.length > 50) {
+          _dataChannelLogs.removeAt(0);
+        }
+      });
+    }
+  }
+  
+  void _showDataChannelPanel() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => _DataChannelPanel(
+        isOpen: _isDataChannelOpen,
+        status: _dataChannelStatus,
+        logs: _dataChannelLogs,
+        messages: _temporaryChatMessages,
+        onSendMessage: _sendDataChannelMessage,
+      ),
+    );
+  }
+
+  Future<void> _updateNetworkStats() async {
+    if (_peerConnection == null || _networkInfo == null) return;
+    
+    try {
+      final stats = await _peerConnection!.getStats();
+      
+      int? bytesReceived;
+      int? bytesSent;
+      int? packetsReceived;
+      int? packetsSent;
+      double? jitter;
+      int? rtt;
+      String? codec;
+      
+      for (var report in stats) {
+        final type = report.type;
+        final values = report.values;
+        
+        // Inbound RTP (получаемые данные)
+        if (type == 'inbound-rtp') {
+          if (values['mediaType'] == 'audio' || values['mediaType'] == 'video') {
+            bytesReceived = (bytesReceived ?? 0) + ((values['bytesReceived'] as num?)?.toInt() ?? 0);
+            packetsReceived = (packetsReceived ?? 0) + ((values['packetsReceived'] as num?)?.toInt() ?? 0);
+            jitter = (values['jitter'] as num?)?.toDouble();
+            
+            // Codec
+            if (codec == null && values['codecId'] != null) {
+              // Ищем информацию о кодеке
+              final codecReport = stats.firstWhere(
+                (r) => r.id == values['codecId'],
+                orElse: () => report,
+              );
+              codec = codecReport.values['mimeType'] as String?;
+            }
+          }
+        }
+        
+        // Outbound RTP (отправляемые данные)
+        if (type == 'outbound-rtp') {
+          if (values['mediaType'] == 'audio' || values['mediaType'] == 'video') {
+            bytesSent = (bytesSent ?? 0) + ((values['bytesSent'] as num?)?.toInt() ?? 0);
+            packetsSent = (packetsSent ?? 0) + ((values['packetsSent'] as num?)?.toInt() ?? 0);
+          }
+        }
+        
+        // Candidate pair (RTT и packet loss)
+        if (type == 'candidate-pair' && values['state'] == 'succeeded') {
+          rtt = ((values['currentRoundTripTime'] as num?)?.toDouble() ?? 0 * 1000).toInt();
+        }
+      }
+      
+      // Вычисляем битрейт
+      if (bytesReceived != null && _networkInfo!.bytesReceived != null) {
+        final bytesDiff = bytesReceived - _networkInfo!.bytesReceived!;
+        final bitrate = (bytesDiff * 8 / 1000).toDouble(); // Кбит/с за секунду
+        _networkInfo!.bitrate = bitrate.toInt();
+      }
+      
+      // Вычисляем packet loss
+      if (packetsReceived != null && _networkInfo!.packetsReceived != null) {
+        final packetsExpected = packetsSent ?? packetsReceived;
+        final packetsLost = packetsExpected - packetsReceived;
+        final loss = packetsExpected > 0 ? (packetsLost / packetsExpected * 100) : 0.0;
+        _networkInfo!.packetLoss = loss;
+      }
+      
+      // Сохраняем данные
+      if (mounted) {
+        setState(() {
+          _networkInfo!.bytesReceived = bytesReceived;
+          _networkInfo!.bytesSent = bytesSent;
+          _networkInfo!.packetsReceived = packetsReceived;
+          _networkInfo!.packetsSent = packetsSent;
+          _networkInfo!.jitter = jitter != null ? (jitter * 1000).toInt() : null; // в мс
+          _networkInfo!.rtt = rtt;
+          _networkInfo!.codec = codec;
+        });
+        
+        print('📊 Stats updated: bitrate=${_networkInfo!.bitrate}, jitter=${_networkInfo!.jitter}, loss=${_networkInfo!.packetLoss?.toStringAsFixed(2)}%, rtt=${_networkInfo!.rtt}, codec=$codec');
+      }
+    } catch (e) {
+      print('⚠️ Ошибка получения статистики: $e');
+    }
+  }
+
+  Future<void> _cleanup() async {
+    // Защита от повторного вызова
+    if (_isCleaningUp) {
+      print('⚠️ Cleanup уже выполняется, пропускаем');
+      return;
+    }
+    
+    _isCleaningUp = true;
+    print('🧹 Начинаем cleanup...');
+    
+    // Глобальный таймаут на весь cleanup - 5 секунд максимум
+    final cleanupFuture = _performCleanup();
+    await cleanupFuture.timeout(
+      const Duration(seconds: 5),
+      onTimeout: () {
+        print('⚠️ КРИТИЧНО: Таймаут всего cleanup (5 сек), принудительно завершаем');
+        _isCleaningUp = false;
+      },
+    );
+  }
+  
+  Future<void> _performCleanup() async {
+    
+    try {
+      // 1. Останавливаем таймеры
+      _durationTimer?.cancel();
+      _durationTimer = null;
+      _audioLevelTimer?.cancel();
+      _audioLevelTimer = null;
+      _statsTimer?.cancel();
+      _statsTimer = null;
+      
+      // 2. СНАЧАЛА отменяем subscription (чтобы не читать из закрытого сокета)
+      try {
+        await _signalingSubscription?.cancel();
+      } catch (e) {
+        print('⚠️ Ошибка отмены subscription: $e');
+      }
+      _signalingSubscription = null;
+      
+      // 3. ПОТОМ закрываем WebSocket с таймаутом
+      try {
+        await _signalingChannel?.sink.close().timeout(
+          const Duration(seconds: 2),
+          onTimeout: () {
+            print('⚠️ Таймаут закрытия WebSocket');
+          },
+        );
+      } catch (e) {
+        print('⚠️ Ошибка при закрытии WebSocket (игнорируем): $e');
+      }
+      _signalingChannel = null;
+      
+      // 4. Останавливаем треки ПЕРЕД dispose стримов
+      try {
+        _localStream?.getTracks().forEach((track) {
+          try {
+            track.stop();
+          } catch (e) {
+            print('⚠️ Ошибка остановки трека: $e');
+          }
+        });
+      } catch (e) {
+        print('⚠️ Ошибка при остановке локальных треков: $e');
+      }
+      
+      try {
+        _remoteStream?.getTracks().forEach((track) {
+          try {
+            track.stop();
+          } catch (e) {
+            print('⚠️ Ошибка остановки удалённого трека: $e');
+          }
+        });
+      } catch (e) {
+        print('⚠️ Ошибка при остановке удалённых треков: $e');
+      }
+      
+      // 5. Закрываем peer connection ПЕРЕД dispose стримов с таймаутом
+      try {
+        await _peerConnection?.close().timeout(
+          const Duration(seconds: 2),
+          onTimeout: () {
+            print('⚠️ Таймаут закрытия peer connection');
+          },
+        );
+        _peerConnection = null;
+      } catch (e) {
+        print('⚠️ Ошибка при закрытии peer connection: $e');
+        _peerConnection = null;
+      }
+      
+      // 6. Dispose стримов с таймаутами
+      try {
+        await _localStream?.dispose().timeout(
+          const Duration(seconds: 1),
+          onTimeout: () {
+            print('⚠️ Таймаут dispose локального стрима');
+          },
+        );
+        _localStream = null;
+      } catch (e) {
+        print('⚠️ Ошибка при dispose локального стрима (игнорируем): $e');
+        _localStream = null;
+      }
+      
+      try {
+        await _remoteStream?.dispose().timeout(
+          const Duration(seconds: 1),
+          onTimeout: () {
+            print('⚠️ Таймаут dispose удалённого стрима');
+          },
+        );
+        _remoteStream = null;
+      } catch (e) {
+        print('⚠️ Ошибка при dispose удалённого стрима (игнорируем): $e');
+        _remoteStream = null;
+      }
+      
+      // 7. Dispose рендереров с таймаутами
+      try {
+        await _localRenderer.dispose().timeout(
+          const Duration(seconds: 1),
+          onTimeout: () {
+            print('⚠️ Таймаут dispose локального рендерера');
+          },
+        );
+      } catch (e) {
+        print('⚠️ Ошибка при dispose локального рендерера: $e');
+      }
+      
+      try {
+        await _remoteRenderer.dispose().timeout(
+          const Duration(seconds: 1),
+          onTimeout: () {
+            print('⚠️ Таймаут dispose удалённого рендерера');
+          },
+        );
+      } catch (e) {
+        print('⚠️ Ошибка при dispose удалённого рендерера: $e');
+      }
+      
+      print('✅ Cleanup завершён');
+    } catch (e) {
+      print('❌ Критическая ошибка в cleanup: $e');
+    } finally {
+      _isCleaningUp = false;
+    }
+  }
+
+  String _formatDuration(int seconds) {
+    final minutes = seconds ~/ 60;
+    final secs = seconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+
+    return WillPopScope(
+      onWillPop: () async {
+        // При back button - минимизируем вместо закрытия (только если есть onMinimize)
+        if (widget.onMinimize != null) {
+          _minimizeCall();
+          return false;
+        }
+        return true; // Разрешаем закрытие если нет onMinimize
+      },
+      child: GestureDetector(
+        onVerticalDragUpdate: (details) {
+          // Drag down to minimize
+          if (details.delta.dy > 0) {
+            setState(() {
+              _dragOffset = (_dragOffset + details.delta.dy).clamp(0.0, 300.0);
+            });
+          }
+        },
+        onVerticalDragEnd: (details) {
+          // If dragged down more than 150px - minimize
+          if (_dragOffset > 150) {
+            _minimizeCall();
+          } else {
+            // Snap back
+            setState(() {
+              _dragOffset = 0;
+            });
+          }
+        },
+        child: Transform.translate(
+          offset: Offset(0, _dragOffset),
+          child: Scaffold(
+            backgroundColor: colors.surface,
+          body: SafeArea(
+          child: Stack(
+            children: [
+              // Drag indicator
+              if (_dragOffset > 0)
+                Positioned(
+                  top: 8,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: colors.onSurface.withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                ),
+              Column(
+              children: [
+                // Заголовок
+                Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const SizedBox(width: 40), // Spacer for symmetry
+                          Expanded(
+                            child: Text(
+                              widget.contactName,
+                              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                          IconButton(
+                            icon: Icon(
+                              _showNetworkInfo ? Icons.info : Icons.info_outline,
+                              color: colors.primary,
+                            ),
+                            onPressed: () {
+                              setState(() => _showNetworkInfo = !_showNetworkInfo);
+                            },
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _getCallStateText(),
+                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                          color: colors.onSurfaceVariant,
+                        ),
+                      ),
+                      if (_callState == CallState.connected)
+                        Text(
+                          _formatDuration(_callDuration),
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            color: colors.primary,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+
+            // Видео (показываем если включено локально или есть удаленное видео)
+            if (_isVideoEnabled || (_isRemoteVideoEnabled && _remoteStream != null)) ...[
+              Expanded(
+                child: Stack(
+                  children: [
+                    // Фон для видео (только если есть удаленное видео)
+                    if (_remoteStream != null && _isRemoteVideoEnabled)
+                      Container(
+                        color: Colors.black,
+                      ),
+                    
+                    // Удаленное видео (на весь экран) или аватар если видео выключено
+                    if (_remoteStream != null && _isRemoteVideoEnabled)
+                      Positioned.fill(
+                        child: RTCVideoView(_remoteRenderer, mirror: false, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
+                      )
+                    else
+                      // Показываем аватар когда нет видео от собеседника
+                      Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                // Зелёная пульсирующая обводка когда говорит
+                                if (_isRemoteSpeaking && _callState == CallState.connected)
+                                  _SpeakingIndicator(
+                                    size: 140,
+                                    color: Colors.green,
+                                  ),
+                                
+                                // Аватар
+                                ContactAvatarWidget(
+                                  contactId: widget.contactId,
+                                  originalAvatarUrl: widget.contactAvatarUrl,
+                                  radius: 60,
+                                  fallbackText: widget.contactName.isNotEmpty
+                                      ? widget.contactName[0].toUpperCase()
+                                      : '?',
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            if (_callState == CallState.connecting || _remoteStream == null)
+                              CircularProgressIndicator(color: colors.primary),
+                          ],
+                        ),
+                      ),
+                    
+                    // Локальное видео (в углу) - показываем только если у нас включено видео
+                    if (_localStream != null && _isVideoEnabled)
+                      Positioned(
+                        top: 16,
+                        right: 16,
+                        width: 120,
+                        height: 160,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              border: Border.all(color: Colors.white, width: 2),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: RTCVideoView(_localRenderer, mirror: true, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
+                          ),
+                        ),
+                      ),
+                    
+                    // Иконка отключенного микрофона собеседника (справа внизу)
+                    if (_isRemoteMuted && _callState == CallState.connected)
+                      Positioned(
+                        bottom: 24,
+                        right: 24,
+                        child: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.6),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            Icons.mic_off,
+                            color: Colors.white,
+                            size: 24,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ] else ...[
+              // Аватар для аудио звонка с анимированным фоном
+              Expanded(
+                child: Stack(
+                  children: [
+                    // Анимированный фон с волнами
+                    _AnimatedCallBackground(
+                      isConnected: _callState == CallState.connected,
+                      accentColor: colors.primary,
+                    ),
+                    
+                    // Аватар контакта поверх
+                    Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          // Аватар контакта с обводкой при разговоре
+                          Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              // Зелёная пульсирующая обводка когда говорит
+                              if (_isRemoteSpeaking && _callState == CallState.connected)
+                                _SpeakingIndicator(
+                                  size: 140,
+                                  color: Colors.green,
+                                ),
+                              
+                              // Сам аватар
+                              ContactAvatarWidget(
+                                contactId: widget.contactId,
+                                originalAvatarUrl: widget.contactAvatarUrl,
+                                radius: 60,
+                                fallbackText: widget.contactName.isNotEmpty
+                                    ? widget.contactName[0].toUpperCase()
+                                    : '?',
+                              ),
+                              
+                              // Иконка отключенного микрофона собеседника (справа снизу на аватаре)
+                              if (_isRemoteMuted && _callState == CallState.connected)
+                                Positioned(
+                                  bottom: 0,
+                                  right: 0,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(6),
+                                    decoration: BoxDecoration(
+                                      color: Colors.red,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(color: Colors.white, width: 2),
+                                    ),
+                                    child: Icon(
+                                      Icons.mic_off,
+                                      color: Colors.white,
+                                      size: 20,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 24),
+                          if (_callState == CallState.connecting)
+                            CircularProgressIndicator(color: colors.primary),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            // Кнопки управления
+            Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  // Микрофон
+                  _CallButton(
+                    icon: _isMuted ? Icons.mic_off : Icons.mic,
+                    label: _isMuted ? 'Откл' : 'Микрофон',
+                    onPressed: _toggleMute,
+                    backgroundColor: _isMuted ? colors.error : colors.surfaceContainerHighest,
+                    foregroundColor: _isMuted ? colors.onError : colors.onSurface,
+                  ),
+
+                  // Видео (показываем всегда, можно включить в любом звонке)
+                  _CallButton(
+                    icon: _isVideoEnabled ? Icons.videocam : Icons.videocam_off,
+                    label: _isVideoEnabled ? 'Видео' : 'Камера',
+                    onPressed: _toggleVideo,
+                    backgroundColor: _isVideoEnabled ? colors.primary : colors.surfaceContainerHighest,
+                    foregroundColor: _isVideoEnabled ? colors.onPrimary : colors.onSurface,
+                  ),
+
+                  // Завершить звонок
+                  _CallButton(
+                    icon: Icons.call_end,
+                    label: 'Завершить',
+                    onPressed: _isCleaningUp ? () {} : _endCall,
+                    backgroundColor: colors.error,
+                    foregroundColor: colors.onError,
+                    isLarge: true,
+                  ),
+
+                  // Динамик
+                  _CallButton(
+                    icon: _isSpeakerOn ? Icons.volume_up : Icons.volume_down,
+                    label: _isSpeakerOn ? 'Динамик' : 'Обычный',
+                    onPressed: _toggleSpeaker,
+                    backgroundColor: _isSpeakerOn ? colors.primary : colors.surfaceContainerHighest,
+                    foregroundColor: _isSpeakerOn ? colors.onPrimary : colors.onSurface,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        
+        if (_showNetworkInfo && _networkInfo != null)
+          Positioned(
+            top: 100,
+            left: 16,
+            right: 16,
+            child: _NetworkInfoPanel(networkInfo: _networkInfo!),
+          ),
+        
+        // Кнопка чата (DataChannel) справа снизу
+        if (widget.enableDataChannel)
+          Positioned(
+            right: 16,
+            bottom: 180,
+            child: FloatingActionButton(
+              onPressed: _showDataChannelPanel,
+              backgroundColor: _isDataChannelOpen 
+                ? colors.primary 
+                : colors.surfaceContainerHighest,
+              child: Icon(
+                Icons.chat_bubble_outline,
+                color: _isDataChannelOpen 
+                  ? colors.onPrimary 
+                  : colors.onSurface,
+              ),
+            ),
+          ),
+      ],
+    ),
+          ),
+        ),
+      ),
+    ));
+  }
+
+  String _getCallStateText() {
+    switch (_callState) {
+      case CallState.connecting:
+        return 'Подключение...';
+      case CallState.ringing:
+        return widget.isOutgoing ? 'Вызов...' : 'Входящий звонок';
+      case CallState.connected:
+        return 'Соединено';
+      case CallState.ended:
+        return 'Завершено';
+    }
+  }
+
+  @override
+  void dispose() {
+    FloatingCallManager.instance.removeListener(_onFloatingCallStateChanged);
+    
+    // Очищаем callback
+    FloatingCallManager.instance.onEndCall = null;
+    
+    // Если используется Overlay - НЕ вызываем cleanup при dispose
+    // (cleanup будет вызван только при closeCall)
+    if (widget.onMinimize == null) {
+      // Старый режим через Navigator - делаем cleanup
+      if (!FloatingCallManager.instance.isMinimized) {
+        _cleanup().then((_) {
+          print('✅ Cleanup в dispose завершён');
+        }).catchError((e) {
+          print('❌ Ошибка в cleanup при dispose: $e');
+        });
+      } else {
+        print('⏸️ CallScreen закрыт, но звонок минимизирован - cleanup пропущен');
+      }
+    } else {
+      print('🎯 CallScreen dispose в Overlay режиме - cleanup управляется CallOverlayService');
+    }
+    
+    super.dispose();
+  }
+}
+
+/// Состояние звонка
+enum CallState {
+  connecting,
+  ringing,
+  connected,
+  ended,
+}
+
+/// Кнопка управления звонком
+class _CallButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
+  final Color backgroundColor;
+  final Color foregroundColor;
+  final bool isLarge;
+
+  const _CallButton({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    required this.backgroundColor,
+    required this.foregroundColor,
+    this.isLarge = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final size = isLarge ? 72.0 : 56.0;
+    final iconSize = isLarge ? 32.0 : 24.0;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Material(
+          color: backgroundColor,
+          shape: const CircleBorder(),
+          child: InkWell(
+            onTap: onPressed,
+            customBorder: const CircleBorder(),
+            child: Container(
+              width: size,
+              height: size,
+              alignment: Alignment.center,
+              child: Icon(
+                icon,
+                size: iconSize,
+                color: foregroundColor,
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Модель сетевой информации
+class NetworkInfo {
+  String? localAddress;
+  String? localConnectionType;
+  String? remoteAddress;
+  String? remoteConnectionType;
+  String? transport;
+  String? networkType;
+  int? rtt;
+  
+  // Детальная информация о кандидатах
+  List<IceCandidate> localCandidates = [];
+  List<IceCandidate> remoteCandidates = [];
+  
+  // Статистика WebRTC (будет обновляться)
+  double? packetLoss;
+  int? jitter;
+  int? bitrate;
+  String? codec;
+  
+  // Геолокация
+  String? localGeo;
+  String? remoteGeo;
+  String? localIsp;
+  String? remoteIsp;
+  String? localCountry;
+  String? remoteCountry;
+  int? localAsn;
+  int? remoteAsn;
+  
+  // TURN/STUN серверы
+  List<String> turnServers = [];
+  List<String> stunServers = [];
+  
+  // Лимиты качества от сервера
+  int? maxVideoBitrate; // Кбит/с
+  int? maxVideoResolution; // pixels
+  int? badNetRtt; // мс
+  double? badNetLoss; // %
+  int? goodNetRtt; // мс
+  double? goodNetLoss; // %
+  
+  // Дополнительная статистика
+  int? packetsReceived;
+  int? packetsSent;
+  int? bytesReceived;
+  int? bytesSent;
+}
+
+class IceCandidate {
+  final String ip;
+  final int port;
+  final String type; // host, srflx, relay
+  final int priority;
+  final String? networkId;
+  final int? networkCost;
+  final String? relayServer; // IP релей сервера если typ=relay
+  final String? stunServer; // IP STUN сервера если typ=srflx
+  
+  IceCandidate({
+    required this.ip,
+    required this.port,
+    required this.type,
+    required this.priority,
+    this.networkId,
+    this.networkCost,
+    this.relayServer,
+    this.stunServer,
+  });
+  
+  String get typeLabel {
+    switch (type) {
+      case 'host': return 'Прямое (host)';
+      case 'srflx': return 'STUN (srflx)';
+      case 'relay': return 'TURN (relay)';
+      default: return type;
+    }
+  }
+  
+  String get networkLabel {
+    if (networkCost == null) return '';
+    if (networkCost! <= 10) return 'Wi-Fi';
+    if (networkCost! <= 50) return 'Ethernet';
+    if (networkCost! <= 100) return 'Сотовая сеть';
+    return 'Неизвестно';
+  }
+}
+
+/// Панель отображения сетевой информации
+class _NetworkInfoPanel extends StatelessWidget {
+  final NetworkInfo networkInfo;
+
+  const _NetworkInfoPanel({required this.networkInfo});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    
+    return Material(
+      elevation: 8,
+      borderRadius: BorderRadius.circular(16),
+      color: colors.surface.withValues(alpha: 0.95),
+      child: Container(
+        constraints: const BoxConstraints(maxHeight: 500), // Ограничиваем высоту
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+            Row(
+              children: [
+                Icon(Icons.network_check, color: colors.primary, size: 20),
+                const SizedBox(width: 8),
+                Text(
+                  'Сетевая информация',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: colors.primary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            
+            // Ваш IP
+            if (networkInfo.localAddress != null) ...[
+              _InfoRow(
+                icon: Icons.smartphone,
+                label: 'Ваш IP',
+                value: networkInfo.localAddress!,
+                valueColor: colors.primary,
+              ),
+              if (networkInfo.localConnectionType != null)
+                _InfoRow(
+                  icon: Icons.link,
+                  label: 'Тип соединения',
+                  value: _formatConnectionType(networkInfo.localConnectionType!),
+                  indent: true,
+                ),
+            ],
+            
+            const SizedBox(height: 8),
+            
+            // IP собеседника
+            if (networkInfo.remoteAddress != null) ...[
+              _InfoRow(
+                icon: Icons.person,
+                label: 'IP собеседника',
+                value: networkInfo.remoteAddress!,
+                valueColor: colors.secondary,
+              ),
+              if (networkInfo.remoteConnectionType != null)
+                _InfoRow(
+                  icon: Icons.link,
+                  label: 'Тип соединения',
+                  value: _formatConnectionType(networkInfo.remoteConnectionType!),
+                  indent: true,
+                ),
+            ],
+            
+            const SizedBox(height: 8),
+            
+            // Дополнительная информация
+            if (networkInfo.transport != null)
+              _InfoRow(
+                icon: Icons.swap_horiz,
+                label: 'Транспорт',
+                value: networkInfo.transport!.toUpperCase(),
+              ),
+            
+            if (networkInfo.networkType != null)
+              _InfoRow(
+                icon: Icons.wifi,
+                label: 'Сеть',
+                value: _formatNetworkType(networkInfo.networkType!),
+              ),
+            
+            if (networkInfo.rtt != null)
+              _InfoRow(
+                icon: Icons.speed,
+                label: 'Задержка (RTT)',
+                value: '${networkInfo.rtt} мс',
+                valueColor: _getRttColor(networkInfo.rtt!, colors),
+              ),
+            
+            // Геолокация
+            const SizedBox(height: 12),
+            const Divider(),
+            const SizedBox(height: 8),
+            Text(
+              'Геолокация',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: colors.primary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            
+            // Качество соединения
+            const SizedBox(height: 12),
+            const Divider(),
+            const SizedBox(height: 8),
+            Text(
+              'Качество соединения',
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: colors.primary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            _InfoRow(
+              icon: Icons.equalizer,
+              label: 'Битрейт',
+              value: networkInfo.bitrate != null ? '${networkInfo.bitrate} Кбит/с' : 'Сервер пожалел данных',
+              valueColor: networkInfo.bitrate != null ? colors.onSurface : Colors.red,
+            ),
+            _InfoRow(
+              icon: Icons.graphic_eq,
+              label: 'Jitter',
+              value: networkInfo.jitter != null ? '${networkInfo.jitter} мс' : 'Сервер пожалел данных',
+              valueColor: networkInfo.jitter != null ? colors.onSurface : Colors.red,
+            ),
+            _InfoRow(
+              icon: Icons.cloud_off,
+              label: 'Потеря пакетов',
+              value: networkInfo.packetLoss != null ? '${networkInfo.packetLoss!.toStringAsFixed(2)}%' : 'Сервер пожалел данных',
+              valueColor: networkInfo.packetLoss != null 
+                ? (networkInfo.packetLoss! < 1 ? Colors.green : networkInfo.packetLoss! < 5 ? Colors.orange : Colors.red)
+                : Colors.red,
+            ),
+            if (networkInfo.packetsReceived != null || networkInfo.packetsSent != null) ...[
+              const SizedBox(height: 12),
+              const Divider(),
+              const SizedBox(height: 8),
+              Text(
+                'Статистика пакетов',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: colors.primary,
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (networkInfo.packetsReceived != null)
+                _InfoRow(
+                  icon: Icons.download,
+                  label: 'Получено пакетов',
+                  value: networkInfo.packetsReceived.toString(),
+                  valueColor: colors.onSurface,
+                ),
+              if (networkInfo.packetsSent != null)
+                _InfoRow(
+                  icon: Icons.upload,
+                  label: 'Отправлено пакетов',
+                  value: networkInfo.packetsSent.toString(),
+                  valueColor: colors.onSurface,
+                ),
+              if (networkInfo.bytesReceived != null)
+                _InfoRow(
+                  icon: Icons.download,
+                  label: 'Получено данных',
+                  value: _formatBytes(networkInfo.bytesReceived!),
+                  valueColor: colors.onSurface,
+                ),
+              if (networkInfo.bytesSent != null)
+                _InfoRow(
+                  icon: Icons.upload,
+                  label: 'Отправлено данных',
+                  value: _formatBytes(networkInfo.bytesSent!),
+                  valueColor: colors.onSurface,
+                ),
+            ],
+            
+            // Детальная информация о кандидатах
+            if (networkInfo.localCandidates.isNotEmpty || networkInfo.remoteCandidates.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              Divider(color: colors.outline.withOpacity(0.3)),
+              const SizedBox(height: 8),
+              
+              // Локальные кандидаты
+              if (networkInfo.localCandidates.isNotEmpty) ...[
+                Text(
+                  '📍 Ваши кандидаты соединения (${networkInfo.localCandidates.length})',
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: colors.primary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ...networkInfo.localCandidates.map((c) => _CandidateRow(candidate: c, isLocal: true)),
+              ],
+              
+              const SizedBox(height: 12),
+              
+              // Удаленные кандидаты
+              if (networkInfo.remoteCandidates.isNotEmpty) ...[
+                Text(
+                  '🌐 Кандидаты собеседника (${networkInfo.remoteCandidates.length})',
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: colors.secondary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                ...networkInfo.remoteCandidates.map((c) => _CandidateRow(candidate: c, isLocal: false)),
+              ],
+            ],
+          ],
+        ),
+        ),
+      ),
+    );
+  }
+  
+  String _formatConnectionType(String type) {
+    switch (type) {
+      case 'srflx':
+        return 'P2P (публичный IP)';
+      case 'host':
+        return 'Локальный';
+      case 'relay':
+        return 'Через сервер';
+      default:
+        return type;
+    }
+  }
+  
+  String _formatNetworkType(String type) {
+    switch (type) {
+      case 'wifi':
+        return 'Wi-Fi';
+      case 'cellular':
+        return 'Мобильная сеть';
+      default:
+        return type;
+    }
+  }
+  
+  Color _getRttColor(int rtt, ColorScheme colors) {
+    if (rtt < 100) return Colors.green;
+    if (rtt < 200) return Colors.orange;
+    return Colors.red;
+  }
+  
+  String _formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes Б';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(2)} КБ';
+    if (bytes < 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(2)} МБ';
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} ГБ';
+  }
+}
+
+/// Анимированный фон для звонка с волнами
+class _AnimatedCallBackground extends StatefulWidget {
+  final bool isConnected;
+  final Color accentColor;
+
+  const _AnimatedCallBackground({
+    required this.isConnected,
+    required this.accentColor,
+  });
+
+  @override
+  State<_AnimatedCallBackground> createState() => _AnimatedCallBackgroundState();
+}
+
+class _AnimatedCallBackgroundState extends State<_AnimatedCallBackground>
+    with TickerProviderStateMixin {
+  late AnimationController _controller1;
+  late AnimationController _controller2;
+  late AnimationController _controller3;
+
+  @override
+  void initState() {
+    super.initState();
+    
+    // Создаём 3 контроллера для разных волн с разной скоростью
+    _controller1 = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 3),
+    )..repeat();
+    
+    _controller2 = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2500),
+    )..repeat();
+    
+    _controller3 = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 3500),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller1.dispose();
+    _controller2.dispose();
+    _controller3.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Вычисляем центр аватара (чуть выше центра экрана)
+        final avatarCenterY = constraints.maxHeight / 2;
+        
+        return CustomPaint(
+          painter: _WavesPainter(
+            animation1: _controller1,
+            animation2: _controller2,
+            animation3: _controller3,
+            accentColor: widget.accentColor,
+            isConnected: widget.isConnected,
+            avatarCenter: Offset(constraints.maxWidth / 2, avatarCenterY),
+          ),
+          child: Container(),
+        );
+      },
+    );
+  }
+}
+
+/// Painter для рисования волн
+class _WavesPainter extends CustomPainter {
+  final Animation<double> animation1;
+  final Animation<double> animation2;
+  final Animation<double> animation3;
+  final Color accentColor;
+  final bool isConnected;
+  final Offset avatarCenter;
+
+  _WavesPainter({
+    required this.animation1,
+    required this.animation2,
+    required this.animation3,
+    required this.accentColor,
+    required this.isConnected,
+    required this.avatarCenter,
+  }) : super(
+          repaint: Listenable.merge([animation1, animation2, animation3]),
+        );
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final maxRadius = size.width > size.height ? size.width : size.height;
+
+    // Рисуем 3 волны с разными параметрами ОТ ЦЕНТРА АВАТАРА
+    _drawWave(canvas, avatarCenter, maxRadius, animation1.value, 0.15, 0.8);
+    _drawWave(canvas, avatarCenter, maxRadius, animation2.value, 0.10, 0.6);
+    _drawWave(canvas, avatarCenter, maxRadius, animation3.value, 0.08, 0.4);
+  }
+
+  void _drawWave(Canvas canvas, Offset center, double maxRadius,
+      double progress, double opacity, double scale) {
+    final radius = maxRadius * progress * scale;
+    
+    // Прозрачность уменьшается по мере расширения волны
+    final alpha = ((1 - progress) * opacity * 255).toInt().clamp(0, 255);
+    
+    final paint = Paint()
+      ..color = accentColor.withAlpha(alpha)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.0;
+
+    canvas.drawCircle(center, radius, paint);
+  }
+
+  @override
+  bool shouldRepaint(_WavesPainter oldDelegate) {
+    return oldDelegate.accentColor != accentColor ||
+        oldDelegate.isConnected != isConnected ||
+        oldDelegate.avatarCenter != avatarCenter;
+  }
+}
+
+/// Индикатор что собеседник говорит
+class _SpeakingIndicator extends StatefulWidget {
+  final double size;
+  final Color color;
+
+  const _SpeakingIndicator({
+    required this.size,
+    required this.color,
+  });
+
+  @override
+  State<_SpeakingIndicator> createState() => _SpeakingIndicatorState();
+}
+
+class _SpeakingIndicatorState extends State<_SpeakingIndicator>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 800),
+    )..repeat(reverse: true);
+    
+    _animation = Tween<double>(begin: 0.8, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _animation,
+      builder: (context, child) {
+        return Container(
+          width: widget.size * _animation.value,
+          height: widget.size * _animation.value,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: widget.color.withOpacity(0.6),
+              width: 3.0,
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Строка информации
+class _InfoRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color? valueColor;
+  final bool indent;
+
+  const _InfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.valueColor,
+    this.indent = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    
+    return Padding(
+      padding: EdgeInsets.only(left: indent ? 28.0 : 0, bottom: 4),
+      child: Row(
+        children: [
+          if (!indent) ...[
+            Icon(icon, size: 16, color: colors.onSurfaceVariant),
+            const SizedBox(width: 8),
+          ],
+          Text(
+            '$label: ',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: colors.onSurfaceVariant,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: valueColor ?? colors.onSurface,
+                fontFamily: 'monospace',
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Строка с информацией о ICE кандидате
+class _CandidateRow extends StatelessWidget {
+  final IceCandidate candidate;
+  final bool isLocal;
+
+  const _CandidateRow({
+    required this.candidate,
+    required this.isLocal,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: (isLocal ? colors.primaryContainer : colors.secondaryContainer).withOpacity(0.3),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: (isLocal ? colors.primary : colors.secondary).withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                candidate.type == 'relay' ? Icons.router : 
+                candidate.type == 'srflx' ? Icons.public : Icons.computer,
+                size: 16,
+                color: isLocal ? colors.primary : colors.secondary,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  '${candidate.ip}:${candidate.port}',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: _getTypeColor(candidate.type),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  candidate.typeLabel,
+                  style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              _chip(context, Icons.priority_high, 'Priority: ${candidate.priority}'),
+              if (candidate.networkLabel.isNotEmpty) _chip(context, Icons.wifi, candidate.networkLabel),
+              if (candidate.networkId != null) _chip(context, Icons.tag, 'ID: ${candidate.networkId}'),
+            ],
+          ),
+          if (candidate.relayServer != null) ...[
+            const SizedBox(height: 4),
+            _serverRow(context, Icons.dns, 'TURN', candidate.relayServer!, colors),
+          ],
+          if (candidate.stunServer != null) ...[
+            const SizedBox(height: 4),
+            _serverRow(context, Icons.vpn_lock, 'STUN', candidate.stunServer!, colors),
+          ],
+        ],
+      ),
+    );
+  }
+  
+  Widget _chip(BuildContext context, IconData icon, String label) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainerHighest.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 11, color: colors.onSurfaceVariant),
+          const SizedBox(width: 3),
+          Text(label, style: TextStyle(fontSize: 10, color: colors.onSurfaceVariant)),
+        ],
+      ),
+    );
+  }
+  
+  Widget _serverRow(BuildContext context, IconData icon, String label, String value, ColorScheme colors) {
+    return Row(
+      children: [
+        Icon(icon, size: 11, color: colors.tertiary),
+        const SizedBox(width: 4),
+        Text('$label: ', style: const TextStyle(fontSize: 10)),
+        Expanded(
+          child: Text(
+            value,
+            style: TextStyle(fontSize: 10, fontFamily: 'monospace', color: colors.tertiary),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+  
+  Color _getTypeColor(String type) {
+    switch (type) {
+      case 'host': return Colors.blue;
+      case 'srflx': return Colors.green;
+      case 'relay': return Colors.orange;
+      default: return Colors.grey;
+    }
+  }
+}
+
+
+// Модель для temporary chat сообщений
+class TemporaryChatMessage {
+  final String text;
+  final DateTime time;
+  final bool isMine;
+  
+  TemporaryChatMessage({
+    required this.text,
+    required this.time,
+    required this.isMine,
+  });
+}
+
+/// Панель DataChannel с temporary chat и логами
+class _DataChannelPanel extends StatefulWidget {
+  final bool isOpen;
+  final String status;
+  final List<String> logs;
+  final List<TemporaryChatMessage> messages;
+  final void Function(String) onSendMessage;
+
+  const _DataChannelPanel({
+    required this.isOpen,
+    required this.status,
+    required this.logs,
+    required this.messages,
+    required this.onSendMessage,
+  });
+
+  @override
+  State<_DataChannelPanel> createState() => _DataChannelPanelState();
+}
+
+class _DataChannelPanelState extends State<_DataChannelPanel> with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
+  final TextEditingController _messageController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _messageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    
+    return DraggableScrollableSheet(
+      initialChildSize: 0.7,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      expand: false,
+      builder: (context, scrollController) {
+        return Container(
+          decoration: BoxDecoration(
+            color: colors.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+          ),
+          child: Column(
+            children: [
+              // Header
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  border: Border(bottom: BorderSide(color: colors.outline.withOpacity(0.2))),
+                ),
+                child: Column(
+                  children: [
+                    // Drag handle
+                    Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: colors.onSurfaceVariant.withOpacity(0.4),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Icon(Icons.data_usage, color: colors.primary),
+                        const SizedBox(width: 8),
+                        Text(
+                          'DATA_CHANNEL',
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const Spacer(),
+                        Chip(
+                          label: Text(widget.status),
+                          backgroundColor: widget.isOpen ? colors.primaryContainer : colors.errorContainer,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              
+              // Tabs
+              TabBar(
+                controller: _tabController,
+                tabs: const [
+                  Tab(text: 'Chat', icon: Icon(Icons.chat)),
+                  Tab(text: 'Logs', icon: Icon(Icons.list)),
+                ],
+              ),
+              
+              // Content
+              Expanded(
+                child: TabBarView(
+                  controller: _tabController,
+                  children: [
+                    // Chat tab
+                    _buildChatTab(colors, scrollController),
+                    // Logs tab
+                    _buildLogsTab(colors, scrollController),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildChatTab(ColorScheme colors, ScrollController scrollController) {
+    return Column(
+      children: [
+        Expanded(
+          child: widget.messages.isEmpty
+              ? Center(
+                  child: Text(
+                    widget.isOpen
+                        ? 'Чат пуст. Отправьте первое сообщение!'
+                        : 'DataChannel не подключен',
+                    style: TextStyle(color: colors.onSurfaceVariant),
+                  ),
+                )
+              : ListView.builder(
+                  controller: scrollController,
+                  reverse: true,
+                  padding: const EdgeInsets.all(16),
+                  itemCount: widget.messages.length,
+                  itemBuilder: (context, index) {
+                    final message = widget.messages[widget.messages.length - 1 - index];
+                    return _buildMessageBubble(message, colors);
+                  },
+                ),
+        ),
+        
+        // Input field
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: colors.surfaceContainerHighest,
+            border: Border(top: BorderSide(color: colors.outline.withOpacity(0.2))),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _messageController,
+                  enabled: widget.isOpen,
+                  decoration: InputDecoration(
+                    hintText: widget.isOpen ? 'Сообщение...' : 'DataChannel отключен',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  ),
+                  onSubmitted: widget.isOpen ? _sendMessage : null,
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                onPressed: widget.isOpen ? _sendMessage : null,
+                icon: const Icon(Icons.send),
+                color: widget.isOpen ? colors.primary : colors.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMessageBubble(TemporaryChatMessage message, ColorScheme colors) {
+    return Align(
+      alignment: message.isMine ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: message.isMine ? colors.primaryContainer : colors.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              message.text,
+              style: TextStyle(
+                color: message.isMine ? colors.onPrimaryContainer : colors.onSurface,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${message.time.hour.toString().padLeft(2, '0')}:${message.time.minute.toString().padLeft(2, '0')}',
+              style: TextStyle(
+                fontSize: 10,
+                color: (message.isMine ? colors.onPrimaryContainer : colors.onSurface).withOpacity(0.6),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLogsTab(ColorScheme colors, ScrollController scrollController) {
+    return widget.logs.isEmpty
+        ? Center(
+            child: Text(
+              'Логов пока нет',
+              style: TextStyle(color: colors.onSurfaceVariant),
+            ),
+          )
+        : ListView.builder(
+            controller: scrollController,
+            reverse: true,
+            padding: const EdgeInsets.all(16),
+            itemCount: widget.logs.length,
+            itemBuilder: (context, index) {
+              final log = widget.logs[widget.logs.length - 1 - index];
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  log,
+                  style: TextStyle(
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                    color: colors.onSurface,
+                  ),
+                ),
+              );
+            },
+          );
+  }
+
+  void _sendMessage([String? _]) {
+    final text = _messageController.text.trim();
+    if (text.isEmpty) return;
+    
+    widget.onSendMessage(text);
+    _messageController.clear();
+  }
+}
+
+// Модель для temporary chat сообщений
+class TemporaryChatMessage {
+  final String text;
+  final DateTime time;
+  final bool isMine;
+  
+  TemporaryChatMessage({
+    required this.text,
+    required this.time,
+    required this.isMine,
+  });
+}
+
+// Модель для сетевой информации
+class NetworkInfo {

@@ -124,15 +124,7 @@ class _EditContactScreenState extends State<EditContactScreen> {
       }
       await ContactLocalNamesService().saveContactData(widget.contactId, data);
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Данные контакта сохранены'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-        Navigator.of(context).pop(true);
-      }
+      Navigator.of(context).pop(true);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -182,15 +174,7 @@ class _EditContactScreenState extends State<EditContactScreen> {
       try {
         await ContactLocalNamesService().clearContactData(widget.contactId);
 
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Данные контакта очищены'),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
-          Navigator.of(context).pop(true);
-        }
+        Navigator.of(context).pop(true);
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -242,13 +226,6 @@ class _EditContactScreenState extends State<EditContactScreen> {
           _localAvatarPath = localPath;
           _isLoadingAvatar = false;
         });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Аватар сохранен'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
       } else {
         if (mounted) {
           setState(() {
@@ -306,13 +283,6 @@ class _EditContactScreenState extends State<EditContactScreen> {
           setState(() {
             _localAvatarPath = null;
           });
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Аватар удален'),
-              behavior: SnackBarBehavior.floating,
-            ),
-          );
         }
       } catch (e) {
         if (mounted) {

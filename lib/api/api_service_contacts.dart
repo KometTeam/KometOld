@@ -4,16 +4,43 @@ extension ApiServiceContacts on ApiService {
   Future<void> blockContact(int contactId) async {
     await waitUntilOnline();
     _sendMessage(34, {'contactId': contactId, 'action': 'BLOCK'});
+    final existing = _contactCache[contactId];
+    if (existing != null) {
+      final updated = existing.copyWith(isBlockedByMe: true);
+      _contactCache[contactId] = updated;
+      notifyContactUpdate(updated);
+    }
   }
 
   Future<void> unblockContact(int contactId) async {
     await waitUntilOnline();
     _sendMessage(34, {'contactId': contactId, 'action': 'UNBLOCK'});
+    final existing = _contactCache[contactId];
+    if (existing != null) {
+      final updated = existing.copyWith(isBlockedByMe: false);
+      _contactCache[contactId] = updated;
+      notifyContactUpdate(updated);
+    }
   }
 
   Future<void> addContact(int contactId) async {
     await waitUntilOnline();
     _sendMessage(34, {'contactId': contactId, 'action': 'ADD'});
+  }
+
+  Future<void> updateContactName(int contactId, String firstName, String lastName) async {
+    await waitUntilOnline();
+    _sendMessage(34, {
+      'contactId': contactId,
+      'action': 'UPDATE',
+      'firstName': firstName,
+      'lastName': lastName,
+    });
+  }
+
+  Future<void> removeContact(int contactId) async {
+    await waitUntilOnline();
+    _sendMessage(34, {'contactId': contactId, 'action': 'REMOVE'});
   }
 
   Future<void> requestContactsByIds(List<int> contactIds) async {
@@ -42,7 +69,22 @@ extension ApiServiceContacts on ApiService {
       'forAll': forAll,
       'lastEventTime': DateTime.now().millisecondsSinceEpoch,
     };
-    _sendMessage(54, payload);
+
+    final int seq = await _sendMessage(54, payload);
+
+    // Слушаем messages stream — ERROR-пакеты теперь тоже попадают туда с cmd=3 и нужным seq
+    final response = await messages
+        .firstWhere((msg) => msg['seq'] == seq)
+        .timeout(const Duration(seconds: 10));
+
+    if (response['cmd'] == 3) {
+      final errorPayload = response['payload'] ?? {};
+      final errorMessage =
+          errorPayload['localizedMessage'] ??
+          errorPayload['message'] ??
+          'Ошибка очистки истории чата';
+      throw Exception(errorMessage);
+    }
   }
 
   Future<Map<String, dynamic>> getChatInfoByLink(String link) async {
@@ -68,13 +110,17 @@ extension ApiServiceContacts on ApiService {
         throw Exception(errorMessage);
       }
 
-      if (response['cmd'] == 1 &&
-          response['payload'] != null &&
+      if (response['payload'] != null &&
           response['payload']['chat'] != null) {
         print(
           'Информация о чате получена: ${response['payload']['chat']['title']}',
         );
         return response['payload']['chat'] as Map<String, dynamic>;
+      } else if (response['payload'] != null &&
+          response['payload']['user'] != null) {
+        // Для ботов сервер возвращает user вместо chat
+        final user = response['payload']['user'] as Map<String, dynamic>;
+        return user;
       } else {
         print('Не удалось найти "chat" в ответе opcode 89: $response');
         throw Exception('Неверный ответ от сервера');
@@ -148,10 +194,19 @@ extension ApiServiceContacts on ApiService {
     final userPresence = _presenceData[userId.toString()];
     if (userPresence != null && userPresence['seen'] != null) {
       final seenTimestamp = userPresence['seen'] as int;
-
+      if (seenTimestamp <= 0) return null;
       return DateTime.fromMillisecondsSinceEpoch(seenTimestamp * 1000);
     }
     return null;
+  }
+
+  bool isBlockedByUser(int userId) {
+    final userPresence = _presenceData[userId.toString()];
+    if (userPresence != null && userPresence['seen'] != null) {
+      final seenTimestamp = userPresence['seen'] as int;
+      return seenTimestamp < 0;
+    }
+    return false;
   }
 
   void updatePresenceData(Map<String, dynamic> presenceData) {
@@ -242,6 +297,41 @@ extension ApiServiceContacts on ApiService {
     );
   }
 
+  Future<int?> getBotChatId(int botId) async {
+    await waitUntilOnline();
+    final seq = await _sendMessage(145, {'botId': botId});
+    try {
+      final response = await messages
+          .firstWhere((msg) => msg['seq'] == seq)
+          .timeout(const Duration(seconds: 10));
+      
+      if (response['cmd'] == 3) {
+        print('Ошибка getBotChatId: ${response['payload']?['message']}');
+        return null;
+      }
+      
+      return response['payload']?['chatId'] as int?;
+    } catch (e) {
+      print('Ошибка в getBotChatId: $e');
+      return null;
+    }
+  }
+
+  Future<void> sendBotStarted(int chatId) async {
+    await waitUntilOnline();
+    final payload = {
+      'chatId': chatId,
+      'message': {
+        'cid': DateTime.now().millisecondsSinceEpoch,
+        'attaches': [
+          {'_type': 'CONTROL', 'event': 'botStarted'}
+        ],
+      },
+      'notify': true,
+    };
+    await _sendMessage(64, payload);
+  }
+
   Future<void> enterChannel(String link) async {
     await waitUntilOnline();
 
@@ -278,8 +368,14 @@ extension ApiServiceContacts on ApiService {
       return [];
     }
 
+    final idsToFetch = contactIds.where((id) => !_missingContactIds.contains(id)).toList();
+    
+    if (idsToFetch.isEmpty) {
+      return [];
+    }
+
     try {
-      final int contactSeq = await _sendMessage(32, {"contactIds": contactIds});
+      final int contactSeq = await _sendMessage(32, {"contactIds": idsToFetch});
 
       final contactResponse = await messages
           .firstWhere((msg) => msg['seq'] == contactSeq)
@@ -295,12 +391,17 @@ extension ApiServiceContacts on ApiService {
           .map((json) => Contact.fromJson(json))
           .toList();
 
-      if (contacts.length < contactIds.length) {
+      if (contacts.length < idsToFetch.length) {
         final receivedIds = contacts.map((c) => c.id).toSet();
-        final missingIds = contactIds
+        final missingIds = idsToFetch
             .where((id) => !receivedIds.contains(id))
             .toList();
-        debugPrint('Missing contact IDs: $missingIds');
+        
+        for (final missingId in missingIds) {
+          if (_missingContactIds.add(missingId)) {
+            debugPrint('⚠️ Контакт $missingId не найден, добавлен в черный список');
+          }
+        }
       }
 
       for (final contact in contacts) {
@@ -310,5 +411,33 @@ extension ApiServiceContacts on ApiService {
     } catch (e) {
       return [];
     }
+  }
+
+  /// Удаление канала (только для владельца) — opcode 52
+  Future<void> deleteChannel(int chatId) async {
+    await waitUntilOnline();
+    final payload = {
+      'chatId': chatId,
+      'lastEventTime': DateTime.now().millisecondsSinceEpoch,
+      'forAll': true,
+    };
+    _sendMessage(52, payload);
+  }
+
+  /// Передать права владельца каналу — opcode 55
+  Future<void> transferChannelOwnership(int chatId, int newOwnerId) async {
+    await waitUntilOnline();
+    final payload = {
+      'chatId': chatId,
+      'changeOwnerId': newOwnerId,
+    };
+    _sendMessage(55, payload);
+  }
+
+  /// Выйти из канала — opcode 58
+  Future<void> leaveChat(int chatId) async {
+    await waitUntilOnline();
+    final payload = {'chatId': chatId};
+    _sendMessage(58, payload);
   }
 }

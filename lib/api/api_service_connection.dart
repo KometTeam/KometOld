@@ -140,6 +140,68 @@ extension ApiServiceConnection on ApiService {
     _socketConnected = false;
     _pingTimer?.cancel();
 
+    // Удаляем невалидный аккаунт и переключаемся на следующий (если есть)
+    try {
+      final accountManager = AccountManager();
+      await accountManager.initialize();
+
+      // Используем UUID аккаунта (не userId пользователя) для идентификации
+      final invalidAccount = accountManager.currentAccount;
+      final invalidAccountUuid = invalidAccount?.id;
+
+      print('🔄 Токен недействителен, удаляем аккаунт $invalidAccountUuid');
+
+      // Ищем следующий аккаунт до удаления
+      final accounts = accountManager.accounts;
+      final nextAccount = accounts.firstWhere(
+        (a) => a.id != invalidAccountUuid && a.token.isNotEmpty,
+        orElse: () => throw Exception('Нет доступных аккаунтов'),
+      );
+
+      // Удаляем невалидный аккаунт если он не единственный
+      if (invalidAccountUuid != null) {
+        try {
+          await accountManager.removeAccount(invalidAccountUuid);
+        } catch (e) {
+          print('⚠️ Не удалось удалить аккаунт: $e');
+        }
+      }
+
+      print('🔄 Переключаемся на аккаунт ${nextAccount.id}');
+      await accountManager.switchAccount(nextAccount.id);
+      authToken = nextAccount.token;
+      userId = nextAccount.userId;
+
+      _resetSession();
+      _messageController.add({
+        'type': 'auto_switched_account',
+        'message': 'Автоматически переключились на другой аккаунт',
+        'accountId': nextAccount.id,
+      });
+
+      // Переподключаемся с новым аккаунтом
+      unawaited(connect());
+      return;
+    } catch (e) {
+      print('⚠️ Не удалось переключиться на другой аккаунт: $e');
+    }
+
+    // Нет других аккаунтов — удаляем данные и отправляем на экран входа
+    try {
+      final accountManager = AccountManager();
+      await accountManager.initialize();
+      final invalidAccountUuid = accountManager.currentAccount?.id;
+      if (invalidAccountUuid != null) {
+        // Единственный аккаунт — очищаем токен вместо удаления
+        await prefs.remove('multi_accounts');
+        await prefs.remove('current_account_id');
+      }
+    } catch (e) {
+      print('⚠️ Ошибка очистки аккаунтов: $e');
+    }
+
+    userId = null;
+
     _messageController.add({
       'type': 'invalid_token',
       'message': 'Токен недействителен, требуется повторная авторизация',
@@ -208,6 +270,9 @@ extension ApiServiceConnection on ApiService {
 
     _isSessionOnline = false;
     _isSessionReady = false;
+    
+    clearChatMessageContactCache();
+    _missingContactIds.clear();
 
     _connectionStatusController.add("connecting");
     _updateConnectionState(
@@ -302,6 +367,14 @@ extension ApiServiceConnection on ApiService {
     return await _sendMessage(opcode, payload);
   }
 
+  Future<Map<String, dynamic>> joinGroupCall(String joinLink) async {
+    final response = await sendRequest(89, {
+      'link': joinLink,
+    });
+
+    return response as Map<String, dynamic>;
+  }
+
 
   void _listen() async {
     if (!_socketConnected || _socket == null) {
@@ -369,18 +442,25 @@ extension ApiServiceConnection on ApiService {
       );
       if (opcode != 19) {
         final bool shouldLogPayload =
-            opcode != 129 &&
             opcode != 132 &&
             opcode != 48 &&
             opcode != 49;
 
         if (shouldLogPayload) {
-          _log('📥 PAYLOAD: ${truncatePayloadObjectForLog(payload)}');
+          if (opcode == 129) {
+            _log('📥 🔔 OPCODE 129 PAYLOAD: $payload');
+          } else {
+            _log('📥 PAYLOAD: ${truncatePayloadObjectForLog(payload)}');
+          }
         }
       }
 
       if (opcode == 2) {
         _healthMonitor.onPongReceived();
+      }
+
+      if (opcode == 134 && payload != null) {
+        _processServerPrivacyConfig(payload["config"]);
       }
 
       // Обновляем кэш профиля при получении push-уведомления opcode 159
@@ -437,6 +517,14 @@ extension ApiServiceConnection on ApiService {
         final errorMsg = error?['message'] ?? error?['error'] ?? 'server_error';
         print('← ERROR: $errorMsg');
         _healthMonitor.onError(errorMsg);
+
+        // Пробрасываем ERROR в messages stream с seq, чтобы ожидающие запросы могли поймать ошибку
+        _messageController.add({
+          'cmd': 3,
+          'seq': decodedMessage['seq'],
+          'opcode': decodedMessage['opcode'],
+          'payload': error,
+        });
 
         if (error != null && error['localizedMessage'] != null) {
           _errorController.add(error['localizedMessage']);
@@ -509,6 +597,11 @@ extension ApiServiceConnection on ApiService {
           _currentPasswordHint = challenge['hint'];
           _currentPasswordEmail = challenge['email'];
 
+          // Сохраняем факт наличия 2FA пароля
+          SharedPreferences.getInstance().then((prefs) {
+            prefs.setBool('has_2fa_password', true);
+          });
+
           _messageController.add({
             'type': 'password_required',
             'trackId': _currentPasswordTrackId,
@@ -537,7 +630,7 @@ extension ApiServiceConnection on ApiService {
         });
       }
 
-      // opcode 112: Начало установки 2FA - получаем trackId
+      // opcode 112: Начало установки/управления 2FA - получаем trackId
       if (decodedMessage['opcode'] == 112 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         final payload = decodedMessage['payload'];
@@ -545,6 +638,39 @@ extension ApiServiceConnection on ApiService {
           'type': '2fa_setup_started',
           'trackId': payload?['trackId'],
           'payload': payload,
+        });
+      }
+
+      // opcode 104: Информация о текущей 2FA (email, hint, enabled)
+      if (decodedMessage['opcode'] == 104 &&
+          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+        final payload = decodedMessage['payload'];
+        _messageController.add({
+          'type': '2fa_info',
+          'enabled': payload?['password']?['enabled'] ?? false,
+          'email': payload?['password']?['email'],
+          'hint': payload?['password']?['hint'],
+          'payload': payload,
+        });
+      }
+
+      // opcode 113: Результат проверки пароля 2FA
+      if (decodedMessage['opcode'] == 113 &&
+          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+        final payload = decodedMessage['payload'];
+        _messageController.add({
+          'type': '2fa_password_verified',
+          'trackId': payload?['trackId'],
+          'payload': payload,
+        });
+      }
+
+      // opcode 113 ERROR: Неверный пароль 2FA
+      if (decodedMessage['opcode'] == 113 &&
+          (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
+        _messageController.add({
+          'type': '2fa_password_wrong',
+          'payload': decodedMessage['payload'],
         });
       }
 
@@ -594,6 +720,15 @@ extension ApiServiceConnection on ApiService {
       // opcode 111: 2FA успешно установлен
       if (decodedMessage['opcode'] == 111 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+        // Сервер завершит все сессии кроме текущей — игнорируем opcode 97
+        _isTerminatingOtherSessions = true;
+        Future.delayed(const Duration(seconds: 5), () {
+          _isTerminatingOtherSessions = false;
+        });
+        // Сохраняем факт установки 2FA пароля
+        SharedPreferences.getInstance().then((prefs) {
+          prefs.setBool('has_2fa_password', true);
+        });
         _messageController.add({
           'type': '2fa_setup_complete',
           'payload': decodedMessage['payload'],
@@ -601,8 +736,8 @@ extension ApiServiceConnection on ApiService {
       }
 
       // 2FA Setup error handlers
-      if (decodedMessage['cmd'] == 3 &&
-          [107, 108, 109, 110, 111, 112].contains(decodedMessage['opcode'])) {
+      if ((decodedMessage['cmd'] == 768 || decodedMessage['cmd'] == 0x300) &&
+          [104, 107, 108, 109, 110, 111, 112, 113].contains(decodedMessage['opcode'])) {
         _messageController.add({
           'type': '2fa_error',
           'opcode': decodedMessage['opcode'],
@@ -646,6 +781,28 @@ extension ApiServiceConnection on ApiService {
         _messageController.add({
           'type': 'channels_not_found',
           'payload': payload,
+        });
+      }
+
+      if ((decodedMessage['opcode'] == 68 || decodedMessage['opcode'] == 60) &&
+          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+        final payload = decodedMessage['payload'];
+        _messageController.add({
+          'type': 'global_search_result',
+          'payload': payload,
+          'opcode': decodedMessage['opcode'],
+          'seq': decodedMessage['seq'],
+        });
+      }
+
+      if ((decodedMessage['opcode'] == 68 || decodedMessage['opcode'] == 60) &&
+          (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
+        final payload = decodedMessage['payload'];
+        _messageController.add({
+          'type': 'global_search_error',
+          'payload': payload,
+          'opcode': decodedMessage['opcode'],
+          'seq': decodedMessage['seq'],
         });
       }
 
@@ -698,6 +855,16 @@ extension ApiServiceConnection on ApiService {
           (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
         final payload = decodedMessage['payload'];
         _messageController.add({'type': 'channel_error', 'payload': payload});
+      }
+
+      if (decodedMessage['opcode'] == 89 && decodedMessage['cmd'] == 1) {
+        final payload = decodedMessage['payload'];
+        if (payload != null && payload['videoConference'] != null) {
+          _messageController.add({
+            'type': 'video_conference_joined',
+            'payload': payload,
+          });
+        }
       }
 
       if (decodedMessage['opcode'] == 57 &&

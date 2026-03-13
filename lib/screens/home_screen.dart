@@ -829,99 +829,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _handleGroupJoinSuccess(Map<String, dynamic> message) {
-    final payload = message['payload'];
-    final chat = payload['chat'];
-    final chatTitle = chat?['title'] ?? 'Группа';
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Успешно присоединились к группе "$chatTitle"!'),
-        backgroundColor: Colors.green,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.all(10),
-      ),
-    );
+    // Снекбар убран — пользователю и так понятно что присоединился
   }
 
   Future<void> _showSpoofUpdateDialogIfNeeded() async {
-    if (_isDialogShowing) return;
-
-    final prefs = await SharedPreferences.getInstance();
-    final shouldShow = prefs.getBool('show_spoof_update_dialog') ?? true;
-
-    if (!shouldShow || !mounted) return;
-
-    _isDialogShowing = true;
-
-    Future.delayed(const Duration(milliseconds: 500), () {
-      if (!mounted) {
-        _isDialogShowing = false;
-        return;
-      }
-
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (BuildContext context) {
-          bool dontShowAgain = false;
-
-          return StatefulBuilder(
-            builder: (context, setState) {
-              return AlertDialog(
-                title: const Text('Проверка обновлений'),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Хотите проверить обновления спуфа?'),
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Checkbox(
-                          value: dontShowAgain,
-                          onChanged: (value) {
-                            setState(() {
-                              dontShowAgain = value ?? false;
-                            });
-                          },
-                        ),
-                        const Expanded(child: Text('Больше не показывать')),
-                      ],
-                    ),
-                  ],
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () async {
-                      if (dontShowAgain) {
-                        final prefs = await SharedPreferences.getInstance();
-                        await prefs.setBool('show_spoof_update_dialog', false);
-                      }
-                      Navigator.of(context).pop();
-                    },
-                    child: const Text('Нет'),
-                  ),
-                  TextButton(
-                    onPressed: () async {
-                      if (dontShowAgain) {
-                        final prefs = await SharedPreferences.getInstance();
-                        await prefs.setBool('show_spoof_update_dialog', false);
-                      }
-                      Navigator.of(context).pop();
-                      await _checkSpoofUpdateManually();
-                    },
-                    child: const Text('Ок!'),
-                  ),
-                ],
-              );
-            },
-          );
-        },
-      ).then((_) {
-        _isDialogShowing = false;
-      });
-    });
   }
 
   Future<void> _checkSpoofUpdateManually() async {

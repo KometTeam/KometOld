@@ -28,9 +28,13 @@ import 'services/whitelist_service.dart';
 import 'services/notification_service.dart';
 import 'services/message_queue_service.dart';
 import 'services/cache_auto_cleanup_service.dart';
+import 'services/calls_service.dart';
+import 'services/message_read_status_service.dart';
 import 'utils/theme_provider.dart';
 import 'utils/device_presets.dart';
 import 'plugins/plugin_service.dart';
+import 'widgets/incoming_call_overlay.dart';
+import 'widgets/floating_call_overlay.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
@@ -70,6 +74,20 @@ Future<void> _generateInitialAndroidSpoof() async {
 }
 
 Future<void> main() async {
+  // Подавляем надоедливые GTK/GDK warnings на Linux
+  if (Platform.isLinux) {
+    // Перенаправляем stderr чтобы отфильтровать Gdk warnings
+    final originalPrint = debugPrint;
+    debugPrint = (String? message, {int? wrapWidth}) {
+      if (message != null && 
+          (message.contains('Gdk-WARNING') || 
+           message.contains('Error converting selection'))) {
+        return; // Игнорируем эти сообщения
+      }
+      originalPrint(message, wrapWidth: wrapWidth);
+    };
+  }
+  
   FlutterError.onError = (FlutterErrorDetails details) {
     FlutterError.presentError(details);
     debugPrint('💥 [Global] FlutterError: ${details.exceptionAsString()}');
@@ -82,58 +100,109 @@ Future<void> main() async {
     return true;
   };
 
-  await runZonedGuarded(() async {
-    WidgetsFlutterBinding.ensureInitialized();
-    await initializeDateFormatting();
+  WidgetsFlutterBinding.ensureInitialized();
 
-    await _generateInitialAndroidSpoof();
-    
-    await Future.wait([
-      CacheService().initialize(),
-      AvatarCacheService().initialize(),
-      ChatCacheService().initialize(),
-      ContactLocalNamesService().initialize(),
-      MessageQueueService().initialize(),
-    ]);
+  await runZonedGuarded(
+    () async {
+      await initializeDateFormatting();
 
-    // Инициализация автоочистки кэша
-    await CacheAutoCleanupService().initialize();
-    
-    await AccountManager().initialize();
-    await AccountManager().migrateOldAccount();
-    await MusicPlayerService().initialize();
-    await PluginService().initialize();
-    await WhitelistService().loadWhitelist();
-    await NotificationService().initialize();
-    NotificationService().setNavigatorKey(navigatorKey);
+      await _generateInitialAndroidSpoof();
 
-    if (Platform.isAndroid) {
-      await initializeBackgroundService();
-    }
-
-    await ApiService.clearSessionValues();
-    final hasToken = await ApiService.instance.hasToken();
-
-    if (hasToken) {
-      await WhitelistService().validateCurrentUserIfNeeded();
-      if (await ApiService.instance.hasToken()) {
-        ApiService.instance.connect();
+      try {
+        await Future.wait([
+          CacheService().initialize(),
+          AvatarCacheService().initialize(),
+          ChatCacheService().initialize(),
+          ContactLocalNamesService().initialize(),
+          MessageQueueService().initialize(),
+          MessageReadStatusService().initialize(),
+        ]);
+      } catch (e) {
+        debugPrint('Error init cache: $e');
       }
-    }
 
-    runApp(
-      MultiProvider(
-        providers: [
-          ChangeNotifierProvider(create: (context) => ThemeProvider()),
-          ChangeNotifierProvider(create: (context) => MusicPlayerService()),
-        ],
-        child: ConnectionLifecycleManager(child: MyApp(hasToken: hasToken)),
-      ),
-    );
-  }, (Object error, StackTrace stack) {
-    debugPrint('💥 [Global] runZonedGuarded error: $error');
-    debugPrint('💥 [Global] Stack: $stack');
-  });
+      try {
+        await CacheAutoCleanupService().initialize();
+      } catch (_) {}
+
+      try {
+        await AccountManager().initialize();
+        await AccountManager().migrateOldAccount();
+      } catch (_) {}
+
+      try {
+        await MusicPlayerService().initialize();
+      } catch (_) {}
+
+      try {
+        await PluginService().initialize();
+      } catch (_) {}
+
+      try {
+        await WhitelistService().loadWhitelist();
+      } catch (_) {}
+
+      try {
+        await NotificationService().initialize();
+        NotificationService().setNavigatorKey(navigatorKey);
+      } catch (e) {
+        debugPrint('Error init NotificationService: $e');
+      }
+
+      try {
+        CallsService.instance.initialize();
+      } catch (_) {}
+
+      if (Platform.isAndroid) {
+        try {
+          await initializeBackgroundService();
+        } catch (e) {
+          debugPrint('Error init BackgroundService: $e');
+        }
+      }
+
+      bool hasToken = false;
+      try {
+        await ApiService.clearSessionValues();
+        hasToken = await ApiService.instance.hasToken();
+
+        if (hasToken) {
+          await WhitelistService().validateCurrentUserIfNeeded();
+          if (await ApiService.instance.hasToken()) {
+            ApiService.instance.connect();
+          }
+        }
+      } catch (e) {
+        debugPrint('Error init ApiService: $e');
+      }
+
+      try {
+        runApp(
+          MultiProvider(
+            providers: [
+              ChangeNotifierProvider(create: (context) => ThemeProvider()),
+              ChangeNotifierProvider(create: (context) => MusicPlayerService()),
+            ],
+            child: ConnectionLifecycleManager(child: MyApp(hasToken: hasToken)),
+          ),
+        );
+      } catch (e, stack) {
+        debugPrint('CRITICAL FAIL: $e\n$stack');
+        // В крайнем случае запускаем хоть что-то чтобы не было полностью мертвого приложения
+        runApp(
+          MaterialApp(
+            home: Scaffold(
+              body: Center(child: Text('Фатальная ошибка загрузки: $e')),
+            ),
+          ),
+        );
+      }
+    },
+    (Object error, StackTrace stack) {
+      debugPrint('💥 [Global] runZonedGuarded error: $error');
+      debugPrint('💥 [Global] Stack: $stack');
+    },
+  );
 }
 
 class MyApp extends StatelessWidget {
@@ -148,7 +217,8 @@ class MyApp extends StatelessWidget {
 
     return DynamicColorBuilder(
       builder: (ColorScheme? lightDynamic, ColorScheme? darkDynamic) {
-        final bool useMaterialYou = themeProvider.appTheme == AppTheme.system &&
+        final bool useMaterialYou =
+            themeProvider.appTheme == AppTheme.system &&
             lightDynamic != null &&
             darkDynamic != null;
 
@@ -156,7 +226,8 @@ class MyApp extends StatelessWidget {
             ? lightDynamic.primary
             : themeProvider.accentColor;
 
-        final PageTransitionsTheme pageTransitionsTheme = themeProvider.optimization
+        final PageTransitionsTheme pageTransitionsTheme =
+            themeProvider.optimization
             ? const PageTransitionsTheme(
                 builders: {
                   TargetPlatform.android: FadeUpwardsPageTransitionsBuilder(),
@@ -185,7 +256,9 @@ class MyApp extends StatelessWidget {
           useMaterial3: true,
           pageTransitionsTheme: pageTransitionsTheme,
           shadowColor: themeProvider.optimization ? Colors.transparent : null,
-          splashFactory: themeProvider.optimization ? NoSplash.splashFactory : null,
+          splashFactory: themeProvider.optimization
+              ? NoSplash.splashFactory
+              : null,
           appBarTheme: AppBarTheme(
             titleTextStyle: TextStyle(
               fontSize: 16,
@@ -208,7 +281,9 @@ class MyApp extends StatelessWidget {
           useMaterial3: true,
           pageTransitionsTheme: pageTransitionsTheme,
           shadowColor: themeProvider.optimization ? Colors.transparent : null,
-          splashFactory: themeProvider.optimization ? NoSplash.splashFactory : null,
+          splashFactory: themeProvider.optimization
+              ? NoSplash.splashFactory
+              : null,
           appBarTheme: AppBarTheme(
             titleTextStyle: TextStyle(
               fontSize: 16,
@@ -247,7 +322,8 @@ class MyApp extends StatelessWidget {
           ),
         );
 
-        final ThemeData activeDarkTheme = themeProvider.appTheme == AppTheme.black
+        final ThemeData activeDarkTheme =
+            themeProvider.appTheme == AppTheme.black
             ? oledTheme
             : baseDarkTheme;
 
@@ -255,15 +331,20 @@ class MyApp extends StatelessWidget {
           title: 'Komet',
           navigatorKey: navigatorKey,
           builder: (context, child) {
-            final showHud = themeProvider.debugShowPerformanceOverlay ||
+            final showHud =
+                themeProvider.debugShowPerformanceOverlay ||
                 themeProvider.showFpsOverlay;
-            return SizedBox.expand(
-              child: Stack(
-                children: [
-                  ?child,
-                  if (showHud)
-                    const Positioned(top: 8, right: 56, child: _MiniFpsHud()),
-                ],
+            return FloatingCallOverlay(
+              child: SizedBox.expand(
+                child: Stack(
+                  children: [
+                    child ?? const SizedBox(),
+                    // Overlay для входящих звонков
+                    const IncomingCallOverlay(),
+                    if (showHud)
+                      const Positioned(top: 8, right: 56, child: _MiniFpsHud()),
+                  ],
+                ),
               ),
             );
           },
@@ -315,12 +396,13 @@ class _MiniFpsHudState extends State<_MiniFpsHud> {
       _timings.removeRange(0, _timings.length - _sampleSize);
     }
     if (_timings.isEmpty) return;
-    
-    final double avg = _timings
+
+    final double avg =
+        _timings
             .map((t) => t.totalSpan.inMicroseconds / 1000.0)
             .fold(0.0, (a, b) => a + b) /
         _timings.length;
-    
+
     if (!mounted) return;
     setState(() {
       _avgMs = avg;

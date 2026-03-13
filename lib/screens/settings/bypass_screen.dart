@@ -117,6 +117,20 @@ class _BypassScreenState extends State<BypassScreen> {
                   : colors.onSurfaceVariant,
             ),
           ),
+          SwitchListTile(
+            title: const Text('Безлимитное число закреплённых'),
+            subtitle: const Text('Снимает ограничение в 5 закреплённых чатов'),
+            value: themeProvider.unlimitedPinnedChats,
+            onChanged: (val) => themeProvider.setUnlimitedPinnedChats(val),
+            secondary: Icon(
+              themeProvider.unlimitedPinnedChats
+                  ? Icons.push_pin
+                  : Icons.push_pin_outlined,
+              color: themeProvider.unlimitedPinnedChats
+                  ? colors.primary
+                  : colors.onSurfaceVariant,
+            ),
+          ),
         ],
       ),
     );
@@ -218,6 +232,20 @@ class _BypassScreenState extends State<BypassScreen> {
                   ? Icons.auto_fix_high
                   : Icons.auto_fix_high_outlined,
               color: themeProvider.specialMessagesEnabled
+                  ? colors.primary
+                  : colors.onSurfaceVariant,
+            ),
+          ),
+          SwitchListTile(
+            title: const Text('Безлимитное число закреплённых'),
+            subtitle: const Text('Снимает ограничение в 5 закреплённых чатов'),
+            value: themeProvider.unlimitedPinnedChats,
+            onChanged: (val) => themeProvider.setUnlimitedPinnedChats(val),
+            secondary: Icon(
+              themeProvider.unlimitedPinnedChats
+                  ? Icons.push_pin
+                  : Icons.push_pin_outlined,
+              color: themeProvider.unlimitedPinnedChats
                   ? colors.primary
                   : colors.onSurfaceVariant,
             ),

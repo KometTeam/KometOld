@@ -4,8 +4,11 @@
 
   <!-- === РАЗРЕШЕНИЯ === -->
 
-  <!-- Микрофон -->
+  <!-- Микрофон и камера -->
   <uses-permission android:name="android.permission.RECORD_AUDIO" />
+  <uses-permission android:name="android.permission.CAMERA" />
+  <uses-feature android:name="android.hardware.camera" android:required="false" />
+  <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
   <!-- Сеть -->
   <uses-permission android:name="android.permission.INTERNET" />
@@ -37,7 +40,8 @@
     android:name="${applicationName}"
     android:icon="@mipmap/ic_launcher"
     android:requestLegacyExternalStorage="true"
-    android:usesCleartextTraffic="true"> 
+    android:preserveLegacyExternalStorage="true"
+    android:usesCleartextTraffic="true">
 
     <activity
       android:name=".MainActivity"
@@ -46,9 +50,7 @@
       android:theme="@style/LaunchTheme"
       android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
       android:hardwareAccelerated="true"
-      android:windowSoftInputMode="adjustResize"
-      android:showWhenLocked="true"
-      android:turnScreenOn="true">
+      android:windowSoftInputMode="adjustResize">
 
       <meta-data
         android:name="io.flutter.embedding.android.NormalTheme"
@@ -90,6 +92,19 @@
       android:exported="false">
       <intent-filter>
         <action android:name="com.gwid.app.REPLY_ACTION" />
+      </intent-filter>
+    </receiver>
+
+    <!-- Receiver для действий со звонками -->
+    <receiver
+      android:name=".CallActionReceiver"
+      android:exported="false">
+      <intent-filter>
+        <action android:name="com.gwid.app.ACTION_ANSWER_CALL" />
+        <action android:name="com.gwid.app.ACTION_DECLINE_CALL" />
+        <action android:name="com.gwid.app.ACTION_MUTE_CALL" />
+        <action android:name="com.gwid.app.ACTION_UNMUTE_CALL" />
+        <action android:name="com.gwid.app.ACTION_END_CALL_ONGOING" />
       </intent-filter>
     </receiver>
 

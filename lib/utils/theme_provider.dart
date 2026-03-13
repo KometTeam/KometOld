@@ -44,6 +44,7 @@ class ThemeProvider with ChangeNotifier {
   // Komet features
   bool _kometAutoCompleteEnabled = false;
   bool _specialMessagesEnabled = true;
+  bool _unlimitedPinnedChats = false;
 
   // Getters - Theme
   AppTheme get appTheme => _activeTheme.appTheme;
@@ -201,6 +202,7 @@ class ThemeProvider with ChangeNotifier {
   bool get chatCompactMode => _chatCompactMode;
   bool get kometAutoCompleteEnabled => _kometAutoCompleteEnabled;
   bool get specialMessagesEnabled => _specialMessagesEnabled;
+  bool get unlimitedPinnedChats => _unlimitedPinnedChats;
 
   ThemeProvider() {
     loadSettings();
@@ -282,6 +284,7 @@ class ThemeProvider with ChangeNotifier {
     _kometAutoCompleteEnabled =
         prefs.getBool('komet_auto_complete_enabled') ?? false;
     _specialMessagesEnabled = prefs.getBool('special_messages_enabled') ?? true;
+    _unlimitedPinnedChats = prefs.getBool('unlimited_pinned_chats') ?? false;
 
     await loadChatSpecificWallpapers();
     notifyListeners();
@@ -334,8 +337,11 @@ class ThemeProvider with ChangeNotifier {
     final index = _savedThemes.indexWhere((t) => t.id == _activeTheme.id);
     if (index != -1) {
       _savedThemes[index] = _activeTheme;
-      await _saveThemeListToPrefs();
+    } else {
+      // Если темы нет в списке - добавляем её
+      _savedThemes.add(_activeTheme);
     }
+    await _saveThemeListToPrefs();
   }
 
   void _debouncedSave(String key, void Function() saveAction) {
@@ -687,6 +693,15 @@ class ThemeProvider with ChangeNotifier {
     _debouncedSave('special_messages_enabled', () async {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('special_messages_enabled', value);
+    });
+    notifyListeners();
+  }
+
+  void setUnlimitedPinnedChats(bool value) {
+    _unlimitedPinnedChats = value;
+    _debouncedSave('unlimited_pinned_chats', () async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('unlimited_pinned_chats', value);
     });
     notifyListeners();
   }

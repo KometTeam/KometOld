@@ -1,4 +1,6 @@
 import 'dart:ui' show PointerDeviceKind;
+import 'package:animated_list_plus/animated_list_plus.dart';
+import 'package:animated_list_plus/transitions.dart';
 import 'package:flutter/material.dart';
 import 'package:gwid/models/chat.dart';
 import 'package:gwid/models/contact.dart';
@@ -35,10 +37,7 @@ class _ChatsListPageState extends State<ChatsListPage>
   @override
   bool get wantKeepAlive => true;
 
-  @override
-  Widget build(BuildContext context) {
-    super.build(context);
-
+  List<Chat> _buildSortedList() {
     List<Chat> chatsForFolder = widget.allChats;
 
     if (widget.folder != null && widget.chatBelongsToFolder != null) {
@@ -47,16 +46,22 @@ class _ChatsListPageState extends State<ChatsListPage>
           .toList();
     }
 
-    // Сортировка по времени последнего сообщения (новые сверху)
+    chatsForFolder = List.of(chatsForFolder);
     chatsForFolder.sort((a, b) {
+      final aPinned = a.favIndex > 0;
+      final bPinned = b.favIndex > 0;
+      if (aPinned && bPinned) return a.favIndex.compareTo(b.favIndex);
+      if (aPinned) return -1;
+      if (bPinned) return 1;
       return b.lastMessage.time.compareTo(a.lastMessage.time);
     });
 
     if (widget.searchQuery.isNotEmpty) {
+      final query = widget.searchQuery.toLowerCase();
       chatsForFolder = chatsForFolder.where((chat) {
         final isSavedMessages = widget.isSavedMessages(chat);
         if (isSavedMessages) {
-          return "избранное".contains(widget.searchQuery.toLowerCase());
+          return "избранное".contains(query);
         }
         final otherParticipantId = chat.participantIds.firstWhere(
           (id) => id != widget.myId,
@@ -65,10 +70,18 @@ class _ChatsListPageState extends State<ChatsListPage>
         final contact = widget.contacts[otherParticipantId];
         final contactName = contact?.name.toLowerCase() ?? '';
         final contactIdStr = otherParticipantId.toString();
-        final query = widget.searchQuery.toLowerCase();
         return contactName.contains(query) || contactIdStr.contains(query);
       }).toList();
     }
+
+    return chatsForFolder;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+
+    final chatsForFolder = _buildSortedList();
 
     if (chatsForFolder.isEmpty) {
       return Center(
@@ -81,6 +94,10 @@ class _ChatsListPageState extends State<ChatsListPage>
       );
     }
 
+    final idToIndex = {
+      for (var i = 0; i < chatsForFolder.length; i++) chatsForFolder[i].id: i,
+    };
+
     return ScrollConfiguration(
       behavior: ScrollConfiguration.of(context).copyWith(
         dragDevices: {
@@ -90,20 +107,23 @@ class _ChatsListPageState extends State<ChatsListPage>
           PointerDeviceKind.trackpad,
         },
       ),
-      child: ListView.builder(
-        itemCount: chatsForFolder.length,
-        itemExtent: 72.0,
-        cacheExtent: 500.0,
-        addRepaintBoundaries: true,
-        addAutomaticKeepAlives: true,
-        addSemanticIndexes: false,
-        itemBuilder: (context, index) {
+      child: ImplicitlyAnimatedList<Chat>(
+        items: chatsForFolder,
+        itemBuilder: (context, animation, chat, index) {
+          return SizeFadeTransition(
+            animation: animation,
+            child: widget.buildChatListItem(chat, index, widget.folder),
+          );
+        },
+        areItemsTheSame: (a, b) => a.id == b.id,
+        updateItemBuilder: (context, animation, chat) {
           return widget.buildChatListItem(
-            chatsForFolder[index],
-            index,
+            chat,
+            idToIndex[chat.id] ?? 0,
             widget.folder,
           );
         },
+        spawnIsolate: false,
       ),
     );
   }

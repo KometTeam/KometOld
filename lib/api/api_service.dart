@@ -11,10 +11,13 @@ import 'package:gwid/connection/connection_logger.dart';
 import 'package:gwid/connection/connection_state.dart' as conn_state;
 import 'package:gwid/connection/health_monitor.dart';
 import 'package:gwid/utils/image_cache_service.dart';
+import 'package:gwid/models/call_request.dart';
+import 'package:gwid/models/call_response.dart';
 import 'package:gwid/models/complaint.dart';
 import 'package:gwid/models/contact.dart';
 import 'package:gwid/models/message.dart';
 import 'package:gwid/models/profile.dart';
+import 'package:gwid/models/video_conference.dart';
 
 import 'package:gwid/services/account_manager.dart';
 import 'package:gwid/services/avatar_cache_service.dart';
@@ -41,10 +44,13 @@ import 'package:msgpack_dart/msgpack_dart.dart' as msgpack;
 import 'packet_buffer.dart';
 import 'protocol_handler.dart';
 import 'pending_requests_manager.dart';
+import '../screens/chat/widgets/chat_message_item.dart';
 part 'api_service_connection.dart';
 part 'api_service_auth.dart';
+part 'api_service_calls.dart';
 part 'api_service_contacts.dart';
 part 'api_service_chats.dart';
+part 'api_service_search.dart';
 part 'api_service_media.dart';
 part 'api_service_privacy.dart';
 part 'api_service_complaints.dart';
@@ -77,7 +83,12 @@ class ApiService {
   }
   static final ApiService instance = ApiService._privateConstructor();
 
+  /// Ссылка-приглашение из config.server (заполняется при логине)
+  String? serverInviteLink;
+  String? serverInviteShort;
+
   int? _userId;
+  int? get myUserId => _userId;
   late int _sessionId;
   int _actionId = 1;
   bool _isColdStartSent = false;
@@ -129,6 +140,97 @@ class ApiService {
   final Map<int, List<Message>> _messageCache = {};
 
   final Map<int, Contact> _contactCache = {};
+  Contact? getCachedContact(int id) => _contactCache[id];
+
+  // Глобальный кэш прочитанности: chatId -> последний прочитанный timestamp (opcode 130)
+  final Map<int, int> _peerReadTimestamps = {};
+  // Глобальный кэш прочитанности: chatId -> последний прочитанный messageId (opcode 50)
+  final Map<int, int> _peerReadMessageIds = {};
+
+  // Глобальный кэш ID наших чатов (обновляется из ChatsScreen)
+  final Set<int> _myChatIds = {};
+  Set<int> get myChatIds => Set.unmodifiable(_myChatIds);
+  void updateMyChatIds(List<int> ids) {
+    _myChatIds
+      ..clear()
+      ..addAll(ids);
+  }
+
+  void updatePeerReadTimestamp(int chatId, int timestamp) {
+    final current = _peerReadTimestamps[chatId];
+    if (current == null || timestamp > current) {
+      _peerReadTimestamps[chatId] = timestamp;
+    }
+  }
+
+  void updatePeerReadMessageId(int chatId, int messageId) {
+    final current = _peerReadMessageIds[chatId];
+    if (current == null || messageId > current) {
+      _peerReadMessageIds[chatId] = messageId;
+    }
+  }
+
+  bool isPeerRead(int chatId, int messageTime, {int? messageId}) {
+    // Проверяем по timestamp (opcode 130)
+    final lastReadTs = _peerReadTimestamps[chatId];
+    if (lastReadTs != null && messageTime <= lastReadTs) return true;
+    // Проверяем по messageId (opcode 50)
+    if (messageId != null) {
+      final lastReadId = _peerReadMessageIds[chatId];
+      if (lastReadId != null && messageId <= lastReadId) return true;
+    }
+    return false;
+  }
+
+  void cacheContact(Map<String, dynamic> contactJson) {
+    try {
+      final contact = Contact.fromJson(contactJson);
+      _contactCache[contact.id] = contact;
+    } catch (_) {}
+  }
+
+  // Кэш инфо о чатах (opcode 48)
+  final Map<int, Map<String, dynamic>> _chatInfoCache = {};
+
+  Map<String, dynamic>? getChatInfo(int chatId) => _chatInfoCache[chatId];
+
+  Future<void> prefetchChatInfo(List<int> chatIds) async {
+    if (chatIds.isEmpty) return;
+    try {
+      // Разбиваем на батчи по 50
+      const batchSize = 50;
+      for (var i = 0; i < chatIds.length; i += batchSize) {
+        final batch = chatIds.sublist(i, (i + batchSize).clamp(0, chatIds.length));
+        final response = await sendRequest(48, {'chatIds': batch});
+        final chats = response['payload']?['chats'] as List?;
+        if (chats == null) continue;
+        for (final chat in chats) {
+          final chatData = chat as Map<String, dynamic>;
+          final id = chatData['id'] as int?;
+          if (id != null) _chatInfoCache[id] = chatData;
+        }
+      }
+    } catch (e) {
+      debugPrint('prefetchChatInfo error: $e');
+    }
+  }
+
+  // Настоящие контакты (не REMOVED, не боты) — из opcode 19/32
+  final Set<int> _realContactIds = {};
+
+  void setRealContacts(List<Contact> contacts) {
+    _realContactIds.clear();
+    for (final c in contacts) {
+      if (!c.isRemoved && !c.isBot) {
+        _realContactIds.add(c.id);
+      }
+    }
+  }
+
+  void addRealContact(int id) => _realContactIds.add(id);
+  void removeRealContact(int id) => _realContactIds.remove(id);
+  bool isRealContact(int id) => _realContactIds.contains(id);
+  final Set<int> _missingContactIds = {};
   DateTime? _lastContactsUpdate;
   static const Duration _contactCacheExpiry = Duration(minutes: 5);
 
@@ -201,6 +303,18 @@ class ApiService {
   bool _chatsFetchedInThisSession = false;
 
   Map<String, dynamic>? get lastChatsPayload => _lastChatsPayload;
+
+  /// Убирает чат из кэшированного payload чтобы не воскрес после перезапуска
+  void removeChatFromLastPayload(int chatId) {
+    if (_lastChatsPayload == null) return;
+    final chats = _lastChatsPayload!['chats'];
+    if (chats is List) {
+      chats.removeWhere((c) {
+        if (c is Map) return c['id'] == chatId;
+        return false;
+      });
+    }
+  }
 
   /// Сбрасывает флаг загруженных чатов для принудительной перезагрузки
   void resetChatsFetchedFlag() {
@@ -709,6 +823,51 @@ class ApiService {
     return result as Map<String, dynamic>;
   }
 
+  Future<Map<String, dynamic>> sendRequestWithVersion(
+    int ver,
+    int opcode,
+    Map<String, dynamic> payload,
+  ) async {
+    final bool isAuthOpcode = opcode == 19 || opcode == 6;
+
+    if (isAuthOpcode) {
+      await waitUntilOnline();
+    } else {
+      await waitUntilOnline();
+      if (!_isSessionReady) {
+        await Future.any([
+          Future.doWhile(() async {
+            if (_isSessionReady) return false;
+            await Future.delayed(const Duration(milliseconds: 50));
+            return true;
+          }),
+          Future.delayed(const Duration(seconds: 10)).then(
+            (_) => throw TimeoutException('Session not ready after 10s'),
+          ),
+        ]);
+      }
+    }
+
+    final seq = _seq++ % 256;
+
+    final completer = _pendingManager.register(
+      seq,
+      debugLabel: 'opcode_$opcode',
+    );
+
+    try {
+      final packet = _packPacket(ver, 0, seq, opcode, payload);
+      _socket?.add(packet);
+      _lastActionTime = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    } catch (e) {
+      _pendingManager.completeError(seq, e);
+      rethrow;
+    }
+
+    final result = await completer.future;
+    return result as Map<String, dynamic>;
+  }
+
   Uint8List _packPacket(
       int ver,
       int cmd,
@@ -843,14 +1002,36 @@ class ApiService {
 
     final request = http.MultipartRequest('POST', Uri.parse(uploadUrl));
     request.files.add(await http.MultipartFile.fromPath('file', localPath));
+    
+    print('🔄 Начинаем загрузку аудио, размер файла: $fileSize bytes');
+    if (onProgress != null) {
+      onProgress(0.1);
+      print('📊 Progress: 10% - начинаем отправку');
+    }
+    
     final streamed = await request.send();
-    onProgress?.call(0.0);
+    
+    if (onProgress != null) {
+      onProgress(0.3);
+      print('📊 Progress: 30% - файл отправлен на сервер');
+    }
+    
     final httpResp = await http.Response.fromStream(streamed);
-    onProgress?.call(1.0);
+    
+    if (onProgress != null) {
+      onProgress(0.6);
+      print('📊 Progress: 60% - получен ответ от сервера');
+    }
+    
     if (httpResp.statusCode != 200) {
       throw Exception(
         'Ошибка загрузки аудио: ${httpResp.statusCode} ${httpResp.body}',
       );
+    }
+    
+    if (onProgress != null) {
+      onProgress(0.8);
+      print('📊 Progress: 80% - файл загружен');
     }
 
     String? token;
@@ -904,6 +1085,12 @@ class ApiService {
           throw err;
         }
         throw Exception(err?.toString() ?? 'Ошибка отправки аудио');
+      }
+      
+      // Финальный прогресс - сообщение отправлено
+      if (onProgress != null) {
+        onProgress(1.0);
+        print('✅ Progress: 100% - сообщение отправлено');
       }
     }
 

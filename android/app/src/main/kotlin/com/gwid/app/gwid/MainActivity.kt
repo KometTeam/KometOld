@@ -1,14 +1,22 @@
 package com.gwid.app.gwid
 
 import android.content.Intent
+import android.os.Build
+import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.gwid.app/notifications"
+    private val CALL_CHANNEL = "com.gwid.app/calls"
+    private val VOICE_UPLOAD_CHANNEL = "com.gwid.app/voice_upload"
     private lateinit var notificationHelper: NotificationHelper
+    private lateinit var callNotificationHelper: CallNotificationHelper
+    private lateinit var voiceUploadHelper: VoiceUploadHelper
     private var methodChannel: MethodChannel? = null
+    private var callMethodChannel: MethodChannel? = null
+    private var voiceUploadMethodChannel: MethodChannel? = null
     
     // Сохраняем payload для передачи во Flutter после инициализации
     private var pendingNotificationPayload: String? = null
@@ -18,6 +26,8 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         
         notificationHelper = NotificationHelper(this)
+        callNotificationHelper = CallNotificationHelper(this)
+        voiceUploadHelper = VoiceUploadHelper(this)
 
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).also { channel ->
             // Register MethodChannel in NotificationReplyReceiver for handling inline reply
@@ -89,6 +99,125 @@ class MainActivity : FlutterActivity() {
                         notificationHelper.updateForegroundServiceNotification(title, content)
                         result.success(true)
                     }
+                    else -> result.notImplemented()
+                }
+            }
+        }
+        
+        // Voice Upload Channel
+        voiceUploadMethodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, VOICE_UPLOAD_CHANNEL).also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "startVoiceUpload" -> {
+                        val uploadId = call.argument<String>("uploadId") ?: ""
+                        val chatId = call.argument<Number>("chatId")?.toLong() ?: 0L
+                        voiceUploadHelper.showUploadNotification(uploadId, chatId, 0)
+                        result.success(null)
+                    }
+                    "updateVoiceUploadProgress" -> {
+                        val uploadId = call.argument<String>("uploadId") ?: ""
+                        val chatId = call.argument<Number>("chatId")?.toLong() ?: 0L
+                        val progress = call.argument<Int>("progress") ?: 0
+                        voiceUploadHelper.updateProgress(uploadId, chatId, progress)
+                        result.success(null)
+                    }
+                    "completeVoiceUpload" -> {
+                        val uploadId = call.argument<String>("uploadId") ?: ""
+                        val chatId = call.argument<Number>("chatId")?.toLong() ?: 0L
+                        voiceUploadHelper.showSuccessNotification(uploadId, chatId)
+                        result.success(null)
+                    }
+                    "cancelVoiceUpload" -> {
+                        val uploadId = call.argument<String>("uploadId") ?: ""
+                        val chatId = call.argument<Number>("chatId")?.toLong() ?: 0L
+                        val errorMessage = call.argument<String>("errorMessage") ?: "Ошибка отправки"
+                        voiceUploadHelper.showErrorNotification(uploadId, chatId, errorMessage)
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        }
+        
+        // MethodChannel для звонков
+        callMethodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CALL_CHANNEL).also { channel ->
+            // Register MethodChannel in CallActionReceiver
+            CallActionReceiver.setMethodChannel(channel)
+
+            val activeCallHelper = ActiveCallNotificationHelper(this)
+            
+            channel.setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "showIncomingCallNotification" -> {
+                        val conversationId = call.argument<String>("conversationId") ?: ""
+                        val callerName = call.argument<String>("callerName") ?: "Unknown"
+                        val callerId = call.argument<Number>("callerId")?.toLong() ?: 0L
+                        val avatarPath = call.argument<String>("avatarPath")
+
+                        // Включаем экран и показываем поверх локскрина только для входящего звонка
+                        runOnUiThread {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                                setShowWhenLocked(true)
+                                setTurnScreenOn(true)
+                            } else {
+                                @Suppress("DEPRECATION")
+                                window.addFlags(
+                                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                                )
+                            }
+                        }
+                        
+                        callNotificationHelper.showIncomingCallNotification(
+                            conversationId = conversationId,
+                            callerName = callerName,
+                            callerId = callerId,
+                            avatarPath = avatarPath
+                        )
+                        result.success(null)
+                    }
+                    
+                    "cancelIncomingCallNotification" -> {
+                        callNotificationHelper.cancelIncomingCallNotification()
+
+                        // Снимаем флаги — звонок отклонён/принят, локскрин больше не нужен
+                        runOnUiThread {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                                setShowWhenLocked(false)
+                                setTurnScreenOn(false)
+                            } else {
+                                @Suppress("DEPRECATION")
+                                window.clearFlags(
+                                    WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                                    WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                                )
+                            }
+                        }
+                        result.success(null)
+                    }
+
+                    // ── Ongoing-уведомление активного звонка ─────────────────────
+                    "showOngoingCallNotification" -> {
+                        val contactName = call.argument<String>("contactName") ?: "Собеседник"
+                        val isMuted    = call.argument<Boolean>("isMuted") ?: false
+                        val duration   = call.argument<Int>("durationSec") ?: 0
+                        activeCallHelper.showOrUpdateNotification(contactName, isMuted, duration)
+                        result.success(null)
+                    }
+
+                    "updateOngoingCallNotification" -> {
+                        val contactName = call.argument<String>("contactName") ?: "Собеседник"
+                        val isMuted    = call.argument<Boolean>("isMuted") ?: false
+                        val duration   = call.argument<Int>("durationSec") ?: 0
+                        activeCallHelper.showOrUpdateNotification(contactName, isMuted, duration)
+                        result.success(null)
+                    }
+
+                    "cancelOngoingCallNotification" -> {
+                        activeCallHelper.cancelNotification()
+                        result.success(null)
+                    }
+                    
                     else -> result.notImplemented()
                 }
             }

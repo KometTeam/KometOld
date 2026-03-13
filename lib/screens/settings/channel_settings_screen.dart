@@ -34,15 +34,20 @@ class _ChannelSettingsScreenState extends State<ChannelSettingsScreen> {
     try {
       // Безопасное получение данных
       final title = widget.channelData['title'] as String? ?? 'Канал';
-      final options = widget.channelData['options'] as Map<String, dynamic>? ?? {};
+      final options =
+          widget.channelData['options'] as Map<String, dynamic>? ?? {};
       final isOfficial = options['OFFICIAL'] == true;
       final access = widget.channelData['access'] as String? ?? 'PRIVATE';
       final link = widget.channelData['link'] as String?;
       final created = widget.channelData['created'] as int?;
       final joinTime = widget.channelData['joinTime'] as int?;
-      final participantsCount = widget.channelData['participantsCount'] as int? ?? 0;
-      final participants = widget.channelData['participants'] as Map<String, dynamic>? ?? {};
-      final adminParticipants = widget.channelData['adminParticipants'] as Map<String, dynamic>? ?? {};
+      final participantsCount =
+          widget.channelData['participantsCount'] as int? ?? 0;
+      final participants =
+          widget.channelData['participants'] as Map<String, dynamic>? ?? {};
+      final adminParticipants =
+          widget.channelData['adminParticipants'] as Map<String, dynamic>? ??
+          {};
       final owner = widget.channelData['owner'] as int?;
 
       return Scaffold(
@@ -53,11 +58,7 @@ class _ChannelSettingsScreenState extends State<ChannelSettingsScreen> {
               Text(title),
               if (isOfficial) ...[
                 const SizedBox(width: 6),
-                const Icon(
-                  Icons.verified,
-                  color: Colors.blue,
-                  size: 20,
-                ),
+                const Icon(Icons.verified, color: Colors.blue, size: 20),
               ],
             ],
           ),
@@ -162,7 +163,9 @@ class _ChannelSettingsScreenState extends State<ChannelSettingsScreen> {
               title: 'Участники ($participantsCount)',
               children: [
                 Theme(
-                  data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                  data: Theme.of(
+                    context,
+                  ).copyWith(dividerColor: Colors.transparent),
                   child: ExpansionTile(
                     tilePadding: EdgeInsets.zero,
                     title: const Text('Показать участников'),
@@ -210,9 +213,7 @@ class _ChannelSettingsScreenState extends State<ChannelSettingsScreen> {
                       children: [
                         const Icon(Icons.info_outline, size: 20),
                         const SizedBox(width: 12),
-                        const Expanded(
-                          child: Text('Показать детали'),
-                        ),
+                        const Expanded(child: Text('Показать детали')),
                         Icon(
                           _showDetails
                               ? Icons.keyboard_arrow_up
@@ -270,10 +271,7 @@ class _ChannelSettingsScreenState extends State<ChannelSettingsScreen> {
           children: [
             Text(
               title,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
             ...children,
@@ -297,15 +295,10 @@ class _ChannelSettingsScreenState extends State<ChannelSettingsScreen> {
             Icon(icon, size: 20),
             const SizedBox(width: 12),
           ],
-          Expanded(
-            child: Text(label),
-          ),
+          Expanded(child: Text(label)),
           Text(
             value,
-            style: TextStyle(
-              fontWeight: FontWeight.w500,
-              color: valueColor,
-            ),
+            style: TextStyle(fontWeight: FontWeight.w500, color: valueColor),
           ),
         ],
       ),
@@ -317,13 +310,13 @@ class _ChannelSettingsScreenState extends State<ChannelSettingsScreen> {
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-          Expanded(
-            child: Text(label),
-          ),
+          Expanded(child: Text(label)),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
             decoration: BoxDecoration(
-              color: enabled ? Colors.green.withOpacity(0.2) : Colors.red.withOpacity(0.2),
+              color: enabled
+                  ? Colors.green.withOpacity(0.2)
+                  : Colors.red.withOpacity(0.2),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
@@ -346,13 +339,6 @@ class _ChannelSettingsScreenState extends State<ChannelSettingsScreen> {
 
   void _copyToClipboard(String text) {
     Clipboard.setData(ClipboardData(text: text));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Ссылка скопирована'),
-        behavior: SnackBarBehavior.floating,
-        duration: Duration(seconds: 2),
-      ),
-    );
   }
 }
 
@@ -404,9 +390,7 @@ class _ParticipantsList extends StatelessWidget {
             children: [
               const Icon(Icons.person, size: 20),
               const SizedBox(width: 12),
-              Expanded(
-                child: Text('ID: ${e.userId}'),
-              ),
+              Expanded(child: Text('ID: ${e.userId}')),
               if (e.isOwner)
                 Container(
                   padding: const EdgeInsets.symmetric(

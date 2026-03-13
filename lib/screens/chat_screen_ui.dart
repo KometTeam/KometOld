@@ -1,6 +1,52 @@
 part of 'chat_screen.dart';
 
 extension on _ChatScreenState {
+  // Helper для субтитра группы
+  Widget _buildGroupSubtitle() {
+    // Пытаемся получить информацию о чате из кэша
+    final chatData = ApiService.instance.lastChatsPayload;
+    final chats = chatData?['chats'] as List?;
+
+    Chat? currentChat;
+    if (chats != null) {
+      for (final chatJson in chats) {
+        try {
+          final chat = Chat.tryFromJson(chatJson as Map<String, dynamic>);
+          if (chat != null && chat.id == widget.chatId) {
+            currentChat = chat;
+            break;
+          }
+        } catch (e) {
+          // Игнорируем ошибки парсинга
+        }
+      }
+    }
+
+    // Проверяем есть ли активный звонок
+    if (currentChat?.hasActiveCall ?? false) {
+      return Text(
+        'Активный звонок',
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+          color: Colors.green,
+          fontWeight: FontWeight.w500,
+        ),
+      );
+    }
+
+    // Берём participantCount из кэша чатов если не передан
+    int? participantCount = widget.participantCount ?? currentChat?.participantsCount;
+
+    // Обычный субтитр
+    return Text(
+      widget.isChannel
+          ? "${participantCount ?? 0} подписчиков"
+          : "${participantCount ?? 0} участников",
+      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+      ),
+    );
+  }
+
   // AppBar
   AppBar _buildAppBar() {
     final theme = context.read<ThemeProvider>();
@@ -74,6 +120,24 @@ extension on _ChatScreenState {
               onPressed: () => Navigator.of(context).pop(),
             ),
       actions: [
+        // Кнопка звонка только для обычных пользователей (не группы, не каналы, не боты, не MAX)
+        if (!widget.isGroupChat &&
+            !widget.isChannel &&
+            widget.chatId != 0 &&
+            widget.chatId != 1 && // MAX chat
+            !widget.contact.isBot)
+          IconButton(
+            onPressed: _initiateCall,
+            icon: const Icon(Icons.call),
+            tooltip: 'Позвонить',
+          ),
+        // ОТКЛЮЧЕНО: Групповые звонки (критические баги)
+        // if (widget.isGroupChat && widget.chatId != 0)
+        //   IconButton(
+        //     onPressed: _handleGroupCall,
+        //     icon: const Icon(Icons.call),
+        //     tooltip: 'Групповой звонок',
+        //   ),
         if (widget.isGroupChat)
           IconButton(
             onPressed: () {
@@ -201,6 +265,7 @@ extension on _ChatScreenState {
                     ],
                   ),
                 ),
+              if (!widget.isChannel || _isChannelAdmin())
               PopupMenuItem(
                 value: 'encryption_password',
                 child: Row(
@@ -424,14 +489,7 @@ extension on _ChatScreenState {
 
                   const SizedBox(height: 2),
                   if (widget.isGroupChat || widget.isChannel)
-                    Text(
-                      widget.isChannel
-                          ? "${widget.participantCount ?? 0} подписчиков"
-                          : "${widget.participantCount ?? 0} участников",
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    )
+                    _buildGroupSubtitle()
                   else if (widget.chatId != 0)
                     _ContactPresenceSubtitle(
                       chatId: widget.chatId,
@@ -572,6 +630,48 @@ extension on _ChatScreenState {
       builder: (context, value, child) {
         if (_isVoiceRecordingUi) {
           final padding = EdgeInsets.all(isSmall ? 10 : 6);
+          final baseIconSize = isSmall ? 20.0 : 24.0;
+          final baseDiameter = baseIconSize + 2 * (isSmall ? 10.0 : 6.0);
+
+          // Показываем прогресс если идет загрузка
+          if (_isVoiceUploading) {
+            return SizedBox(
+              width: baseDiameter,
+              height: baseDiameter,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Circular progress indicator
+                  SizedBox(
+                    width: baseDiameter,
+                    height: baseDiameter,
+                    child: CircularProgressIndicator(
+                      value: _voiceUploadProgress,
+                      strokeWidth: 2.5,
+                      backgroundColor: colors.primary.withValues(alpha: 0.2),
+                      valueColor: AlwaysStoppedAnimation<Color>(colors.primary),
+                    ),
+                  ),
+                  // Icon в центре
+                  Container(
+                    decoration: BoxDecoration(
+                      color: colors.primary,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Padding(
+                      padding: EdgeInsets.all(isSmall ? 8 : 5),
+                      child: Icon(
+                        Icons.upload_rounded,
+                        color: colors.onPrimary,
+                        size: isSmall ? 16 : 18,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+
           return InkWell(
             borderRadius: BorderRadius.circular(24),
             onTap: _sendVoiceMessage,
@@ -614,203 +714,126 @@ extension on _ChatScreenState {
 
         // Блокируем отправку пока нет ID
         if (_actualMyId == null) {
-          onTap = () {
-            _showInfoSnackBar('Загрузка чата...');
-          };
+          onTap = () {};
         }
 
-        final dragProgress =
-            (_sendDragPullDy.abs() / _ChatScreenState._sendDragVisualThreshold)
-                .clamp(0.0, 1.0);
+        final recordIcon = _isVideoRecordMode
+            ? Icons.videocam_rounded
+            : Icons.mic_rounded;
 
-        final sendColor = showSend
-            ? iconColor
-            : iconColor.withValues(alpha: 0.4);
-        icon = Stack(
-          alignment: Alignment.center,
-          children: [
-            Opacity(
-              opacity: 1.0 - dragProgress,
-              child: Icon(
-                Icons.send_rounded,
-                color: sendColor,
-                size: isSmall ? 20 : 24,
-              ),
+        if (showSend) {
+          icon = Icon(
+            Icons.send_rounded,
+            color: iconColor,
+            size: isSmall ? 20 : 24,
+          );
+          onTap = (!isBlocked) ? _sendMessage : null;
+        } else {
+          // Нет текста: показываем mic или camera с анимацией переключения
+          icon = AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            transitionBuilder: (child, animation) {
+              return RotationTransition(
+                turns: Tween<double>(begin: 0.8, end: 1.0).animate(animation),
+                child: ScaleTransition(
+                  scale: animation,
+                  child: FadeTransition(opacity: animation, child: child),
+                ),
+              );
+            },
+            child: Icon(
+              recordIcon,
+              key: ValueKey<bool>(_isVideoRecordMode),
+              color: iconColor,
+              size: isSmall ? 20 : 24,
             ),
-            Opacity(
-              opacity: dragProgress,
-              child: Icon(
-                Icons.mic_rounded,
-                color: iconColor,
-                size: isSmall ? 20 : 24,
-              ),
-            ),
-          ],
-        );
-        onTap = (showSend && !isBlocked) ? _sendMessage : null;
+          );
+          // Короткое нажатие — переключить режим
+          onTap = (!isBlocked)
+              ? () {
+                  // ignore: invalid_use_of_protected_member
+                  setState(() => _isVideoRecordMode = !_isVideoRecordMode);
+                }
+              : null;
+        }
 
         final padding = EdgeInsets.all(isSmall ? 10 : 6);
         final baseIconSize = isSmall ? 20.0 : 24.0;
         final baseDiameter = baseIconSize + 2 * (isSmall ? 10.0 : 6.0);
-        const maxScale = 1.12;
-        final scale = 1.0 + (maxScale - 1.0) * dragProgress;
 
-        final button = Container(
-          key: ValueKey<String>(showSend ? 'send' : 'mic'),
-          decoration: BoxDecoration(
-            color: backgroundColor,
-            shape: BoxShape.circle,
-          ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(24),
-              onTap: _isSendDragging ? null : onTap,
-              child: Padding(padding: padding, child: icon),
+        // Если идет загрузка голосового - показываем кружок прогресса
+        if (_isVoiceUploading) {
+          return SizedBox(
+            width: baseDiameter,
+            height: baseDiameter,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // Circular progress indicator
+                SizedBox(
+                  width: baseDiameter,
+                  height: baseDiameter,
+                  child: CircularProgressIndicator(
+                    value: _voiceUploadProgress,
+                    strokeWidth: 2.5,
+                    backgroundColor: colors.primary.withValues(alpha: 0.2),
+                    valueColor: AlwaysStoppedAnimation<Color>(colors.primary),
+                  ),
+                ),
+                // Icon в центре
+                Container(
+                  decoration: BoxDecoration(
+                    color: colors.primary,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Padding(
+                    padding: EdgeInsets.all(isSmall ? 8 : 5),
+                    child: Icon(
+                      Icons.upload_rounded,
+                      color: colors.onPrimary,
+                      size: isSmall ? 16 : 18,
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ),
-        );
-
-        final ring = SizedBox(
-          width: baseDiameter * maxScale,
-          height: baseDiameter * maxScale,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: iconColor.withValues(alpha: 0.22),
-                width: 1.25,
-              ),
-            ),
-          ),
-        );
-
-        final scaled = Transform.scale(scale: scale, child: button);
-
-        final dragEnabled = !isBlocked;
+          );
+        }
 
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
-          onPanStart: dragEnabled
-              ? (_) {
-                  _sendDragReturnController.stop();
-                  // ignore: invalid_use_of_protected_member
-                  setState(() {
-                    _isSendDragging = true;
-                  });
-                }
-              : null,
-          onPanUpdate: dragEnabled
-              ? (details) {
-                  final nextPull = (_sendDragPullDy + details.delta.dy).clamp(
-                    -_ChatScreenState._sendDragVisualThreshold,
-                    0.0,
-                  );
-                  final nextPos = nextPull.clamp(
-                    -_ChatScreenState._sendDragThreshold,
-                    0.0,
-                  );
-                  if (nextPull == _sendDragPullDy && nextPos == _sendDragDy)
-                    return;
-                  // ignore: invalid_use_of_protected_member
-                  setState(() {
-                    _sendDragPullDy = nextPull;
-                    _sendDragDy = nextPos;
-                  });
-                }
-              : null,
-          onPanEnd: dragEnabled
-              ? (_) {
-                  final reached =
-                      _sendDragDy <= -_ChatScreenState._sendDragThreshold;
-                  if (!reached) {
-                    final tween =
-                        Tween<double>(begin: _sendDragPullDy, end: 0.0).animate(
-                          CurvedAnimation(
-                            parent: _sendDragReturnController,
-                            curve: Curves.easeOutCubic,
-                          ),
-                        );
-                    void listener() {
-                      // ignore: invalid_use_of_protected_member
-                      setState(() {
-                        _sendDragPullDy = tween.value;
-                        _sendDragDy = tween.value.clamp(
-                          -_ChatScreenState._sendDragThreshold,
-                          0.0,
-                        );
-                      });
-                    }
-
-                    _sendDragReturnController
-                      ..removeListener(listener)
-                      ..reset();
-                    _sendDragReturnController.addListener(listener);
-                    _sendDragReturnController.forward().whenComplete(() {
-                      _sendDragReturnController.removeListener(listener);
-                      if (!mounted) return;
-                      // ignore: invalid_use_of_protected_member
-                      setState(() {
-                        _sendDragPullDy = 0.0;
-                        _sendDragDy = 0.0;
-                        _isSendDragging = false;
-                      });
-                    });
+          onLongPress: (!isBlocked && !showSend)
+              ? () {
+                  if (_isVideoRecordMode) {
+                    _startVideoRecordingUi();
                   } else {
-                    _sendDragReturnController.duration = const Duration(
-                      milliseconds: 320,
-                    );
-                    final tween = Tween<double>(begin: _sendDragDy, end: 0.0)
-                        .animate(
-                          CurvedAnimation(
-                            parent: _sendDragReturnController,
-                            curve: Curves.easeOutCubic,
-                          ),
-                        );
-
-                    void listener() {
-                      // ignore: invalid_use_of_protected_member
-                      setState(() {
-                        _sendDragDy = tween.value;
-                        _sendDragPullDy =
-                            -_ChatScreenState._sendDragVisualThreshold;
-                      });
-                    }
-
-                    _sendDragReturnController
-                      ..removeListener(listener)
-                      ..reset();
-                    _sendDragReturnController.addListener(listener);
-                    _sendDragReturnController.forward().whenComplete(() {
-                      _sendDragReturnController.removeListener(listener);
-                      if (!mounted) return;
-                      _sendDragReturnController.duration = const Duration(
-                        milliseconds: 180,
-                      );
-                      _startVoiceRecordingUi();
-                    });
+                    _startVoiceRecordingUi();
                   }
                 }
               : null,
-          child: Transform.translate(
-            offset: Offset(0, _sendDragDy),
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 160),
-              switchInCurve: Curves.easeOutCubic,
-              switchOutCurve: Curves.easeInCubic,
-              transitionBuilder: (child, animation) {
-                return ScaleTransition(
-                  scale: Tween<double>(
-                    begin: 0.85,
-                    end: 1.0,
-                  ).animate(animation),
-                  child: FadeTransition(opacity: animation, child: child),
-                );
-              },
-              child: Stack(
-                alignment: Alignment.center,
-                clipBehavior: Clip.none,
-                children: [if (dragProgress > 0.0) ring, scaled],
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 160),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            transitionBuilder: (child, animation) => ScaleTransition(
+              scale: Tween<double>(begin: 0.85, end: 1.0).animate(animation),
+              child: FadeTransition(opacity: animation, child: child),
+            ),
+            child: Container(
+              key: ValueKey<String>(
+                showSend ? 'send' : (_isVideoRecordMode ? 'video' : 'mic'),
+              ),
+              decoration: BoxDecoration(
+                color: backgroundColor,
+                shape: BoxShape.circle,
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(24),
+                  onTap: onTap,
+                  child: Padding(padding: padding, child: icon),
+                ),
               ),
             ),
           ),
@@ -821,6 +844,32 @@ extension on _ChatScreenState {
 
   // Text Input
   Widget _buildTextInput() {
+    // Кнопка запуска бота
+    if (widget.contact.isBot && widget.needBotStart && _messages.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+        child: SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            icon: const Icon(Icons.smart_toy_outlined),
+            label: const Text('Запустить бота'),
+            onPressed: () async {
+              try {
+                await ApiService.instance.sendBotStarted(widget.chatId);
+                if (mounted) setState(() {});
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Ошибка: $e')),
+                  );
+                }
+              }
+            },
+          ),
+        ),
+      );
+    }
+
     if (widget.isChannel) {
       bool amIAdmin = false;
       final currentChat = _getCurrentGroupChat();
@@ -831,12 +880,113 @@ extension on _ChatScreenState {
       }
 
       if (!amIAdmin) {
-        return const SizedBox.shrink();
+        final channelLink = (currentChat?['link'] as String?) ?? widget.channelLink;
+        final isSubscribed = _isSubscribedLocally || ApiService.instance.myChatIds.contains(widget.chatId);
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+          child: SizedBox(
+            width: double.infinity,
+            child: isSubscribed
+                ? FilledButton.icon(
+                    icon: const Icon(Icons.check_circle_outline),
+                    label: const Text('Вы подписаны'),
+                    onPressed: null,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Theme.of(context).colorScheme.secondaryContainer,
+                      foregroundColor: Theme.of(context).colorScheme.onSecondaryContainer,
+                    ),
+                  )
+                : FilledButton.icon(
+                    icon: const Icon(Icons.notifications_active_outlined),
+                    label: const Text('Подписаться на канал'),
+                    onPressed: channelLink == null ? null : () async {
+                      final link = channelLink.startsWith('@')
+                          ? channelLink.substring(1).trim()
+                          : channelLink.trim();
+                      // Сразу показываем что подписаны
+                      setState(() => _isSubscribedLocally = true);
+                      try {
+                        await ApiService.instance.subscribeToChannel(link);
+                      } catch (e) {
+                        if (mounted) {
+                          setState(() => _isSubscribedLocally = false);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Ошибка подписки: $e')),
+                          );
+                        }
+                      }
+                    },
+                  ),
+          ),
+        );
       }
     }
 
     final theme = context.watch<ThemeProvider>();
     final isBlocked = _currentContact.isBlockedByMe && !theme.blockBypass;
+
+    if (_isVideoRecordingUi) {
+      final colors = Theme.of(context).colorScheme;
+      final inputBar = Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 12.0,
+              vertical: 10.0,
+            ),
+            decoration: BoxDecoration(
+              color: colors.surface,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: SafeArea(
+              top: false,
+              bottom: false,
+              child: _buildVideoRecordingBar(
+                isBlocked: isBlocked,
+                isGlass: false,
+              ),
+            ),
+          ),
+          // Send/stop button
+          Positioned(
+            right: 12,
+            top: 0,
+            bottom: 0,
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(24),
+                onTap: _sendVideoMessage,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: colors.primary,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(6),
+                    child: Icon(
+                      Icons.send_rounded,
+                      color: colors.onPrimary,
+                      size: 24,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+
+      return _wrapInputWithPanels(inputBar);
+    }
 
     if (_isVoiceRecordingUi) {
       final inputBar = Stack(
@@ -949,6 +1099,26 @@ extension on _ChatScreenState {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
+          if (_currentContact.hasWebApp)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: GestureDetector(
+                onTap: _openWebApp,
+                child: Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primary,
+                    shape: BoxShape.circle,
+                  ),
+                  padding: const EdgeInsets.all(8),
+                  child: Icon(
+                    Icons.widgets_rounded,
+                    color: Theme.of(context).colorScheme.onPrimary,
+                    size: 20,
+                  ),
+                ),
+              ),
+            ),
           IconButton(
             icon: Icon(
               Icons.attach_file,
@@ -957,90 +1127,19 @@ extension on _ChatScreenState {
             onPressed: _onAttachPressed,
             tooltip: 'Прикрепить файл',
           ),
-          CompositedTransformTarget(
-            link: _sparkleLayerLink,
-            child: IconButton(
-              key: _sparkleButtonKey,
-              icon: Icon(
-                Icons.auto_awesome_outlined,
-                color: _sparkleMenuOverlay != null
-                    ? Theme.of(context).colorScheme.primary
-                    : Theme.of(context).colorScheme.onSurface,
-              ),
-              onPressed: _toggleKometSpecialMenu,
-              tooltip: 'Специальные эффекты',
+          IconButton(
+            icon: Icon(
+              Icons.auto_awesome_rounded,
+              color: Theme.of(context).colorScheme.primary,
             ),
+            onPressed: _toggleKometSpecialMenu,
+            tooltip: 'Спецэффекты',
           ),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (_replyingToMessage != null)
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 8, left: 8, right: 8),
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.surfaceContainerHighest,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 3,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.primary,
-                            borderRadius: BorderRadius.circular(1.5),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                _getSenderName(_replyingToMessage!),
-                                style: Theme.of(context).textTheme.bodySmall
-                                    ?.copyWith(
-                                      fontWeight: FontWeight.bold,
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.primary,
-                                    ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                _replyingToMessage!.text.isNotEmpty
-                                    ? _replyingToMessage!.text
-                                    : _replyingToMessage!.attaches.isNotEmpty
-                                    ? 'Медиафайл'
-                                    : 'Сообщение',
-                                style: Theme.of(context).textTheme.bodySmall,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.close, size: 20),
-                          onPressed: () {
-                            // ignore: invalid_use_of_protected_member
-                            setState(() {
-                              _replyingToMessage = null;
-                            });
-                          },
-                          visualDensity: VisualDensity.compact,
-                        ),
-                      ],
-                    ),
-                  ),
                 if (_editingMessage != null)
                   Container(
                     margin: const EdgeInsets.only(bottom: 8, left: 8, right: 8),
@@ -1102,8 +1201,6 @@ extension on _ChatScreenState {
                             color: Theme.of(context).colorScheme.onSurface,
                           ),
                           onChanged: (text) {
-                            // ignore: invalid_use_of_protected_member
-                            setState(() {});
                             _handleChatInputChanged(text);
                           },
                         )
@@ -1147,8 +1244,6 @@ extension on _ChatScreenState {
                                     TextSelection.collapsed(
                                       offset: selection.start + 1,
                                     );
-                                // ignore: invalid_use_of_protected_member
-                                setState(() {});
                                 _handleChatInputChanged(_textController.text);
                                 return null;
                               },
@@ -1174,9 +1269,84 @@ extension on _ChatScreenState {
                               color: Theme.of(context).colorScheme.onSurface,
                             ),
                             onChanged: (text) {
-                              // ignore: invalid_use_of_protected_member
-                              setState(() {});
                               _handleChatInputChanged(text);
+                            },
+                            contextMenuBuilder: (context, editableTextState) {
+                              final List<ContextMenuButtonItem> buttonItems =
+                                  editableTextState.contextMenuButtonItems;
+
+                              buttonItems.insertAll(0, [
+                                ContextMenuButtonItem(
+                                  label: 'Жирный',
+                                  onPressed: () {
+                                    editableTextState.hideToolbar();
+                                    _toggleStyle('STRONG');
+                                  },
+                                ),
+                                ContextMenuButtonItem(
+                                  label: 'Курсив',
+                                  onPressed: () {
+                                    editableTextState.hideToolbar();
+                                    _toggleStyle('EMPHASIZED');
+                                  },
+                                ),
+                                ContextMenuButtonItem(
+                                  label: 'Зачеркнуть',
+                                  onPressed: () {
+                                    editableTextState.hideToolbar();
+                                    _toggleStyle('STRIKETHROUGH');
+                                  },
+                                ),
+                                ContextMenuButtonItem(
+                                  label: 'Подчеркнуть',
+                                  onPressed: () {
+                                    editableTextState.hideToolbar();
+                                    _toggleStyle('UNDERLINE');
+                                  },
+                                ),
+                                ContextMenuButtonItem(
+                                  label: 'Цитата',
+                                  onPressed: () {
+                                    editableTextState.hideToolbar();
+                                    _toggleStyle('QUOTE');
+                                  },
+                                ),
+                                ContextMenuButtonItem(
+                                  label: 'Убрать стили',
+                                  onPressed: () {
+                                    editableTextState.hideToolbar();
+                                    _clearSelectionStyles();
+                                  },
+                                ),
+                                ContextMenuButtonItem(
+                                  label: 'Галактика',
+                                  onPressed: () {
+                                    editableTextState.hideToolbar();
+                                    final selection = _textController.selection;
+                                    if (selection.start < 0) return;
+                                    final text = _textController.text;
+                                    final selectedText = text.substring(
+                                      selection.start,
+                                      selection.end,
+                                    );
+                                    final newText = text.replaceRange(
+                                      selection.start,
+                                      selection.end,
+                                      "komet.cosmetic.galaxy'$selectedText'",
+                                    );
+                                    _textController.text = newText;
+                                    _textController.selection = TextSelection(
+                                      baseOffset: selection.start + 22,
+                                      extentOffset: selection.end + 22,
+                                    );
+                                  },
+                                ),
+                              ]);
+
+                              return AdaptiveTextSelectionToolbar.buttonItems(
+                                anchors: editableTextState.contextMenuAnchors,
+                                buttonItems: buttonItems,
+                              );
                             },
                           ),
                         ),
@@ -1184,7 +1354,7 @@ extension on _ChatScreenState {
               ],
             ),
           ),
-          sendButton,
+          Padding(padding: const EdgeInsets.only(bottom: 6), child: sendButton),
         ],
       ),
     );
@@ -1217,23 +1387,86 @@ extension on _ChatScreenState {
       }
     }
 
-    if (_showMentionDropdown && _filteredMentionableUsers.isNotEmpty) {
-      return CompositedTransformTarget(
-        link: _mentionLayerLink,
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _MentionDropdownPanel(
-              users: _filteredMentionableUsers,
-              onUserSelected: _insertMention,
-            ),
+            if (_replyingToMessage != null)
+              Container(
+                margin: const EdgeInsets.only(bottom: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border(
+                    left: BorderSide(
+                      color: Theme.of(context).colorScheme.primary,
+                      width: 3,
+                    ),
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            _getSenderName(_replyingToMessage!),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _replyingToMessage!.text.isNotEmpty
+                                ? _replyingToMessage!.text
+                                : _replyingToMessage!.attaches.isNotEmpty
+                                    ? 'Медиафайл'
+                                    : 'Сообщение',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(
+                      width: 32,
+                      height: 32,
+                      child: IconButton(
+                        icon: const Icon(Icons.close, size: 16),
+                        padding: EdgeInsets.zero,
+                        style: IconButton.styleFrom(
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        onPressed: () {
+                          // ignore: invalid_use_of_protected_member
+                          setState(() {
+                            _replyingToMessage = null;
+                          });
+                          _mentionOverlay?.markNeedsBuild();
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             inputBar,
           ],
         ),
-      );
-    }
-
-    return inputBar;
+      ),
+    );
   }
 
   // Snackbars
@@ -1244,18 +1477,8 @@ extension on _ChatScreenState {
         content: Text(message),
         backgroundColor: Colors.red,
         behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.only(bottom: 80, left: 8, right: 8),
         duration: const Duration(seconds: 3),
-      ),
-    );
-  }
-
-  void _showInfoSnackBar(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
       ),
     );
   }
@@ -1342,6 +1565,21 @@ extension on _ChatScreenState {
   void _jumpToBottom() {
     if (_chatItems.isEmpty) return;
     if (!_itemScrollController.isAttached) return;
+
+    // Получаем текущую позицию
+    final positions = _itemPositionsListener.itemPositions.value;
+    if (positions.isEmpty) {
+      // Если позиции неизвестны, просто телепортируемся
+      _itemScrollController.jumpTo(index: 0);
+      return;
+    }
+
+    // Находим самый верхний видимый элемент
+    final maxVisibleIndex = positions
+        .map((p) => p.index)
+        .reduce((a, b) => a > b ? a : b);
+
+    // Если далеко (больше 10 элементов от низа), делаем гибридный скролл
     _itemScrollController.jumpTo(index: 0);
   }
 
@@ -1386,7 +1624,15 @@ extension on _ChatScreenState {
         pageBuilder: (context, animation, secondaryAnimation) {
           return ContactProfileDialog(
             contact: widget.contact,
+            isChannel: widget.isChannel,
             myId: _actualMyId,
+            chatLink: _chatLink,
+            participantsCount: _chatParticipantsCount,
+            messagesCount: _chatMessagesCount,
+            accessType: _chatAccessType,
+            createdAt: _chatCreatedAt,
+            joinedAt: _chatJoinedAt,
+            isOfficial: _chatIsOfficial,
           );
         },
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
@@ -1432,9 +1678,7 @@ extension on _ChatScreenState {
           TextButton(
             onPressed: () {
               Navigator.of(context).pop();
-              final apiService = context.read<ApiService>();
-              // blockContact method call
-              apiService
+              ApiService.instance
                   .blockContact(widget.contact.id)
                   .then((_) {
                     // ignore: invalid_use_of_protected_member
@@ -1452,7 +1696,6 @@ extension on _ChatScreenState {
                         status: _currentContact.status,
                       );
                     });
-                    _showInfoSnackBar('Пользователь заблокирован');
                     widget.onChatUpdated?.call();
                   })
                   .catchError((error) {
@@ -1485,8 +1728,7 @@ extension on _ChatScreenState {
           TextButton(
             onPressed: () {
               Navigator.of(context).pop();
-              final apiService = context.read<ApiService>();
-              apiService
+              ApiService.instance
                   .unblockContact(widget.contact.id)
                   .then((_) {
                     // ignore: invalid_use_of_protected_member
@@ -1504,7 +1746,6 @@ extension on _ChatScreenState {
                         status: _currentContact.status,
                       );
                     });
-                    _showInfoSnackBar('Пользователь разблокирован');
                     widget.onChatUpdated?.call();
                   })
                   .catchError((error) {
@@ -1560,24 +1801,58 @@ extension on _ChatScreenState {
 
               // Messages list
               Expanded(
-                child: _isLoadingHistory && _messages.isEmpty
-                    ? const Center(child: CircularProgressIndicator())
-                    : _messages.isEmpty && !widget.isChannel
-                    ? EmptyChatWidget(
-                        sticker: _emptyChatSticker,
-                        onStickerTap: _sendEmptyChatSticker,
-                      )
-                    : ScrollablePositionedList.builder(
-                        itemCount: _chatItems.length,
-                        itemScrollController: _itemScrollController,
-                        itemPositionsListener: _itemPositionsListener,
-                        reverse: true,
-                        itemBuilder: (context, index) {
-                          final item =
-                              _chatItems[_chatItems.length - 1 - index];
-                          return RepaintBoundary(child: _buildChatItem(item));
+                child: Stack(
+                  children: [
+                    _isLoadingHistory && _messages.isEmpty
+                        ? const Center(child: CircularProgressIndicator())
+                        : _messages.isEmpty && !widget.isChannel
+                        ? EmptyChatWidget(
+                            sticker: _emptyChatSticker,
+                            onStickerTap: _sendEmptyChatSticker,
+                          )
+                        : ScrollablePositionedList.builder(
+                            itemCount: _chatItems.length,
+                            itemScrollController: _itemScrollController,
+                            itemPositionsListener: _itemPositionsListener,
+                            reverse: true,
+                            itemBuilder: (context, index) {
+                              final item =
+                                  _chatItems[_chatItems.length - 1 - index];
+                              return RepaintBoundary(child: _buildChatItem(item));
+                            },
+                          ),
+
+                    // Scroll-to-bottom FAB
+                    Positioned(
+                      right: 16,
+                      bottom: 12,
+                      child: ValueListenableBuilder<bool>(
+                        valueListenable: _showScrollToBottomNotifier,
+                        builder: (context, showButton, child) {
+                          return AnimatedScale(
+                            scale: showButton ? 1.0 : 0.0,
+                            duration: const Duration(milliseconds: 200),
+                            curve: Curves.easeInOut,
+                            child: AnimatedOpacity(
+                              opacity: showButton ? 1.0 : 0.0,
+                              duration: const Duration(milliseconds: 200),
+                              child: FloatingActionButton.small(
+                                heroTag: 'scroll_to_bottom',
+                                onPressed: _jumpToBottom,
+                                backgroundColor: Theme.of(
+                                  context,
+                                ).colorScheme.surfaceContainerHighest,
+                                foregroundColor: Theme.of(context).colorScheme.onSurface,
+                                elevation: 3,
+                                child: const Icon(Icons.keyboard_arrow_down),
+                              ),
+                            ),
+                          );
                         },
                       ),
+                    ),
+                  ],
+                ),
               ),
 
               // Text input
@@ -1585,52 +1860,229 @@ extension on _ChatScreenState {
             ],
           ),
 
-          // Scroll-to-bottom FAB
-          Positioned(
-            right: 16,
-            bottom: 80,
-            child: ValueListenableBuilder<bool>(
-              valueListenable: _showScrollToBottomNotifier,
-              builder: (context, showButton, child) {
-                return AnimatedScale(
-                  scale: showButton ? 1.0 : 0.0,
-                  duration: const Duration(milliseconds: 200),
-                  curve: Curves.easeInOut,
-                  child: AnimatedOpacity(
-                    opacity: showButton ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 200),
-                    child: FloatingActionButton.small(
-                      heroTag: 'scroll_to_bottom',
-                      onPressed: _jumpToBottom,
-                      backgroundColor: Theme.of(
-                        context,
-                      ).colorScheme.surfaceContainerHighest,
-                      foregroundColor: Theme.of(context).colorScheme.onSurface,
-                      elevation: 3,
-                      child: const Icon(Icons.keyboard_arrow_down),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
+          // Floating video circle preview (Telegram-style)
+          if (_isVideoRecordingUi) _buildVideoCirclePreview(),
+
         ],
       ),
     );
   }
 
-  Widget _buildSystemMessage(Message message, Map<String, dynamic> control) {
+  Widget _buildSystemMessage(Message message, Map<String, dynamic> controlAttach) {
     String text = '';
-    final event = control['event']?.toString();
+    final event = controlAttach['event']?.toString();
 
-    if (event == 'new') {
-      text = 'Чат создан: ${control['title'] ?? ''}';
-    } else if (event == 'join') {
-      text = 'Пользователь присоединился к чату';
-    } else if (event == 'leave') {
-      text = 'Пользователь покинул чат';
-    } else {
-      text = message.text;
+    final senderContact = _contactDetailsCache[message.senderId];
+    final senderName = senderContact != null
+        ? getContactDisplayName(
+            contactId: senderContact.id,
+            originalName: senderContact.name,
+            originalFirstName: senderContact.firstName,
+            originalLastName: senderContact.lastName,
+          )
+        : 'ID ${message.senderId}';
+    final isMe = message.senderId == _actualMyId;
+    final senderDisplayName = isMe ? 'Вы' : senderName;
+
+    String formatUserList(List<int> userIds) {
+      if (userIds.isEmpty) {
+        return '';
+      }
+      final userNames = userIds
+          .map((id) {
+            if (id == _actualMyId) {
+              return 'Вы';
+            }
+            final contact = _contactDetailsCache[id];
+            if (contact != null) {
+              return getContactDisplayName(
+                contactId: contact.id,
+                originalName: contact.name,
+                originalFirstName: contact.firstName,
+                originalLastName: contact.lastName,
+              );
+            }
+            return 'участник с ID $id';
+          })
+          .where((name) => name.isNotEmpty)
+          .join(', ');
+      return userNames;
+    }
+
+
+    switch (event) {
+      case 'new':
+        final title = controlAttach['title'] ?? 'Новая группа';
+
+        // Костыль i think
+        // Best method is check for type of channel but i dont know how to get it
+        if (message.senderId == 0) {
+          text =  'Создана группа "$title"';
+        } else {
+          text = '$senderDisplayName создал(а) группу "$title"';
+        }
+
+
+      case 'add':
+        final userIds = List<int>.from(
+          (controlAttach['userIds'] as List?)?.map((id) => id as int) ?? [],
+        );
+        if (userIds.isEmpty) {
+          text = 'К чату присоединились новые участники';
+        }
+        final userNames = formatUserList(userIds);
+        if (userNames.isEmpty) {
+          text = 'К чату присоединились новые участники';
+        }
+        text = '$senderDisplayName добавил(а) в чат: $userNames';
+
+      case 'remove':
+      case 'kick':
+        final userIds = List<int>.from(
+          (controlAttach['userIds'] as List?)?.map((id) => id as int) ?? [],
+        );
+        if (userIds.isEmpty) {
+          text = '$senderDisplayName удалил(а) участников из чата';
+        }
+        final userNames = formatUserList(userIds);
+        if (userNames.isEmpty) {
+          text = '$senderDisplayName удалил(а) участников из чата';
+        }
+
+        if (userIds.contains(_actualMyId)) {
+          text = 'Вы были удалены из чата';
+        }
+        text = '$senderDisplayName удалил(а) из чата: $userNames';
+
+      case 'leave':
+        if (isMe) {
+          text = 'Вы покинули группу';
+        }
+        text = '$senderName покинул(а) группу';
+
+      case 'title':
+        final newTitle = controlAttach['title'] ?? '';
+
+        if (newTitle.isEmpty) {
+          if (message.senderId == _actualMyId) {
+            text = '$senderDisplayName изменили название группы';
+          } else {
+            text = '$senderDisplayName изменил(а) название группы';
+          }
+        }
+
+        if (message.senderId == _actualMyId) {
+            text = '$senderDisplayName изменили название группы на "$newTitle"';
+        } else {
+          text = '$senderDisplayName изменил(а) название группы на "$newTitle"';
+        }
+
+
+      case 'avatar':
+      case 'photo':
+        text = '$senderDisplayName изменил(а) фото группы';
+
+      case 'description':
+        text = '$senderDisplayName изменил(а) описание группы';
+
+      case 'admin':
+      case 'promote':
+        final userIds = List<int>.from(
+          (controlAttach['userIds'] as List?)?.map((id) => id as int) ?? [],
+        );
+        if (userIds.isEmpty) {
+          text = '$senderDisplayName назначил(а) администраторов';
+        }
+        final userNames = formatUserList(userIds);
+        if (userNames.isEmpty) {
+          text = '$senderDisplayName назначил(а) администраторов';
+        }
+
+        if (userIds.contains(_actualMyId) && userIds.length == 1) {
+          text = 'Вас назначили администратором';
+        }
+        text = '$senderDisplayName назначил(а) администраторами: $userNames';
+
+      case 'demote':
+      case 'remove_admin':
+        final userIds = List<int>.from(
+          (controlAttach['userIds'] as List?)?.map((id) => id as int) ?? [],
+        );
+        if (userIds.isEmpty) {
+          text = '$senderDisplayName снял(а) администраторов';
+        }
+        final userNames = formatUserList(userIds);
+        if (userNames.isEmpty) {
+          text = '$senderDisplayName снял(а) администраторов';
+        }
+
+        if (userIds.contains(_actualMyId) && userIds.length == 1) {
+          text = 'Вас сняли с должности администратора';
+        }
+        text = '$senderDisplayName снял(а) с должности администратора: $userNames';
+
+      case 'ban':
+        final userIds = List<int>.from(
+          (controlAttach['userIds'] as List?)?.map((id) => id as int) ?? [],
+        );
+        if (userIds.isEmpty) {
+          text = '$senderDisplayName заблокировал(а) участников';
+        }
+        final userNames = formatUserList(userIds);
+        if (userNames.isEmpty) {
+          text = '$senderDisplayName заблокировал(а) участников';
+        }
+
+        if (userIds.contains(_actualMyId)) {
+          text = 'Вы были заблокированы в чате';
+        }
+        text = '$senderDisplayName заблокировал(а): $userNames';
+
+      case 'unban':
+        final userIds = List<int>.from(
+          (controlAttach['userIds'] as List?)?.map((id) => id as int) ?? [],
+        );
+        if (userIds.isEmpty) {
+          text = '$senderDisplayName разблокировал(а) участников';
+        }
+        final userNames = formatUserList(userIds);
+        if (userNames.isEmpty) {
+          text = '$senderDisplayName разблокировал(а) участников';
+        }
+        text = '$senderDisplayName разблокировал(а): $userNames';
+
+      case 'join':
+        if (isMe) {
+          text = 'Вы присоединились к группе';
+        }
+        text = '$senderName присоединился(ась) к группе';
+
+      case 'pin':
+        final pinnedMessage = controlAttach['pinnedMessage'];
+        if (pinnedMessage != null && pinnedMessage is Map<String, dynamic>) {
+          final pinnedText = pinnedMessage['text'] as String?;
+          if (pinnedText != null && pinnedText.isNotEmpty) {
+            text = '$senderDisplayName закрепил(а) сообщение: "$pinnedText"';
+          }
+        }
+        text = '$senderDisplayName закрепил(а) сообщение';
+
+      default:
+        final eventTypeStr = event?.toString() ?? 'неизвестное';
+
+        if (eventTypeStr.toLowerCase() == 'system') {
+          final message = controlAttach['message'];
+          if (message is String && message.isNotEmpty) {
+            text = message;
+          } else {
+            text = 'Системное событие';
+          }
+        }
+        if (eventTypeStr == 'joinByLink') {
+          text = '$senderName присоединился(ась) по пригласительной ссылке...';
+        }
+
+        text = 'Событие: $eventTypeStr';
     }
 
     if (text.isEmpty) return const SizedBox.shrink();
@@ -1683,13 +2135,34 @@ extension on _ChatScreenState {
 
       MessageReadStatus? readStatus;
       if (isMe) {
-        if (item.message.status == 'READ') {
+        final messageIdInt = int.tryParse(item.message.id);
+        final messageTime = item.message.time; // timestamp когда отправлено
+
+        // Проверяем прочитанность по трем источникам (в порядке приоритета):
+        // 1. opcode 130 (новая система) - использует message.time
+        // 2. opcode 50 (_lastPeerReadMessageId, старая система) - использует message ID
+        // 3. message.status из сервера
+
+        if (MessageReadStatusService().isMessageRead(
+          widget.chatId,
+          messageTime,
+        )) {
+          // opcode 130 - новая система (проверка по timestamp)
           readStatus = MessageReadStatus.read;
-        } else if (item.message.status == 'SENT') {
-          readStatus = MessageReadStatus.sent;
+        } else if (messageIdInt != null &&
+            _lastPeerReadMessageId != null &&
+            messageIdInt <= _lastPeerReadMessageId!) {
+          // opcode 50 - старая система (READ_MESSAGE, проверка по ID)
+          readStatus = MessageReadStatus.read;
+        } else if (item.message.status == 'READ') {
+          // Статус из сервера
+          readStatus = MessageReadStatus.read;
         } else if (item.message.status == 'SENDING' ||
             item.message.id.startsWith('local_')) {
           readStatus = MessageReadStatus.sending;
+        } else {
+          // Дефолт: отправлено
+          readStatus = MessageReadStatus.sent;
         }
       }
 
@@ -1717,17 +2190,34 @@ extension on _ChatScreenState {
         if (currentChat != null && _actualMyId != null) {
           final admins = currentChat['admins'] as List<dynamic>? ?? [];
           final owner = currentChat['owner'] as int?;
-          canDeleteAnyMessage = admins.contains(_actualMyId) || owner == _actualMyId;
+          canDeleteAnyMessage =
+              admins.contains(_actualMyId) || owner == _actualMyId;
         }
       }
 
-      final bool canDeleteForAll = (isMe && item.message.canEdit(_actualMyId ?? 0)) || canDeleteAnyMessage;
+      final bool canDeleteForAll =
+          (isMe && item.message.canEdit(_actualMyId ?? 0)) ||
+          canDeleteAnyMessage;
 
-      return ChatMessageBubble(
+      // Расшифровка сообщения если нужно
+      String? decryptedText;
+      if (ChatEncryptionService.isEncryptedMessage(item.message.text) &&
+          _encryptionConfigForCurrentChat != null &&
+          _encryptionConfigForCurrentChat!.password.isNotEmpty) {
+        decryptedText = ChatEncryptionService.decryptWithPassword(
+          _encryptionConfigForCurrentChat!.password,
+          item.message.text,
+        );
+      }
+
+      final allPhotos = _cachedAllPhotos;
+
+      final bubble = ChatMessageBubble(
         key: ValueKey(item.message.id),
         message: item.message,
         contactDetailsCache: _contactDetailsCache,
         isMe: isMe,
+        allPhotos: allPhotos.isNotEmpty ? allPhotos : null,
         isFirstInGroup: item.isFirstInGroup,
         isLastInGroup: item.isLastInGroup,
         isGrouped: item.isGrouped,
@@ -1740,6 +2230,8 @@ extension on _ChatScreenState {
         isHighlighted: isHighlighted,
         canDeleteForAll: canDeleteForAll,
         canEditMessage: isMe && item.message.canEdit(_actualMyId ?? 0),
+        isEncryptionPasswordSet: _isEncryptionPasswordSetForCurrentChat,
+        decryptedText: decryptedText,
         onReply: () => _replyToMessage(item.message),
         onReplyTap: (messageId) => _scrollToMessage(messageId),
         onEdit: () => _editMessage(item.message),
@@ -1753,6 +2245,8 @@ extension on _ChatScreenState {
         onReaction: (emoji) => _sendReaction(item.message.id, emoji),
         onRemoveReaction: () => _removeReaction(item.message.id),
       );
+
+      return bubble;
     } else if (item is DateSeparatorItem) {
       return _DateSeparatorChip(date: item.date);
     } else if (item is VoicePreviewItem) {
@@ -1773,50 +2267,41 @@ extension on _ChatScreenState {
 
   void _openChannelSettings() async {
     if (_isOpeningChannelSettings) {
+      print('⚠️ [ChannelSettings] Уже открывается, игнорируем');
       return;
     }
 
     _isOpeningChannelSettings = true;
     if (_actualMyId == null) {
+      print('⚠️ [ChannelSettings] _actualMyId null');
       _isOpeningChannelSettings = false;
       return;
     }
-    
+
     try {
-      // Сохраняем контекст ДО await
-      final navigatorContext = context;
-      
-      final channelDetails = await ApiService.instance.getChannelDetails(widget.chatId);
-      
-      if (!mounted) {
-        return;
-      }
-      
-      if (channelDetails == null) {
-        ScaffoldMessenger.of(navigatorContext).showSnackBar(
-          const SnackBar(
-            content: Text('Не удалось загрузить данные канала'),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-
-      final safeChannelDetails =
-          channelDetails ?? <String, dynamic>{'id': widget.chatId};
-
-      Navigator.of(navigatorContext).push(
+      Navigator.of(context).push(
         MaterialPageRoute(
           builder: (ctx) => ChannelSettingsScreen(
             chatId: widget.chatId,
-            channelData: safeChannelDetails,
+            channelData: <String, dynamic>{'id': widget.chatId},
             myId: _actualMyId!,
           ),
         ),
       );
-      
     } catch (e, stackTrace) {
-      print('❌ [ChatScreen] Ошибка открытия настроек канала: $e');
-      print('❌ [ChatScreen] Stack: $stackTrace');
+      print('❌ [ChannelSettings] Ошибка открытия настроек канала: $e');
+      print('❌ [ChannelSettings] Stack: $stackTrace');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Ошибка: $e'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.only(bottom: 80, left: 8, right: 8),
+          ),
+        );
+      }
     } finally {
       _isOpeningChannelSettings = false;
     }
@@ -1853,8 +2338,7 @@ extension on _ChatScreenState {
           TextButton(
             onPressed: () {
               Navigator.of(context).pop();
-              final apiService = context.read<ApiService>();
-              apiService
+              ApiService.instance
                   .clearChatHistory(widget.chatId)
                   .then((_) {
                     // ignore: invalid_use_of_protected_member
@@ -1862,7 +2346,6 @@ extension on _ChatScreenState {
                       _messages.clear();
                       _chatItems.clear();
                     });
-                    _showInfoSnackBar('История очищена');
                     widget.onLastMessageChanged?.call(null);
                   })
                   .catchError((error) {
@@ -1895,13 +2378,11 @@ extension on _ChatScreenState {
           TextButton(
             onPressed: () {
               Navigator.of(context).pop();
-              final apiService = context.read<ApiService>();
-              apiService
+              ApiService.instance
                   .clearChatHistory(widget.chatId)
                   .then((_) {
                     widget.onChatRemoved?.call();
                     Navigator.of(context).pop();
-                    _showInfoSnackBar('Чат удалён');
                   })
                   .catchError((error) {
                     _showErrorSnackBar('Ошибка удаления чата');
@@ -1944,17 +2425,11 @@ extension on _ChatScreenState {
           TextButton(
             onPressed: () async {
               Navigator.of(context).pop();
-              final apiService = context.read<ApiService>();
               try {
-                apiService.leaveGroup(widget.chatId);
+                ApiService.instance.leaveGroup(widget.chatId);
                 widget.onChatRemoved?.call();
                 if (mounted) {
                   Navigator.of(context).pop();
-                  _showInfoSnackBar(
-                    widget.isChannel
-                        ? 'Вы покинули канал'
-                        : 'Вы вышли из группы',
-                  );
                 }
               } catch (error) {
                 if (mounted) {
@@ -1976,20 +2451,14 @@ extension on _ChatScreenState {
     try {
       final theme = context.read<ThemeProvider>();
       await theme.setChatSpecificWallpaper(widget.chatId, imagePath);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Обои для чата установлены'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Ошибка установки обоев: $e'),
             backgroundColor: Theme.of(context).colorScheme.error,
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.only(bottom: 80, left: 8, right: 8),
           ),
         );
       }
@@ -2000,20 +2469,14 @@ extension on _ChatScreenState {
     try {
       final theme = context.read<ThemeProvider>();
       await theme.setChatSpecificWallpaper(widget.chatId, null);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Обои для чата удалены'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Ошибка удаления обоев: $e'),
             backgroundColor: Theme.of(context).colorScheme.error,
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.only(bottom: 80, left: 8, right: 8),
           ),
         );
       }
@@ -2084,16 +2547,6 @@ extension on _ChatScreenState {
                                     .isNotEmpty &&
                                 _sendEncryptedForCurrentChat;
                             if (isEncryptionActive) {
-                              if (mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text(
-                                      'Нельзя отправлять медиа при включенном шифровании',
-                                    ),
-                                    backgroundColor: Colors.orange,
-                                  ),
-                                );
-                              }
                               Navigator.of(ctx).pop();
                               return;
                             }
@@ -2101,12 +2554,23 @@ extension on _ChatScreenState {
                             final result = await _pickPhotosFlow(context);
                             if (!mounted) return;
                             if (result != null && result.paths.isNotEmpty) {
-                              await ApiService.instance.sendPhotoMessages(
-                                widget.chatId,
-                                localPaths: result.paths,
-                                caption: result.caption,
-                                senderId: _actualMyId,
-                              );
+                              if (result.isVideo) {
+                                for (final path in result.paths) {
+                                  await ApiService.instance.sendGalleryVideoMessage(
+                                    widget.chatId,
+                                    localPath: path,
+                                    caption: result.caption,
+                                    senderId: _actualMyId,
+                                  );
+                                }
+                              } else {
+                                await ApiService.instance.sendPhotoMessages(
+                                  widget.chatId,
+                                  localPaths: result.paths,
+                                  caption: result.caption,
+                                  senderId: _actualMyId,
+                                );
+                              }
                             }
                           },
                         ),
@@ -2145,6 +2609,8 @@ extension on _ChatScreenState {
                                       'Нельзя отправлять медиа при включенном шифровании',
                                     ),
                                     backgroundColor: Colors.orange,
+                                    behavior: SnackBarBehavior.floating,
+                                    margin: EdgeInsets.only(bottom: 80, left: 8, right: 8),
                                   ),
                                 );
                               }
@@ -2199,6 +2665,31 @@ extension on _ChatScreenState {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(color: colors.outlineVariant),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 12,
+                              horizontal: 12,
+                            ),
+                          ),
+                          icon: const Icon(Icons.auto_awesome_outlined),
+                          label: const Text('Спецэффекты'),
+                          onPressed: () {
+                            Navigator.of(ctx).pop();
+                            _toggleKometSpecialMenu();
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 4),
                   Padding(
                     padding: const EdgeInsets.only(top: 4.0),
@@ -2222,16 +2713,6 @@ extension on _ChatScreenState {
           _encryptionConfigForCurrentChat!.password.isNotEmpty &&
           _sendEncryptedForCurrentChat;
       if (isEncryptionActive) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Нельзя отправлять медиа при включенном шифровании',
-              ),
-              backgroundColor: Colors.orange,
-            ),
-          );
-        }
         return;
       }
       if (!mounted) return;
@@ -2277,12 +2758,23 @@ extension on _ChatScreenState {
       if (choice == 'media') {
         final result = await _pickPhotosFlow(context);
         if (result != null && result.paths.isNotEmpty) {
-          await ApiService.instance.sendPhotoMessages(
-            widget.chatId,
-            localPaths: result.paths,
-            caption: result.caption,
-            senderId: _actualMyId,
-          );
+          if (result.isVideo) {
+            for (final path in result.paths) {
+              await ApiService.instance.sendGalleryVideoMessage(
+                widget.chatId,
+                localPath: path,
+                caption: result.caption,
+                senderId: _actualMyId,
+              );
+            }
+          } else {
+            await ApiService.instance.sendPhotoMessages(
+              widget.chatId,
+              localPaths: result.paths,
+              caption: result.caption,
+              senderId: _actualMyId,
+            );
+          }
         }
       } else if (choice == 'file') {
         await ApiService.instance.sendFileMessage(
@@ -2318,13 +2810,23 @@ extension on _ChatScreenState {
             children: [
               ListTile(
                 leading: const Icon(Icons.photo_library),
-                title: const Text('Выбрать из галереи'),
+                title: const Text('Выбрать фото из галереи'),
                 onTap: () => Navigator.pop(context, 'gallery'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.video_library),
+                title: const Text('Выбрать видео из галереи'),
+                onTap: () => Navigator.pop(context, 'video'),
               ),
               ListTile(
                 leading: const Icon(Icons.camera_alt),
                 title: const Text('Сделать фото'),
                 onTap: () => Navigator.pop(context, 'camera'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.videocam),
+                title: const Text('Снять видео'),
+                onTap: () => Navigator.pop(context, 'camera_video'),
               ),
             ],
           ),
@@ -2335,13 +2837,20 @@ extension on _ChatScreenState {
 
       List<XFile>? pickedFiles;
 
+      bool isVideoChoice = false;
       if (choice == 'gallery') {
         pickedFiles = await picker.pickMultiImage();
+      } else if (choice == 'video') {
+        final file = await picker.pickVideo(source: ImageSource.gallery);
+        if (file != null) pickedFiles = [file];
+        isVideoChoice = true;
       } else if (choice == 'camera') {
         final file = await picker.pickImage(source: ImageSource.camera);
-        if (file != null) {
-          pickedFiles = [file];
-        }
+        if (file != null) pickedFiles = [file];
+      } else if (choice == 'camera_video') {
+        final file = await picker.pickVideo(source: ImageSource.camera);
+        if (file != null) pickedFiles = [file];
+        isVideoChoice = true;
       }
 
       if (pickedFiles == null || pickedFiles.isEmpty) return null;
@@ -2373,6 +2882,7 @@ extension on _ChatScreenState {
       return _PhotoPickerResult(
         paths: pickedFiles.map((f) => f.path).toList(),
         caption: caption,
+        isVideo: isVideoChoice,
       );
     } catch (e) {
       print('Ошибка выбора фото: $e');

@@ -228,17 +228,14 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen>
   Future<void> _openQrAuthorize() async {
     final result = await Navigator.of(context).push<String>(
       PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) => const QrAuthorizeScreen(),
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            const QrAuthorizeScreen(),
         transitionDuration: Duration.zero,
         reverseTransitionDuration: Duration.zero,
       ),
     );
 
     if (!mounted || result == null) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('QR-код принят для авторизации')),
-    );
   }
 
   Widget _buildContent(BuildContext context) {
@@ -267,7 +264,8 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen>
           onTap: () {
             Navigator.of(context).push(
               PageRouteBuilder(
-                pageBuilder: (context, animation, secondaryAnimation) => const QrLoginScreen(),
+                pageBuilder: (context, animation, secondaryAnimation) =>
+                    const QrLoginScreen(),
                 transitionDuration: Duration.zero,
                 reverseTransitionDuration: Duration.zero,
               ),
@@ -290,7 +288,8 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen>
           onTap: () {
             Navigator.of(context).push(
               PageRouteBuilder(
-                pageBuilder: (context, animation, secondaryAnimation) => const SessionsScreen(),
+                pageBuilder: (context, animation, secondaryAnimation) =>
+                    const SessionsScreen(),
                 transitionDuration: Duration.zero,
                 reverseTransitionDuration: Duration.zero,
               ),
@@ -313,7 +312,8 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen>
           onTap: () {
             Navigator.of(context).push(
               PageRouteBuilder(
-                pageBuilder: (context, animation, secondaryAnimation) => const ExportSessionScreen(),
+                pageBuilder: (context, animation, secondaryAnimation) =>
+                    const ExportSessionScreen(),
                 transitionDuration: Duration.zero,
                 reverseTransitionDuration: Duration.zero,
               ),
@@ -336,7 +336,8 @@ class _SecuritySettingsScreenState extends State<SecuritySettingsScreen>
           onTap: () {
             Navigator.of(context).push(
               PageRouteBuilder(
-                pageBuilder: (context, animation, secondaryAnimation) => const SessionSpoofingScreen(),
+                pageBuilder: (context, animation, secondaryAnimation) =>
+                    const SessionSpoofingScreen(),
                 transitionDuration: Duration.zero,
                 reverseTransitionDuration: Duration.zero,
               ),

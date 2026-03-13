@@ -10,6 +10,8 @@ class Contact {
   final int accountStatus;
   final String? status;
   final List<String> options;
+  final String? link;
+  final String? webApp;
 
   Contact({
     required this.id,
@@ -23,11 +25,47 @@ class Contact {
     this.accountStatus = 0,
     this.status,
     this.options = const [],
+    this.link,
+    this.webApp,
   });
 
   bool get isBot => options.contains('BOT');
+  bool get hasWebApp => options.contains('HAS_WEBAPP') && webApp != null;
+  bool get isRemoved => status == 'REMOVED';
 
   bool get isUserBlocked => isBlockedByMe || isBlocked;
+
+  Contact copyWith({
+    int? id,
+    String? name,
+    String? firstName,
+    String? lastName,
+    String? description,
+    String? photoBaseUrl,
+    bool? isBlocked,
+    bool? isBlockedByMe,
+    int? accountStatus,
+    String? status,
+    List<String>? options,
+    String? link,
+    String? webApp,
+  }) {
+    return Contact(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      firstName: firstName ?? this.firstName,
+      lastName: lastName ?? this.lastName,
+      description: description ?? this.description,
+      photoBaseUrl: photoBaseUrl ?? this.photoBaseUrl,
+      isBlocked: isBlocked ?? this.isBlocked,
+      isBlockedByMe: isBlockedByMe ?? this.isBlockedByMe,
+      accountStatus: accountStatus ?? this.accountStatus,
+      status: status ?? this.status,
+      options: options ?? this.options,
+      link: link ?? this.link,
+      webApp: webApp ?? this.webApp,
+    );
+  }
 
   factory Contact.fromJson(Map<String, dynamic> json) {
     final namesGroup = json['names'] as List?;
@@ -77,6 +115,8 @@ class Contact {
       accountStatus: json['accountStatus'] ?? 0,
       status: json['status'],
       options: List<String>.from(json['options'] ?? []),
+      link: json['link']?.toString(),
+      webApp: json['webApp']?.toString(),
     );
   }
 }

@@ -164,13 +164,91 @@ extension ApiServiceAuth on ApiService {
     await waitUntilOnline();
 
     final payload = {
-      'expectedCapabilities': [0, 3, 4],
+      'expectedCapabilities': [1, 3],
       'trackId': trackId,
       'password': password,
       'hint': hint,
     };
     _sendMessage(111, payload);
     print('Запрос на финальное подтверждение 2FA отправлен');
+  }
+
+  /// Получение информации о текущей 2FA (opcode 112 type=0, затем opcode 104)
+  Future<void> get2FAInfo(String trackId) async {
+    await waitUntilOnline();
+    _sendMessage(104, {'trackId': trackId});
+    print('Запрос информации о 2FA отправлен');
+  }
+
+  /// Начало управления существующей 2FA (opcode 112 type=0)
+  Future<void> start2FAManage() async {
+    await waitUntilOnline();
+    _sendMessage(112, {'type': 0});
+    print('Запрос на управление 2FA отправлен');
+  }
+
+  /// Подтверждение существующего пароля 2FA (opcode 113)
+  Future<void> verify2FAPassword(String trackId, String password) async {
+    await waitUntilOnline();
+    _sendMessage(113, {'trackId': trackId, 'password': password});
+    print('Подтверждение пароля 2FA отправлено');
+  }
+
+  /// Удаление 2FA (opcode 111 с remove2fa=true)
+  Future<void> remove2FA(String trackId) async {
+    await waitUntilOnline();
+    final payload = {
+      'expectedCapabilities': [5],
+      'trackId': trackId,
+      'remove2fa': true,
+    };
+    _sendMessage(111, payload);
+    print('Запрос на удаление 2FA отправлен');
+  }
+
+  /// Смена пароля 2FA (opcode 107 + opcode 111)
+  Future<void> change2FAPassword(String trackId, String newPassword, String hint) async {
+    await waitUntilOnline();
+    _sendMessage(107, {'trackId': trackId, 'password': newPassword});
+    print('Смена пароля 2FA отправлена');
+  }
+
+  /// Финальное подтверждение смены пароля 2FA (opcode 111)
+  Future<void> confirm2FAChange(String trackId, String newPassword, String hint) async {
+    await waitUntilOnline();
+    final payload = {
+      'expectedCapabilities': [1, 3],
+      'trackId': trackId,
+      'password': newPassword,
+      'hint': hint,
+    };
+    _sendMessage(111, payload);
+    print('Подтверждение смены пароля 2FA отправлено');
+  }
+
+  /// Смена email для 2FA (opcode 109 + 110 + 111)
+  Future<void> change2FAEmail(String trackId, String email) async {
+    await waitUntilOnline();
+    _sendMessage(109, {'trackId': trackId, 'email': email});
+    print('Смена email 2FA отправлена');
+  }
+
+  /// Подтверждение кода смены email 2FA (opcode 110)
+  Future<void> verify2FAEmailChangeCode(String trackId, String code) async {
+    await waitUntilOnline();
+    _sendMessage(110, {'trackId': trackId, 'verifyCode': code});
+    print('Подтверждение кода смены email 2FA отправлено');
+  }
+
+  /// Финальное подтверждение смены email 2FA (opcode 111)
+  Future<void> confirm2FAEmailChange(String trackId) async {
+    await waitUntilOnline();
+    final payload = {
+      'expectedCapabilities': [4],
+      'trackId': trackId,
+    };
+    _sendMessage(111, payload);
+    print('Подтверждение смены email 2FA отправлено');
   }
 
   Future<void> saveToken(

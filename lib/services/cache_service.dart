@@ -330,26 +330,27 @@ class CacheService {
       }
 
       final lowerUrl = url.toLowerCase();
+      if (lowerUrl.contains('.ogg')) return '.ogg';
+      if (lowerUrl.contains('.opus')) return '.opus';
+      if (lowerUrl.contains('.m4a')) return '.m4a';
+      if (lowerUrl.contains('.aac')) return '.aac';
+      if (lowerUrl.contains('.mp3')) return '.mp3';
       if (lowerUrl.contains('audio') ||
           lowerUrl.contains('voice') ||
-          lowerUrl.contains('.mp3') ||
-          lowerUrl.contains('.ogg') ||
-          lowerUrl.contains('.m4a') ||
           (lowerUrl.contains('okcdn.ru') && lowerUrl.contains('type=2')) ||
           lowerUrl.contains('srcag=unknown_android')) {
-        return '.mp3';
+        return '.ogg';
       }
 
       return '.bin';
     } catch (e) {
       final lowerUrl = url.toLowerCase();
-      if (lowerUrl.contains('.mp3') ||
-          lowerUrl.contains('.ogg') ||
-          lowerUrl.contains('.m4a') ||
-          (lowerUrl.contains('okcdn.ru') && lowerUrl.contains('type=2')) ||
-          lowerUrl.contains('srcag=unknown_android')) {
-        return '.mp3';
-      }
+      if (lowerUrl.contains('.ogg')) return '.ogg';
+      if (lowerUrl.contains('.opus')) return '.opus';
+      if (lowerUrl.contains('.m4a')) return '.m4a';
+      if (lowerUrl.contains('.aac')) return '.aac';
+      if (lowerUrl.contains('.mp3')) return '.mp3';
+      if (lowerUrl.contains('srcag=unknown_android')) return '.ogg';
       return '.bin';
     }
   }

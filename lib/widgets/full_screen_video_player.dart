@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 import 'dart:async';
+import 'dart:io' as io;
+import 'dart:typed_data';
+import 'package:http/http.dart' as http;
+import 'package:gwid/utils/download_path_helper.dart';
 
 class FullScreenVideoPlayer extends StatefulWidget {
   final String videoUrl;
@@ -21,6 +25,8 @@ class _FullScreenVideoPlayerState extends State<FullScreenVideoPlayer>
   bool _showControls = true;
   bool _isBuffering = false;
   double _playbackSpeed = 1.0;
+  bool _isLooping = false;
+  final TransformationController _transformationController = TransformationController();
   Timer? _hideControlsTimer;
   Timer? _positionTimer;
   late AnimationController _controlsAnimationController;
@@ -29,6 +35,8 @@ class _FullScreenVideoPlayerState extends State<FullScreenVideoPlayer>
   Duration _currentPosition = Duration.zero;
   Duration _totalDuration = Duration.zero;
   List<DurationRange> _bufferedRanges = [];
+  bool _isDownloading = false;
+  double _downloadProgress = 0.0;
 
   @override
   void initState() {
@@ -52,6 +60,95 @@ class _FullScreenVideoPlayerState extends State<FullScreenVideoPlayer>
 
     _controlsAnimationController.forward();
     _initializePlayer();
+  }
+
+  Future<void> _downloadVideo() async {
+    if (_isDownloading) return;
+
+    setState(() {
+      _isDownloading = true;
+      _downloadProgress = 0.0;
+    });
+
+    try {
+      final downloadDir = await DownloadPathHelper.getDownloadDirectory();
+      if (downloadDir == null || !await downloadDir.exists()) {
+        throw Exception('Папка загрузок не найдена');
+      }
+
+      // Генерируем имя файла из URL
+      final uri = Uri.parse(widget.videoUrl);
+      String fileName = uri.pathSegments.isNotEmpty
+          ? uri.pathSegments.last
+          : 'video_${DateTime.now().millisecondsSinceEpoch}.mp4';
+      if (!fileName.contains('.')) fileName += '.mp4';
+
+      final filePath = '${downloadDir.path}/$fileName';
+      final file = io.File(filePath);
+
+      final request = http.Request('GET', uri);
+      final streamedResponse = await request.send();
+
+      if (streamedResponse.statusCode != 200) {
+        throw Exception('Ошибка сервера: ${streamedResponse.statusCode}');
+      }
+
+      final contentLength = streamedResponse.contentLength ?? 0;
+      final bytes = <int>[];
+      int received = 0;
+
+      await for (final chunk in streamedResponse.stream) {
+        bytes.addAll(chunk);
+        received += chunk.length;
+        if (contentLength > 0 && mounted) {
+          setState(() {
+            _downloadProgress = received / contentLength;
+          });
+        }
+      }
+
+      await file.writeAsBytes(Uint8List.fromList(bytes));
+
+      if (mounted) {
+        setState(() {
+          _isDownloading = false;
+          _downloadProgress = 0.0;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.white),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Сохранено: $fileName')),
+              ],
+            ),
+            backgroundColor: Colors.green.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isDownloading = false;
+          _downloadProgress = 0.0;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.white),
+                const SizedBox(width: 8),
+                Expanded(child: Text('Не удалось скачать: $e')),
+              ],
+            ),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _initializePlayer() async {
@@ -186,18 +283,23 @@ class _FullScreenVideoPlayerState extends State<FullScreenVideoPlayer>
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) => _SpeedBottomSheet(
+      useSafeArea: true,
+      builder: (context) => _SpeedSliderSheet(
         currentSpeed: _playbackSpeed,
-        onSpeedSelected: (speed) {
+        onSpeedChanged: (speed) {
           setState(() {
             _playbackSpeed = speed;
             _videoPlayerController!.setPlaybackSpeed(speed);
           });
-          Navigator.pop(context);
-          _showControlsUI();
         },
+        onClose: () => Navigator.pop(context),
       ),
     );
+  }
+
+  void _toggleLoop() {
+    setState(() => _isLooping = !_isLooping);
+    _videoPlayerController!.setLooping(_isLooping);
   }
 
   @override
@@ -207,6 +309,7 @@ class _FullScreenVideoPlayerState extends State<FullScreenVideoPlayer>
     _videoPlayerController?.removeListener(_videoListener);
     _videoPlayerController?.dispose();
     _controlsAnimationController.dispose();
+    _transformationController.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
@@ -257,46 +360,35 @@ class _FullScreenVideoPlayerState extends State<FullScreenVideoPlayer>
             },
             child: Stack(
               children: [
-                Center(
-                  child: _isLoading
-                      ? CircularProgressIndicator(color: colorScheme.primary)
-                      : _hasError
-                      ? _ErrorWidget(colorScheme: colorScheme)
-                      : _videoPlayerController != null &&
-                            _videoPlayerController!.value.isInitialized
-                      ? AspectRatio(
-                          aspectRatio:
-                              _videoPlayerController!.value.aspectRatio,
-                          child: VideoPlayer(_videoPlayerController!),
-                        )
-                      : const SizedBox(),
-                ),
+                _isLoading
+                    ? Center(child: CircularProgressIndicator(color: colorScheme.primary))
+                    : _hasError
+                    ? Center(child: _ErrorWidget(colorScheme: colorScheme))
+                    : _videoPlayerController != null &&
+                          _videoPlayerController!.value.isInitialized
+                    ? InteractiveViewer(
+                        transformationController: _transformationController,
+                        minScale: 1.0,
+                        maxScale: 4.0,
+                        child: Center(
+                          child: AspectRatio(
+                            aspectRatio: _videoPlayerController!.value.aspectRatio,
+                            child: VideoPlayer(_videoPlayerController!),
+                          ),
+                        ),
+                      )
+                    : const SizedBox(),
 
                 if (_isBuffering)
-                  Center(
-                    child: Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.7),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          CircularProgressIndicator(
-                            color: colorScheme.primary,
-                            strokeWidth: 3,
-                          ),
-                          const SizedBox(height: 12),
-                          const Text(
-                            'Буферизация...',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
+                  Positioned(
+                    top: 60,
+                    right: 16,
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        color: colorScheme.primary,
+                        strokeWidth: 2,
                       ),
                     ),
                   ),
@@ -341,6 +433,7 @@ class _FullScreenVideoPlayerState extends State<FullScreenVideoPlayer>
                   totalDuration: _totalDuration,
                   bufferedRanges: _bufferedRanges,
                   playbackSpeed: _playbackSpeed,
+                  isLooping: _isLooping,
                   onPlayPause: _togglePlayPause,
                   onSeek: (position) {
                     setState(() {
@@ -351,10 +444,14 @@ class _FullScreenVideoPlayerState extends State<FullScreenVideoPlayer>
                   onSeekEnd: (position) {
                     _seekTo(position);
                   },
+                  onDownloadTap: _downloadVideo,
+                  isDownloading: _isDownloading,
+                  downloadProgress: _downloadProgress,
                   onBack: () => Navigator.pop(context),
                   onSpeedTap: () {
                     _showSpeedMenu();
                   },
+                  onLoopTap: _toggleLoop,
                   onRewind: () {
                     final newPosition = _clampDuration(
                       _currentPosition - const Duration(seconds: 10),
@@ -390,14 +487,19 @@ class _VideoControls extends StatelessWidget {
   final Duration totalDuration;
   final List<DurationRange> bufferedRanges;
   final double playbackSpeed;
+  final bool isLooping;
   final VoidCallback onPlayPause;
   final Function(Duration) onSeek;
   final Function(Duration) onSeekEnd;
   final VoidCallback onBack;
   final VoidCallback onSpeedTap;
+  final VoidCallback onLoopTap;
   final VoidCallback onRewind;
   final VoidCallback onForward;
   final String Function(Duration) formatDuration;
+  final VoidCallback onDownloadTap;
+  final bool isDownloading;
+  final double downloadProgress;
 
   const _VideoControls({
     required this.colorScheme,
@@ -406,14 +508,19 @@ class _VideoControls extends StatelessWidget {
     required this.totalDuration,
     required this.bufferedRanges,
     required this.playbackSpeed,
+    required this.isLooping,
     required this.onPlayPause,
     required this.onSeek,
     required this.onSeekEnd,
     required this.onBack,
     required this.onSpeedTap,
+    required this.onLoopTap,
     required this.onRewind,
     required this.onForward,
     required this.formatDuration,
+    required this.onDownloadTap,
+    required this.isDownloading,
+    required this.downloadProgress,
   });
 
   @override
@@ -452,6 +559,45 @@ class _VideoControls extends StatelessWidget {
                     ),
                   ),
                   const Spacer(),
+                  IconButton(
+                    onPressed: onLoopTap,
+                    icon: Icon(
+                      isLooping ? Icons.repeat_one : Icons.repeat,
+                      color: isLooping ? colorScheme.primary : Colors.white,
+                    ),
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.black.withValues(alpha: 0.5),
+                      shape: const CircleBorder(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      if (isDownloading)
+                        SizedBox(
+                          width: 40,
+                          height: 40,
+                          child: CircularProgressIndicator(
+                            value: downloadProgress > 0 ? downloadProgress : null,
+                            strokeWidth: 2.5,
+                            color: Colors.white,
+                          ),
+                        ),
+                      IconButton(
+                        onPressed: isDownloading ? null : onDownloadTap,
+                        icon: Icon(
+                          isDownloading ? Icons.downloading : Icons.download_outlined,
+                          color: isDownloading ? Colors.white54 : Colors.white,
+                        ),
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.black.withValues(alpha: 0.5),
+                          shape: const CircleBorder(),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(width: 8),
                   FilledButton.tonal(
                     onPressed: onSpeedTap,
                     style: FilledButton.styleFrom(
@@ -794,18 +940,32 @@ class _CustomProgressBarState extends State<_CustomProgressBar> {
   }
 }
 
-class _SpeedBottomSheet extends StatelessWidget {
+class _SpeedSliderSheet extends StatefulWidget {
   final double currentSpeed;
-  final Function(double) onSpeedSelected;
+  final Function(double) onSpeedChanged;
+  final VoidCallback onClose;
 
-  const _SpeedBottomSheet({
+  const _SpeedSliderSheet({
     required this.currentSpeed,
-    required this.onSpeedSelected,
+    required this.onSpeedChanged,
+    required this.onClose,
   });
 
   @override
+  State<_SpeedSliderSheet> createState() => _SpeedSliderSheetState();
+}
+
+class _SpeedSliderSheetState extends State<_SpeedSliderSheet> {
+  late double _speed;
+
+  @override
+  void initState() {
+    super.initState();
+    _speed = widget.currentSpeed;
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final speeds = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
@@ -814,76 +974,92 @@ class _SpeedBottomSheet extends StatelessWidget {
         color: theme.dialogBackgroundColor,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      padding: const EdgeInsets.symmetric(vertical: 24),
-      child: SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.only(bottom: 16),
-              decoration: BoxDecoration(
-                color: Colors.grey[400],
-                borderRadius: BorderRadius.circular(2),
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 40,
+            height: 4,
+            margin: const EdgeInsets.only(bottom: 20),
+            decoration: BoxDecoration(
+              color: Colors.grey[400],
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          Row(
+            children: [
+              Text(
+                'Скорость воспроизведения',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Row(
-                children: [
-                  Text(
-                    'Скорость воспроизведения',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '${_speed.toStringAsFixed(2).replaceAll(RegExp(r'\.?0+$'), '')}x',
+                  style: TextStyle(
+                    color: colorScheme.onPrimaryContainer,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
                   ),
-                ],
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              alignment: WrapAlignment.center,
-              children: speeds.map((speed) {
-                final isSelected = speed == currentSpeed;
-                return Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: () => onSpeedSelected(speed),
-                    borderRadius: BorderRadius.circular(20),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 24,
-                        vertical: 12,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? colorScheme.primaryContainer
-                            : colorScheme.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        '${speed}x',
-                        style: TextStyle(
-                          color: isSelected
-                              ? colorScheme.onPrimaryContainer
-                              : colorScheme.onSurfaceVariant,
-                          fontSize: 16,
-                          fontWeight: isSelected
-                              ? FontWeight.w600
-                              : FontWeight.normal,
-                        ),
-                      ),
-                    ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Text('0.25x', style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 12)),
+              Expanded(
+                child: Slider(
+                  value: _speed,
+                  min: 0.25,
+                  max: 2.0,
+                  divisions: 7,
+                  onChanged: (value) {
+                    // Снапаем к значениям: 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0
+                    final snapped = (value * 4).round() / 4;
+                    setState(() => _speed = snapped);
+                    widget.onSpeedChanged(snapped);
+                  },
+                ),
+              ),
+              Text('2x', style: TextStyle(color: colorScheme.onSurfaceVariant, fontSize: 12)),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0].map((s) {
+              return GestureDetector(
+                onTap: () {
+                  setState(() => _speed = s);
+                  widget.onSpeedChanged(s);
+                },
+                child: Text(
+                  '${s}x',
+                  style: TextStyle(
+                    color: _speed == s ? colorScheme.primary : colorScheme.onSurfaceVariant,
+                    fontSize: 11,
+                    fontWeight: _speed == s ? FontWeight.w700 : FontWeight.normal,
                   ),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 24),
-          ],
-        ),
+                ),
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 16),
+          FilledButton(
+            onPressed: widget.onClose,
+            child: const Text('Готово'),
+          ),
+        ],
       ),
     );
   }

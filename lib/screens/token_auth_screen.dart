@@ -76,21 +76,8 @@ class _TokenAuthScreenState extends State<TokenAuthScreen>
     final messenger = ScaffoldMessenger.of(context);
 
     try {
-      if (spoofData != null && spoofData.isNotEmpty) {
-        messenger.showSnackBar(
-          const SnackBar(
-            content: Text('Настройки анонимности из файла применены!'),
-          ),
-        );
-      }
       if (proxySettings != null) {
         await ProxyService.instance.saveProxySettings(proxySettings);
-        messenger.showSnackBar(
-          const SnackBar(
-            content: Text('Настройки прокси из файла применены!'),
-            backgroundColor: Colors.blue,
-          ),
-        );
       }
 
       await ApiService.instance.saveToken(token);
@@ -125,15 +112,6 @@ class _TokenAuthScreenState extends State<TokenAuthScreen>
         return;
       }
 
-      if (mounted && whitelistService.isEnabled) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('проверка на ивана пройдена, успешно'),
-            duration: Duration(seconds: 3),
-          ),
-        );
-      }
-
       if (mounted) {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (context) => const HomeScreen()),
@@ -155,9 +133,6 @@ class _TokenAuthScreenState extends State<TokenAuthScreen>
   void _loginWithToken() {
     final token = _tokenController.text.trim();
     if (token.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Введите токен для входа')));
       return;
     }
     _processLogin(token: token);
@@ -165,8 +140,7 @@ class _TokenAuthScreenState extends State<TokenAuthScreen>
 
   Future<void> _loadSessionFile() async {
     FilePickerResult? result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['json', 'ksession'],
+      type: FileType.any,
     );
     if (result == null || result.files.single.path == null) return;
     final filePath = result.files.single.path!;

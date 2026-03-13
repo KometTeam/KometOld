@@ -66,8 +66,14 @@ class _AppearanceSettingsScreenState extends State<AppearanceSettingsScreen>
     final colors = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
-    return Scaffold(
-      body: Container(
+    return GestureDetector(
+      onHorizontalDragUpdate: (details) {
+        if (details.delta.dx > 10) {
+          Navigator.of(context).pop();
+        }
+      },
+      child: Scaffold(
+        body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
@@ -130,6 +136,7 @@ class _AppearanceSettingsScreenState extends State<AppearanceSettingsScreen>
               ),
             ],
           ),
+        ),
         ),
       ),
     );

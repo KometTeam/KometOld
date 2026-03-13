@@ -90,7 +90,9 @@ class _OTPScreenState extends State<OTPScreen>
 
         // Если требуется пароль, не обрабатываем здесь - это делает password_required хендлер
         if (payload != null && payload['passwordChallenge'] != null) {
-          print('Обнаружен passwordChallenge, ожидаем навигацию на экран пароля');
+          print(
+            'Обнаружен passwordChallenge, ожидаем навигацию на экран пароля',
+          );
           return;
         }
 
@@ -184,30 +186,12 @@ class _OTPScreenState extends State<OTPScreen>
                     ),
                     (route) => false,
                   );
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('АЛО ТЫ НЕ В ВАЙТЛИСТЕ'),
-                      backgroundColor: Colors.red,
-                      duration: Duration(seconds: 5),
-                    ),
-                  );
                 }
                 return;
               }
 
               if (mounted) {
                 setState(() => _isLoading = false);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text('Код верный! Вход выполнен.'),
-                    backgroundColor: Colors.green,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    behavior: SnackBarBehavior.floating,
-                    margin: const EdgeInsets.all(10),
-                  ),
-                );
                 Navigator.of(context).pushAndRemoveUntil(
                   MaterialPageRoute(builder: (context) => const HomeScreen()),
                   (route) => false,
@@ -310,7 +294,7 @@ class _OTPScreenState extends State<OTPScreen>
       width: 56,
       height: 60,
       textStyle: GoogleFonts.manrope(
-        fontSize: 22, 
+        fontSize: 22,
         color: colors.onSurface,
         fontWeight: FontWeight.w600,
       ),

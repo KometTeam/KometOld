@@ -215,7 +215,13 @@ class ImageCacheService {
 
     await for (final entity in _cacheDirectory.list(recursive: true)) {
       if (entity is File && await _isFileExpired(entity)) {
-        await entity.delete();
+        try {
+          if (await entity.exists()) {
+            await entity.delete();
+          }
+        } catch (e) {
+          print('Ошибка удаления файла ${entity.path}: $e');
+        }
       }
     }
   }

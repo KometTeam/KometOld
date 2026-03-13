@@ -19,6 +19,7 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
   String _incomingCall = 'ALL';
   String _chatsInvite = 'ALL';
   bool _contentLevelAccess = false;
+  bool _has2faPassword = false;
 
   @override
   void initState() {
@@ -28,6 +29,10 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
     ApiService.instance.messages.listen((message) {
       if (message['type'] == 'privacy_settings_updated' && mounted) {
         _loadCurrentSettings();
+      }
+      // Обновляем статус 2FA если пришёл passwordChallenge
+      if (message['type'] == 'password_required' && mounted) {
+        setState(() => _has2faPassword = true);
       }
     });
   }
@@ -42,6 +47,7 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
         _chatsInvite = prefs.getString('privacy_chats_invite') ?? 'ALL';
         _contentLevelAccess =
             prefs.getBool('privacy_content_level_access') ?? false;
+        _has2faPassword = prefs.getBool('has_2fa_password') ?? false;
       });
     } catch (e) {
       print('Ошибка загрузки настроек приватности: $e');
@@ -70,14 +76,6 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
       await _savePrivacySetting('privacy_hidden', hidden);
       if (mounted) {
         setState(() => _isHidden = hidden);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              hidden ? 'Статус онлайн скрыт' : 'Статус онлайн виден',
-            ),
-            backgroundColor: Colors.green,
-          ),
-        );
       }
     } catch (e) {
       _showErrorSnackBar(e);
@@ -118,15 +116,6 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
           contentLevelAccess,
         );
         if (mounted) setState(() => _contentLevelAccess = contentLevelAccess);
-      }
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Настройки приватности обновлены'),
-            backgroundColor: Colors.green,
-          ),
-        );
       }
     } catch (e) {
       _showErrorSnackBar(e);
@@ -285,10 +274,17 @@ class _PrivacySettingsScreenState extends State<PrivacySettingsScreen> {
                   _buildSectionTitle("Пароль аккаунта", colors),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.lock_outline),
-                    title: const Text("Установить пароль"),
-                    subtitle: const Text(
-                      "Добавить пароль для дополнительной защиты аккаунта",
+                    leading: Icon(
+                      _has2faPassword ? Icons.lock : Icons.lock_outline,
+                      color: _has2faPassword ? colors.primary : null,
+                    ),
+                    title: Text(
+                      _has2faPassword ? "Пароль установлен" : "Установить пароль",
+                    ),
+                    subtitle: Text(
+                      _has2faPassword
+                          ? "Аккаунт защищён двухфакторной аутентификацией"
+                          : "Добавить пароль для дополнительной защиты аккаунта",
                     ),
                     trailing: const Icon(Icons.chevron_right_rounded),
                     onTap: () {

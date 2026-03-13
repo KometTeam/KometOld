@@ -21,16 +21,18 @@ extension on _ChatScreenState {
       }
 
       if (_isEncryptionRestrictionActive(originalText)) {
-        _showInfoSnackBar('Нее, так нельзя)');
         return;
       }
 
       final textToSend = _prepareTextToSend(originalText);
       final int tempCid = DateTime.now().millisecondsSinceEpoch;
-      final List<Map<String, dynamic>> elements = _captureMentions();
+      final List<Map<String, dynamic>> elements = [
+        ..._captureMentions(),
+        ..._textController.elements,
+      ];
 
       if (!_validateMentions(elements)) {
-        elements.clear();
+        elements.removeWhere((e) => e['type'] == 'USER_MENTION');
       }
 
       final tempMessage = _createTempMessage(
@@ -38,9 +40,18 @@ extension on _ChatScreenState {
         cid: tempCid,
         elements: elements,
       );
+      final replyIdForServer = _replyingToMessage?.id;
+      final replyMsgForLocal = _replyingToMessage;
+
       _addMessage(tempMessage);
       _clearInputState();
-      _sendToServer(text: textToSend, cid: tempCid, elements: elements);
+      _sendToServer(
+        text: textToSend,
+        cid: tempCid,
+        elements: elements,
+        replyToMessageId: replyIdForServer,
+        replyToMessage: replyMsgForLocal,
+      );
       _handleReadReceipts();
       // Сбрасываем локальный кэш чата для обновления данных
       if (widget.isChannel || widget.isGroupChat) {
@@ -75,21 +86,86 @@ extension on _ChatScreenState {
   }
 
   List<Map<String, dynamic>> _captureMentions() {
-    return _mentions.map((m) {
+    final fromController = _mentions.map((m) {
       return {'entityId': m.entityId, 'type': m.type, 'length': m.length};
     }).toList();
+
+    // Парсим @username из текста и добавляем USER_MENTION elements
+    final text = _textController.text;
+    final mentionRegex = RegExp(r'@([a-zA-Z0-9_]{3,})');
+    final textMentions = <Map<String, dynamic>>[];
+    for (final match in mentionRegex.allMatches(text)) {
+      final username = match.group(1)!;
+      final from = match.start;
+      final length = match.end - match.start;
+      // Не дублируем если уже есть из контроллера
+      final alreadyAdded = fromController.any((e) =>
+          e['type'] == 'USER_MENTION' &&
+          (e['entityName'] == username || e['from'] == from));
+      if (!alreadyAdded) {
+        textMentions.add({
+          'type': 'USER_MENTION',
+          'from': from,
+          'length': length,
+          'entityName': username,
+        });
+      }
+    }
+
+    return [...fromController, ...textMentions];
   }
 
   bool _validateMentions(List<Map<String, dynamic>> elements) {
+    // Разрешаем mentions у которых есть entityId или entityName
     for (final element in elements) {
       if (element['type'] == 'USER_MENTION') {
         final entityId = element['entityId'];
-        if (entityId == null || entityId is! int || entityId <= 0) {
+        final entityName = element['entityName'];
+        if ((entityId == null || entityId is! int || entityId <= 0) &&
+            (entityName == null || entityName.toString().isEmpty)) {
           return false;
         }
       }
     }
     return true;
+  }
+
+  void _toggleStyle(String type) {
+    if (_isDisposed) return;
+
+    final selection = _textController.selection;
+    if (selection.isCollapsed || selection.start < 0) return;
+
+    final from = selection.start;
+    final length = selection.end - selection.start;
+
+    bool found = false;
+    for (int i = 0; i < _textController.elements.length; i++) {
+      final el = _textController.elements[i];
+      if (el['type'] == type && el['from'] == from && el['length'] == length) {
+        _textController.elements.removeAt(i);
+        found = true;
+        break;
+      }
+    }
+
+    if (!found) {
+      _textController.elements.add({
+        'type': type,
+        'from': from,
+        'length': length,
+      });
+    }
+
+    _textController.refresh();
+    _setStateIfMounted(() {});
+  }
+
+
+  void _clearSelectionStyles() {
+    if (_isDisposed) return;
+    _textController.clearStylesForSelection(_textController.selection);
+    _setStateIfMounted(() {});
   }
 
   Message _createTempMessage({
@@ -117,7 +193,7 @@ extension on _ChatScreenState {
     return {
       'type': 'REPLY',
       'messageId': replyId,
-      'chatId': 0,
+      'chatId': widget.chatId, // use real chatId instead of 0
       'message': {
         'sender': _replyingToMessage!.senderId,
         'id': replyId,
@@ -144,12 +220,14 @@ extension on _ChatScreenState {
     required String text,
     required int cid,
     required List<Map<String, dynamic>> elements,
+    String? replyToMessageId,
+    Message? replyToMessage,
   }) {
     ApiService.instance.sendMessage(
       widget.chatId,
       text,
-      replyToMessageId: _replyingToMessage?.id,
-      replyToMessage: _replyingToMessage,
+      replyToMessageId: replyToMessageId,
+      replyToMessage: replyToMessage,
       cid: cid,
       elements: elements,
     );
@@ -230,6 +308,234 @@ extension on _ChatScreenState {
     _showForwardDialog(message);
   }
 
+  // Инициация звонка
+  void _initiateCall() async {
+    // Проверяем, есть ли уже активный НЕ минимизированный звонок
+    if (FloatingCallManager.instance.hasActiveCall &&
+        !FloatingCallManager.instance.isMinimized) {
+      return;
+    }
+
+    // Показываем диалог с опцией DATA_CHANNEL
+    final enableDataChannel = await showDialog<bool>(
+      context: context,
+      builder: (context) =>
+          _OutgoingCallDialog(contactName: widget.contact.name),
+    );
+
+    // Если пользователь отменил - выходим
+    if (enableDataChannel == null) return;
+
+    try {
+      // Вызываем API для инициации звонка
+      final response = await ApiService.instance.initiateCall(
+        widget.contact.id,
+        isVideo: false,
+      );
+
+      // Отправляем событие START_CALL
+      await ApiService.instance.sendCallEvent(
+        eventType: 'START_CALL',
+        conversationId: response.conversationId,
+      );
+
+      // Если дошли сюда, значит сервер ответил успешно
+      if (!mounted) return;
+
+      // Получаем полную информацию о контакте для аватарки
+      String? avatarUrl;
+      try {
+        final contacts = await ApiService.instance.fetchContactsByIds([
+          widget.contact.id,
+        ]);
+        if (contacts.isNotEmpty && contacts.first.photoBaseUrl != null) {
+          avatarUrl = contacts.first.photoBaseUrl;
+        }
+      } catch (e) {
+        print('⚠️ Не удалось загрузить аватарку контакта: $e');
+      }
+
+      // Открываем экран звонка через CallOverlayService
+      CallOverlayService.instance.showCall(
+        context,
+        callData: response,
+        contactId: widget.contact.id,
+        contactName: widget.contact.name,
+        contactAvatarUrl: avatarUrl,
+        isVideo: false,
+        isOutgoing: true,
+        enableDataChannel: enableDataChannel, // Передаем флаг
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Ошибка: $e'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    }
+  }
+
+  // Обработка группового звонка
+  void _handleGroupCall() async {
+    try {
+      print('📞 [1/6] _handleGroupCall начат...');
+
+      // Получаем актуальную информацию о чате с timeout
+      print('📞 [2/6] Загрузка данных чата...');
+      final chatData = await ApiService.instance
+          .getChatsAndContacts(force: false)
+          .timeout(
+            const Duration(seconds: 5),
+            onTimeout: () {
+              print('⚠️ Timeout при загрузке чатов, используем кэш');
+              return ApiService.instance.lastChatsPayload ?? {};
+            },
+          );
+      print('✅ [2/6] Данные чата загружены');
+
+      final chats = chatData['chats'] as List?;
+
+      Chat? currentChat;
+      if (chats != null) {
+        for (final chatJson in chats) {
+          final chat = Chat.tryFromJson(chatJson as Map<String, dynamic>);
+          if (chat != null && chat.id == widget.chatId) {
+            currentChat = chat;
+            break;
+          }
+        }
+      }
+
+      print('📞 [3/6] Найдено чатов: ${chats?.length ?? 0}');
+
+      if (!mounted) return;
+
+      // Проверяем есть ли активный звонок
+      if (currentChat?.hasActiveCall ?? false) {
+        print(
+          '📞 [4/6] Найден активный звонок с ${currentChat!.videoConversation!.participantsCount} участниками',
+        );
+
+        // Присоединяемся к существующему звонку
+        final conference = currentChat.videoConversation!;
+
+        print('📞 [5/6] Присоединение через API...');
+        final connection = await ApiService.instance
+            .joinGroupCallByConferenceId(
+              conferenceId: conference.conferenceId,
+              chatId: widget.chatId,
+            )
+            .timeout(
+              const Duration(seconds: 10),
+              onTimeout: () {
+                throw Exception('Timeout при присоединении к звонку');
+              },
+            );
+        print('✅ [5/6] API ответил, открываем экран звонка');
+
+        if (!mounted) return;
+
+        print('📞 [6/6] Открытие GroupCallScreen...');
+        // Открываем экран группового звонка
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) =>
+                GroupCallScreen(conference: conference, connection: connection),
+          ),
+        );
+        print('✅ [6/6] Экран звонка закрыт');
+      } else {
+        print('📞 [4/6] Активного звонка нет, показываем диалог');
+
+        // Начинаем новый звонок
+        final shouldStartCall = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Начать звонок?'),
+            content: Text(
+              'Начать ${widget.isGroupChat ? 'групповой' : ''} звонок в чате?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Отмена'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Начать'),
+              ),
+            ],
+          ),
+        );
+
+        if (shouldStartCall != true || !mounted) return;
+
+        print('📞 [5/6] Начинаем звонок через API...');
+        final connection = await ApiService.instance
+            .startGroupCall(widget.chatId, isVideo: false)
+            .timeout(
+              const Duration(seconds: 10),
+              onTimeout: () {
+                throw Exception('Timeout при создании звонка');
+              },
+            );
+        print('✅ [5/6] API ответил, создаем объект конференции');
+
+        if (!mounted) return;
+
+        // Создаем временный объект VideoConference из connection
+        final conference = VideoConference(
+          owner: ConferenceOwner(
+            id: _actualMyId ?? 0,
+            baseUrl: '',
+            baseRawUrl: '',
+            photoId: 0,
+            names: [],
+            updateTime: 0,
+          ),
+          chatId: widget.chatId,
+          conferenceId: connection.conversation.id,
+          callName: _currentContact.name,
+          joinLink: connection.conversation.joinLink,
+          previewParticipantIds: [],
+          type: 1,
+          startAt: DateTime.now().millisecondsSinceEpoch,
+          callType: 'AUDIO',
+        );
+
+        print('📞 [6/6] Открытие GroupCallScreen...');
+        // Открываем экран группового звонка
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) =>
+                GroupCallScreen(conference: conference, connection: connection),
+          ),
+        );
+        print('✅ [6/6] Экран звонка закрыт');
+      }
+    } catch (e, stackTrace) {
+      print('❌ Ошибка в _handleGroupCall: $e');
+      print('Stack trace: $stackTrace');
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Ошибка: $e'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+
+      // Важно: ничего не делаем дальше, просто выходим
+      return;
+    }
+  }
+
   void _showForwardDialog(Message message) async {
     print(' _showForwardDialog вызван для сообщения: ${message.id}');
 
@@ -241,12 +547,6 @@ extension on _ChatScreenState {
 
     if (chatData == null || chatData['chats'] == null) {
       print(' Не удалось загрузить чаты для пересылки');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Список чатов не загружен'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
       return;
     }
 
@@ -411,13 +711,19 @@ extension on _ChatScreenState {
       _itemPositionsListener.itemPositions.addListener(() {
         final positions = _itemPositionsListener.itemPositions.value;
         if (positions.isNotEmpty) {
+          // Ищем первый элемент с индексом 0 или самый нижний элемент
           final bottomItemPosition = positions.firstWhere(
             (p) => p.index == 0,
             orElse: () => positions.first,
           );
-          final isAtBottom =
-              bottomItemPosition.index == 0 &&
-              bottomItemPosition.itemLeadingEdge <= 0.25;
+
+          // Проверяем что мы на самом деле в самом низу списка
+          // Учитываем что первый элемент может быть DateSeparator (event)
+          final isAtBottomIndex =
+              bottomItemPosition.index <= 1; // Индекс 0 или 1
+          final isAtBottomEdge = bottomItemPosition.itemLeadingEdge <= 0.1;
+          final isAtBottom = isAtBottomIndex && isAtBottomEdge;
+
           _isUserAtBottom = isAtBottom;
           if (isAtBottom) _isScrollingToBottom = false;
           _showScrollToBottomNotifier.value =
@@ -553,14 +859,17 @@ extension on _ChatScreenState {
 
       if (opcode == 64 && (cmd == 0x100 || cmd == 256)) {
         // Обновляем данные чата если они пришли (включая список админов)
-        if (payload['chat'] != null && payload['chat'] is Map<String, dynamic>) {
+        if (payload['chat'] != null &&
+            payload['chat'] is Map<String, dynamic>) {
           print('✅ [ChatScreen] Получены данные чата в opcode 64, обновляем');
-          ApiService.instance.updateChatInCacheFromJson(payload['chat'] as Map<String, dynamic>);
+          ApiService.instance.updateChatInCacheFromJson(
+            payload['chat'] as Map<String, dynamic>,
+          );
           _invalidateCache(); // Сбрасываем локальный кэш
         } else {
           print('⚠️ [ChatScreen] payload[\'chat\'] отсутствует в opcode 64');
         }
-        
+
         final messageMap = payload['message'];
         if (messageMap is! Map<String, dynamic>) return;
         final newMessage = Message.fromJson(messageMap);
@@ -572,6 +881,7 @@ extension on _ChatScreenState {
             if (queueItem != null) queueService.removeFromQueue(queueItem.id);
           }
         }
+
         // Если идёт загрузка истории, откладываем обработку
         if (_isLoadingHistory) {
           _pendingMessagesDuringLoad.add(newMessage);
@@ -582,14 +892,17 @@ extension on _ChatScreenState {
         });
       } else if (opcode == 128) {
         // Обновляем данные чата если они пришли (включая список админов)
-        if (payload['chat'] != null && payload['chat'] is Map<String, dynamic>) {
+        if (payload['chat'] != null &&
+            payload['chat'] is Map<String, dynamic>) {
           print('✅ [ChatScreen] Получены данные чата в opcode 128, обновляем');
-          ApiService.instance.updateChatInCacheFromJson(payload['chat'] as Map<String, dynamic>);
+          ApiService.instance.updateChatInCacheFromJson(
+            payload['chat'] as Map<String, dynamic>,
+          );
           _invalidateCache(); // Сбрасываем локальный кэш
         } else {
           print('⚠️ [ChatScreen] payload[\'chat\'] отсутствует в opcode 128');
         }
-        
+
         final messageMap = payload['message'];
         if (messageMap is! Map<String, dynamic>) return;
         final newMessage = Message.fromJson(messageMap);
@@ -717,6 +1030,9 @@ extension on _ChatScreenState {
                 _lastPeerReadMessageId = messageId;
                 _lastPeerReadMessageIdStr = messageIdStr;
               });
+
+              // Обновляем глобальный кэш прочитанности по messageId
+              ApiService.instance.updatePeerReadMessageId(widget.chatId, messageId);
             }
           } else if (messageIdStr != null && messageIdStr.isNotEmpty) {
             if (_lastPeerReadMessageIdStr == null ||
@@ -767,13 +1083,14 @@ extension on _ChatScreenState {
     if (hasCache) {
       if (!mounted) return;
       _messages.clear();
-      _messages.addAll(_hydrateLinksSequentially(cachedMessages));
+      _messages.addAll(
+        _hydrateLinksSequentially(_filterControlMessages(cachedMessages)),
+      );
       if (_messages.isNotEmpty) _oldestLoadedTime = _messages.first.time;
       _hasMore = true;
 
       if (widget.isGroupChat) await _loadGroupParticipants();
       _buildChatItems();
-      _messagesToAnimate.clear();
 
       Future.microtask(() {
         _setStateIfMounted(() {
@@ -803,13 +1120,14 @@ extension on _ChatScreenState {
               // Обновляем UI только если ещё не показали кэш или кэш пустой
               if (!hasCache || _messages.isEmpty) {
                 _messages.clear();
-                _messages.addAll(_hydrateLinksSequentially(initial));
+                _messages.addAll(
+                  _hydrateLinksSequentially(_filterControlMessages(initial)),
+                );
                 if (_messages.isNotEmpty)
                   _oldestLoadedTime = _messages.first.time;
                 _hasMore = initial.length >= initialLimit;
 
                 _buildChatItems();
-                _messagesToAnimate.clear();
 
                 _setStateIfMounted(() {
                   _isLoadingHistory =
@@ -828,7 +1146,9 @@ extension on _ChatScreenState {
 
               // Обновляем полный список
               _messages.clear();
-              _messages.addAll(_hydrateLinksSequentially(all));
+              _messages.addAll(
+                _hydrateLinksSequentially(_filterControlMessages(all)),
+              );
               if (_messages.isNotEmpty)
                 _oldestLoadedTime = _messages.first.time;
               _hasMore = all.length >= initialMaxMessages;
@@ -972,7 +1292,6 @@ extension on _ChatScreenState {
       _hasMore = nextHasMore;
 
       _buildChatItems();
-      _messagesToAnimate.clear();
 
       Future.microtask(() {
         _setStateIfMounted(() {
@@ -1128,15 +1447,10 @@ extension on _ChatScreenState {
     );
     if (_messages.any((m) => m.id == normalizedMessage.id)) return;
 
-    final allMessages = [..._messages, normalizedMessage]
-      ..sort((a, b) => a.time.compareTo(b.time));
-    unawaited(ChatCacheService().cacheChatMessages(widget.chatId, allMessages));
-
     final wasAtBottom = _isUserAtBottom;
     final isMyMessage = normalizedMessage.senderId == _actualMyId;
     final lastMessage = _messages.isNotEmpty ? _messages.last : null;
     _messages.add(normalizedMessage);
-    _messagesToAnimate.add(normalizedMessage.id);
 
     final currentDate = DateTime.fromMillisecondsSinceEpoch(
       normalizedMessage.time,
@@ -1226,7 +1540,7 @@ extension on _ChatScreenState {
       })();
 
       _messages[index] = finalMessageWithOriginalText;
-      unawaited(ChatCacheService().cacheChatMessages(widget.chatId, _messages));
+      unawaited(ChatCacheService().addMessageToCache(widget.chatId, finalMessageWithOriginalText));
 
       if (mounted) {
         _setStateIfMounted(() {});
@@ -1554,6 +1868,17 @@ extension on _ChatScreenState {
     return message.copyWith(link: updatedLink);
   }
 
+  // Фильтруем CONTROL-сообщения (о звонках) - они вызывают баги
+  List<Message> _filterControlMessages(List<Message> messages) {
+    return messages.where((msg) {
+      final hasControl = msg.attaches.any((a) => a['_type'] == 'CONTROL');
+      if (hasControl) {
+        print('⏭️ Пропускаем CONTROL-сообщение id=${msg.id}');
+      }
+      return !hasControl;
+    }).toList();
+  }
+
   List<Message> _hydrateLinksSequentially(
     List<Message> messages, {
     Map<String, Message>? initialKnown,
@@ -1676,7 +2001,54 @@ extension on _ChatScreenState {
     });
   }
 
-  // ignore: unused_element
+  void _showMentionOverlay() {
+    _removeMentionOverlay();
+
+    final overlay = Overlay.of(context);
+    _mentionOverlay = OverlayEntry(
+      builder: (context) {
+        final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
+        // Базовая высота панели ввода + отступ
+        const double inputBarHeight = 70.0;
+        // Дополнительная высота панели ответа/редактирования
+        final double replyPanelHeight = _replyingToMessage != null ? 50.0 : 0.0;
+        final double editPanelHeight = _editingMessage != null ? 42.0 : 0.0;
+        final double totalBottom = keyboardHeight + inputBarHeight + replyPanelHeight + editPanelHeight;
+
+        return ValueListenableBuilder<bool>(
+          valueListenable: _showScrollToBottomNotifier,
+          builder: (context, showScrollButton, child) {
+            return AnimatedPositioned(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeInOut,
+              left: MentionPanelPosition.left,
+              right: showScrollButton
+                  ? MentionPanelPosition.right + 60
+                  : MentionPanelPosition.right,
+              bottom: totalBottom,
+              child: Material(
+                color: Colors.transparent,
+                child: _MentionDropdownPanel(
+                  users: _filteredMentionableUsers,
+                  onUserSelected: (user) {
+                    _insertMention(user);
+                    _removeMentionOverlay();
+                  },
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+    overlay.insert(_mentionOverlay!);
+  }
+
+  void _removeMentionOverlay() {
+    _mentionOverlay?.remove();
+    _mentionOverlay = null;
+  }
+
   void _handleMentionFiltering(String text) {
     final cursorPosition = _textController.selection.baseOffset;
     if (cursorPosition > 0) {
@@ -1735,21 +2107,32 @@ extension on _ChatScreenState {
           return aDisplay.compareTo(bDisplay);
         });
 
-        if (!_showMentionDropdown) {
+        if (_filteredMentionableUsers.isEmpty) {
+          // Нет результатов — скрываем панель
+          if (_showMentionDropdown) {
+            _setStateIfMounted(() => _showMentionDropdown = false);
+            _removeMentionOverlay();
+          }
+        } else if (!_showMentionDropdown) {
           _setStateIfMounted(() {
             _showMentionDropdown = true;
           });
+          _showMentionOverlay();
         } else {
           _setStateIfMounted(() {});
+          // Обновляем позицию overlay при изменении клавиатуры
+          _mentionOverlay?.markNeedsBuild();
         }
       } else {
         if (_showMentionDropdown) {
           _setStateIfMounted(() => _showMentionDropdown = false);
+          _removeMentionOverlay();
         }
       }
     } else {
       if (_showMentionDropdown) {
         _setStateIfMounted(() => _showMentionDropdown = false);
+        _removeMentionOverlay();
       }
     }
   }
@@ -1809,6 +2192,9 @@ extension on _ChatScreenState {
     }
 
     if (shouldShowPanel) _ensureBotCommandsLoaded();
+
+    // Handle mention filtering when typing
+    _handleMentionFiltering(text);
   }
 
   Future<void> _ensureBotCommandsLoaded() async {
@@ -1898,8 +2284,11 @@ extension on _ChatScreenState {
 
   Future<void> _saveInputState() async {
     try {
+      print('💾 _saveInputState вызван для чата ${widget.chatId}');
       final text = _textController.text;
       final elements = _textController.elements;
+      print('💾 Текст для сохранения: "$text" (длина: ${text.length})');
+      print('💾 Элементов: ${elements.length}');
 
       Map<String, dynamic>? replyingToMessageData;
       if (_replyingToMessage != null) {
@@ -1929,10 +2318,14 @@ extension on _ChatScreenState {
         elements: elements,
         replyingToMessage: replyingToMessageData,
       );
+      print('✅ ChatCacheService.saveChatInputState завершён');
 
       widget.onDraftChanged?.call(widget.chatId, draftData);
+      print(
+        '✅ onDraftChanged вызван с draftData: ${draftData != null ? "есть данные" : "null"}',
+      );
     } catch (e) {
-      print('Ошибка сохранения состояния ввода: $e');
+      print('❌ Ошибка сохранения состояния ввода: $e');
     }
   }
 
@@ -1940,69 +2333,119 @@ extension on _ChatScreenState {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
     if (!themeProvider.specialMessagesEnabled) return;
 
-    if (_sparkleMenuOverlay != null) {
-      _sparkleMenuOverlay!.remove();
-      _sparkleMenuOverlay = null;
-      _setStateIfMounted(() {});
-      return;
-    }
+    final colors = Theme.of(context).colorScheme;
 
-    final RenderBox? buttonBox =
-        _sparkleButtonKey.currentContext?.findRenderObject() as RenderBox?;
-    if (buttonBox == null) return;
-
-    _sparkleMenuOverlay = OverlayEntry(
-      builder: (context) => Stack(
-        children: [
-          Positioned.fill(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: _toggleKometSpecialMenu,
-              child: Container(color: Colors.transparent),
-            ),
-          ),
-          CompositedTransformFollower(
-            link: _sparkleLayerLink,
-            showWhenUnlinked: false,
-            followerAnchor: Alignment.bottomCenter,
-            targetAnchor: Alignment.topCenter,
-            offset: const Offset(0, -12),
-            child: Material(
-              color: Colors.transparent,
-              child: IntrinsicWidth(
-                child: Container(
-                  constraints: const BoxConstraints(maxWidth: 220),
-                  child: _KometSpecialMenu(
-                    onItemSelected: (value) {
-                      _toggleKometSpecialMenu();
-                      if (value.contains('#')) {
-                        _insertKometPrefix(value);
-                        _openColorPickerDialog(value);
-                      } else {
-                        _insertKometPrefix(value);
-                      }
-                    },
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: colors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: colors.outlineVariant,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
                   ),
                 ),
-              ),
+                const Text(
+                  'Спецэффекты',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: colors.outlineVariant),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 12,
+                            horizontal: 12,
+                          ),
+                        ),
+                        icon: const Icon(Icons.color_lens_outlined),
+                        label: const Text('Цветной текст'),
+                        onPressed: () {
+                          Navigator.of(ctx).pop();
+                          _insertKometPrefix('komet.color_#');
+                          _openColorPickerDialog('komet.color_#');
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: colors.outlineVariant),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 12,
+                            horizontal: 12,
+                          ),
+                        ),
+                        icon: const Icon(Icons.animation),
+                        label: const Text('Пульсация'),
+                        onPressed: () {
+                          Navigator.of(ctx).pop();
+                          _insertKometPrefix('komet.cosmetic.pulse#');
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: colors.outlineVariant),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 12,
+                            horizontal: 12,
+                          ),
+                        ),
+                        icon: const Icon(Icons.stars),
+                        label: const Text('Галактика'),
+                        onPressed: () {
+                          Navigator.of(ctx).pop();
+                          _insertKometPrefix("komet.cosmetic.galaxy''");
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
-        ],
-      ),
+        );
+      },
     );
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_sparkleMenuOverlay != null && mounted) {
-        final renderObject = _sparkleButtonKey.currentContext
-            ?.findRenderObject();
-        if (renderObject != null) {
-          Overlay.of(context).insert(_sparkleMenuOverlay!);
-          _setStateIfMounted(() {});
-        } else {
-          _sparkleMenuOverlay = null;
-        }
-      }
-    });
   }
 
   void _insertKometPrefix(String prefix) {
@@ -2376,6 +2819,7 @@ extension on _ChatScreenState {
       );
     }
     _chatItems = items;
+    _cachedAllPhotos = _buildAllPhotos();
 
     if (_isVoiceUploading || _isVoiceUploadFailed) {
       _chatItems.add(
@@ -2418,6 +2862,7 @@ extension on _ChatScreenState {
 
   void _replyToMessage(Message message) {
     _setStateIfMounted(() => _replyingToMessage = message);
+    _mentionOverlay?.markNeedsBuild();
     _saveInputState();
   }
 
@@ -2440,6 +2885,72 @@ extension on _ChatScreenState {
     if (mounted) {
       // ignore: invalid_use_of_protected_member
       setState(fn);
+    }
+  }
+
+  Future<void> _openWebApp() async {
+    try {
+      final response = await ApiService.instance.sendRequest(160, {
+        'botId': _currentContact.id,
+        'chatId': widget.chatId,
+      });
+      final url = response['payload']?['url'] as String?;
+      if (url == null || !mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (ctx) => _WebAppScreen(
+            url: url,
+            title: _currentContact.name,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Ошибка открытия приложения: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _loadChatInfo() async {
+    try {
+      // Сначала проверяем кэш
+      Map<String, dynamic>? chatData = ApiService.instance.getChatInfo(widget.chatId);
+      
+      // Если нет в кэше — запрашиваем
+      if (chatData == null) {
+        final response = await ApiService.instance.sendRequest(
+          48,
+          {'chatIds': [widget.chatId]},
+        );
+        final chats = response['payload']?['chats'] as List?;
+        if (chats == null || chats.isEmpty) return;
+        chatData = chats.first as Map<String, dynamic>;
+      }
+      
+      if (!mounted) return;
+      setState(() {
+        _chatLink = chatData!['link'] as String?;
+        _chatParticipantsCount = chatData['participantsCount'] as int?;
+        _chatMessagesCount = chatData['messagesCount'] as int?;
+        _chatAccessType = chatData['access'] as String?;
+        final created = chatData['created'];
+        if (created != null && created != 1) {
+          _chatCreatedAt = DateTime.fromMillisecondsSinceEpoch(created as int);
+        }
+        final joined = chatData['joinTime'];
+        if (joined != null && joined != 1) {
+          _chatJoinedAt = DateTime.fromMillisecondsSinceEpoch(joined as int);
+        }
+        final options = chatData['options'] as Map?;
+        _chatIsOfficial = options?['OFFICIAL'] as bool?;
+      });
+    } catch (e) {
+      debugPrint('Ошибка загрузки инфо чата: $e');
     }
   }
 }

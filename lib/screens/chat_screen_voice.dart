@@ -48,9 +48,6 @@ extension on _ChatScreenState {
       _isVoiceRecordingPaused = false;
       _voiceRecordingDuration = Duration.zero;
       _recordCancelDragDx = 0.0;
-      _sendDragPullDy = 0.0;
-      _sendDragDy = 0.0;
-      _isSendDragging = false;
     });
 
     _voiceRecordingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -176,7 +173,22 @@ extension on _ChatScreenState {
       });
     }
 
-    print('📤 Отправка голосового сообщения: $filePath, длительность: ${duration.inSeconds}s');
+    print(
+      '📤 Отправка голосового сообщения: $filePath, длительность: ${duration.inSeconds}s',
+    );
+
+    // Для Android запускаем фоновую загрузку с уведомлением
+    String? uploadId;
+    if (Platform.instance.operatingSystem.android) {
+      final voiceUploadService = VoiceUploadService();
+      uploadId = await voiceUploadService.startBackgroundUpload(
+        filePath: filePath,
+        chatId: widget.chatId,
+        durationSeconds: duration.inSeconds,
+        fileSize: fileSize,
+        senderId: _actualMyId ?? 0,
+      );
+    }
 
     try {
       await ApiService.instance.sendVoiceMessage(
@@ -193,10 +205,25 @@ extension on _ChatScreenState {
               _voiceUploadProgress = progress;
             });
           }
+
+          // Обновляем прогресс в уведомлении (Android)
+          if (Platform.instance.operatingSystem.android && uploadId != null) {
+            VoiceUploadService().updateProgress(
+              uploadId,
+              widget.chatId,
+              progress,
+            );
+          }
         },
       );
 
       print('✅ Голосовое сообщение успешно отправлено');
+
+      // Завершаем уведомление (Android)
+      if (Platform.instance.operatingSystem.android && uploadId != null) {
+        await VoiceUploadService().completeUpload(uploadId, widget.chatId);
+      }
+
       if (mounted) {
         // ignore: invalid_use_of_protected_member
         setState(() {
@@ -218,6 +245,16 @@ extension on _ChatScreenState {
     } catch (e, stackTrace) {
       print('❌ Ошибка отправки голосового сообщения: $e');
       print(stackTrace);
+
+      // Показываем ошибку в уведомлении (Android)
+      if (Platform.instance.operatingSystem.android && uploadId != null) {
+        await VoiceUploadService().cancelUpload(
+          uploadId,
+          widget.chatId,
+          errorMessage: 'Не удалось отправить голосовое сообщение',
+        );
+      }
+
       if (mounted) {
         // ignore: invalid_use_of_protected_member
         setState(() {
@@ -253,6 +290,19 @@ extension on _ChatScreenState {
       });
     }
 
+    // Для Android запускаем фоновую загрузку с уведомлением
+    String? uploadId;
+    if (Platform.instance.operatingSystem.android) {
+      final voiceUploadService = VoiceUploadService();
+      uploadId = await voiceUploadService.startBackgroundUpload(
+        filePath: _cachedVoicePath!,
+        chatId: widget.chatId,
+        durationSeconds: duration.inSeconds,
+        fileSize: fileSize,
+        senderId: _actualMyId ?? 0,
+      );
+    }
+
     try {
       await ApiService.instance.sendVoiceMessage(
         widget.chatId,
@@ -268,8 +318,22 @@ extension on _ChatScreenState {
               _voiceUploadProgress = progress;
             });
           }
+
+          // Обновляем прогресс в уведомлении (Android)
+          if (Platform.instance.operatingSystem.android && uploadId != null) {
+            VoiceUploadService().updateProgress(
+              uploadId,
+              widget.chatId,
+              progress,
+            );
+          }
         },
       );
+
+      // Завершаем уведомление (Android)
+      if (Platform.instance.operatingSystem.android && uploadId != null) {
+        await VoiceUploadService().completeUpload(uploadId, widget.chatId);
+      }
 
       if (mounted) {
         // ignore: invalid_use_of_protected_member
@@ -290,6 +354,16 @@ extension on _ChatScreenState {
       }
     } catch (e) {
       print('❌ Ошибка повторной отправки голосового сообщения: $e');
+
+      // Показываем ошибку в уведомлении (Android)
+      if (Platform.instance.operatingSystem.android && uploadId != null) {
+        await VoiceUploadService().cancelUpload(
+          uploadId,
+          widget.chatId,
+          errorMessage: 'Не удалось отправить голосовое сообщение',
+        );
+      }
+
       if (mounted) {
         // ignore: invalid_use_of_protected_member
         setState(() {
@@ -334,11 +408,10 @@ extension on _ChatScreenState {
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      item.isUploading ? 'Голосовое сообщение' : 'Ошибка отправки',
-                      style: TextStyle(
-                        color: colors.onPrimary,
-                        fontSize: 14,
-                      ),
+                      item.isUploading
+                          ? 'Голосовое сообщение'
+                          : 'Ошибка отправки',
+                      style: TextStyle(color: colors.onPrimary, fontSize: 14),
                     ),
                   ],
                 ),
@@ -349,7 +422,9 @@ extension on _ChatScreenState {
                     child: LinearProgressIndicator(
                       value: item.progress,
                       backgroundColor: colors.onPrimary.withValues(alpha: 0.3),
-                      valueColor: AlwaysStoppedAnimation<Color>(colors.onPrimary),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        colors.onPrimary,
+                      ),
                     ),
                   ),
                 ],
@@ -359,10 +434,7 @@ extension on _ChatScreenState {
                     onPressed: item.onRetry,
                     child: Text(
                       'Повторить',
-                      style: TextStyle(
-                        color: colors.onPrimary,
-                        fontSize: 12,
-                      ),
+                      style: TextStyle(color: colors.onPrimary, fontSize: 12),
                     ),
                   ),
                 ],
@@ -381,7 +453,9 @@ extension on _ChatScreenState {
   }) {
     final colors = Theme.of(context).colorScheme;
 
-    final cancelProgress = (_recordCancelDragDx.abs() / _ChatScreenState._recordCancelThreshold).clamp(0.0, 1.0);
+    final cancelProgress =
+        (_recordCancelDragDx.abs() / _ChatScreenState._recordCancelThreshold)
+            .clamp(0.0, 1.0);
     final cancelColor = Color.lerp(
       colors.onSurface.withValues(alpha: 0.7),
       colors.error,
@@ -397,11 +471,7 @@ extension on _ChatScreenState {
         onTap: (!isBlocked) ? _cancelVoiceRecordingUi : null,
         child: Padding(
           padding: const EdgeInsets.all(6.0),
-          child: Icon(
-            Icons.delete_rounded,
-            size: 20,
-            color: colors.error,
-          ),
+          child: Icon(Icons.delete_rounded, size: 20, color: colors.error),
         ),
       ),
     );
@@ -421,15 +491,25 @@ extension on _ChatScreenState {
           switchInCurve: Curves.easeOutCubic,
           switchOutCurve: Curves.easeInCubic,
           transitionBuilder: (child, animation) {
-            final offset = Tween<Offset>(begin: const Offset(-0.15, 0), end: Offset.zero).animate(animation);
+            final offset = Tween<Offset>(
+              begin: const Offset(-0.15, 0),
+              end: Offset.zero,
+            ).animate(animation);
             return FadeTransition(
               opacity: animation,
               child: SlideTransition(position: offset, child: child),
             );
           },
           child: _isVoiceRecordingPaused
-              ? SizedBox(key: const ValueKey<String>('trash'), child: trashButton)
-              : const SizedBox(key: ValueKey<String>('trashSpacer'), width: 32, height: 32),
+              ? SizedBox(
+                  key: const ValueKey<String>('trash'),
+                  child: trashButton,
+                )
+              : const SizedBox(
+                  key: ValueKey<String>('trashSpacer'),
+                  width: 32,
+                  height: 32,
+                ),
         ),
         const SizedBox(width: 12),
         Expanded(
@@ -443,31 +523,36 @@ extension on _ChatScreenState {
               },
               child: _isVoiceRecordingPaused
                   ? const SizedBox(
-                key: ValueKey<String>('waveform'),
-                height: 24,
-                child: _FakeWaveform(),
-              )
+                      key: ValueKey<String>('waveform'),
+                      height: 24,
+                      child: _FakeWaveform(),
+                    )
                   : Transform.translate(
-                key: const ValueKey<String>('cancel'),
-                offset: Offset(_recordCancelDragDx, 0),
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: canInteract ? _cancelVoiceRecordingUi : null,
-                  child: Text(
-                    'CANCEL',
-                    style: TextStyle(
-                      color: cancelColor,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8,
+                      key: const ValueKey<String>('cancel'),
+                      offset: Offset(_recordCancelDragDx, 0),
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: canInteract ? _cancelVoiceRecordingUi : null,
+                        child: Text(
+                          'CANCEL',
+                          style: TextStyle(
+                            color: cancelColor,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.8,
+                          ),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-              ),
             ),
           ),
         ),
         const SizedBox(width: 12),
-        const SizedBox(width: _ChatScreenState._recordSendButtonSpace + _ChatScreenState._recordButtonGap + _ChatScreenState._recordPauseButtonSpace)
+        const SizedBox(
+          width:
+              _ChatScreenState._recordSendButtonSpace +
+              _ChatScreenState._recordButtonGap +
+              _ChatScreenState._recordPauseButtonSpace,
+        ),
       ],
     );
 
@@ -492,7 +577,10 @@ extension on _ChatScreenState {
   }
 
   void _handleRecordCancelDragUpdate(DragUpdateDetails details) {
-    final next = (_recordCancelDragDx + details.delta.dx).clamp(-_ChatScreenState._recordCancelThreshold * 1.25, 0.0);
+    final next = (_recordCancelDragDx + details.delta.dx).clamp(
+      -_ChatScreenState._recordCancelThreshold * 1.25,
+      0.0,
+    );
     if (next == _recordCancelDragDx) return;
     // ignore: invalid_use_of_protected_member
     setState(() {
@@ -501,14 +589,18 @@ extension on _ChatScreenState {
   }
 
   void _handleRecordCancelDragEnd() {
-    final reached = _recordCancelDragDx <= -_ChatScreenState._recordCancelThreshold;
+    final reached =
+        _recordCancelDragDx <= -_ChatScreenState._recordCancelThreshold;
     if (reached) {
       _cancelVoiceRecordingUi();
       return;
     }
 
     final tween = Tween<double>(begin: _recordCancelDragDx, end: 0.0).animate(
-      CurvedAnimation(parent: _recordCancelReturnController, curve: Curves.easeOutCubic),
+      CurvedAnimation(
+        parent: _recordCancelReturnController,
+        curve: Curves.easeOutCubic,
+      ),
     );
     void listener() {
       // ignore: invalid_use_of_protected_member
@@ -524,5 +616,596 @@ extension on _ChatScreenState {
     _recordCancelReturnController.forward().whenComplete(() {
       _recordCancelReturnController.removeListener(listener);
     });
+  }
+
+  // Video Message Recording Methods
+
+  String _formatVideoDuration(Duration duration) {
+    final totalSeconds = duration.inSeconds;
+    final minutes = (totalSeconds ~/ 60).toString().padLeft(2, '0');
+    final seconds = (totalSeconds % 60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
+  }
+
+  Future<void> _startVideoRecordingUi() async {
+    _videoRecordingTimer?.cancel();
+
+    try {
+      final cameraPermission = await Permission.camera.request();
+      final micPermission = await Permission.microphone.request();
+
+      if (!cameraPermission.isGranted || !micPermission.isGranted) {
+        _showErrorSnackBar('Нет разрешения на доступ к камере или микрофону');
+        return;
+      }
+
+      final cameras = await availableCameras();
+      if (cameras.isEmpty) {
+        _showErrorSnackBar('Камера не найдена');
+        return;
+      }
+
+      final frontCamera = cameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.front,
+        orElse: () => cameras.first,
+      );
+
+      await _cameraController?.dispose();
+      _cameraController = null;
+
+      final controller = CameraController(
+        frontCamera,
+        ResolutionPreset.high,
+        enableAudio: true,
+      );
+
+      await controller.initialize();
+
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+
+      // ignore: invalid_use_of_protected_member
+      setState(() {
+        _cameraController = controller;
+        _isVideoRecordingUi = true;
+        _isActuallyVideoRecording = false;
+        _videoRecordingDuration = Duration.zero;
+        _isVideoRecordingPaused = false;
+        _recordCancelDragDx = 0.0;
+      });
+
+      await controller.startVideoRecording();
+
+      if (!mounted) return;
+
+      // ignore: invalid_use_of_protected_member
+      setState(() {
+        _isActuallyVideoRecording = true;
+      });
+
+      _videoRecordingTimer = Timer.periodic(const Duration(milliseconds: 100), (
+        _,
+      ) {
+        if (!mounted || !_isVideoRecordingUi) return;
+        final newDuration =
+            _videoRecordingDuration + const Duration(milliseconds: 100);
+        if (newDuration >= const Duration(seconds: 60)) {
+          _videoRecordingTimer?.cancel();
+          _sendVideoMessage();
+          return;
+        }
+        // ignore: invalid_use_of_protected_member
+        setState(() {
+          _videoRecordingDuration = newDuration;
+        });
+      });
+    } catch (e) {
+      print('❌ [VIDEO] Ошибка запуска камеры: $e');
+      _showErrorSnackBar('Не удалось запустить камеру');
+      await _cancelVideoRecordingUi();
+    }
+  }
+
+  Future<void> _cancelVideoRecordingUi() async {
+    _videoRecordingTimer?.cancel();
+
+    if (_isActuallyVideoRecording && _cameraController != null) {
+      try {
+        final xfile = await _cameraController!.stopVideoRecording();
+        _isActuallyVideoRecording = false;
+        try {
+          final f = File(xfile.path);
+          if (await f.exists()) await f.delete();
+        } catch (_) {}
+      } catch (e) {
+        print('⚠️ [VIDEO] Ошибка остановки при отмене: $e');
+        _isActuallyVideoRecording = false;
+      }
+    }
+
+    await _cameraController?.dispose();
+
+    if (!mounted) return;
+    // ignore: invalid_use_of_protected_member
+    setState(() {
+      _cameraController = null;
+      _isVideoRecordingUi = false;
+      _isVideoRecordingPaused = false;
+      _videoRecordingDuration = Duration.zero;
+      _recordCancelDragDx = 0.0;
+      _currentVideoRecordingPath = null;
+      _isActuallyVideoRecording = false;
+    });
+  }
+
+  Future<void> _sendVideoMessage() async {
+    if (_cameraController == null) {
+      await _cancelVideoRecordingUi();
+      return;
+    }
+
+    _videoRecordingTimer?.cancel();
+
+    // Сохраняем ссылку на контроллер и длительность ДО setState,
+    // чтобы сразу скрыть UI (иначе пользователь видит "зависание")
+    final capturedController = _cameraController!;
+    final duration = _videoRecordingDuration;
+    final wasRecording = _isActuallyVideoRecording;
+
+    // ignore: invalid_use_of_protected_member
+    setState(() {
+      _cameraController = null;
+      _isVideoRecordingUi = false;
+      _isActuallyVideoRecording = false;
+      _isVideoRecordingPaused = false;
+      _videoRecordingDuration = Duration.zero;
+      _recordCancelDragDx = 0.0;
+      _currentVideoRecordingPath = null;
+      _isVideoUploading = wasRecording;
+      _videoUploadProgress = 0.0;
+      _isVideoUploadFailed = false;
+    });
+
+    if (!wasRecording) {
+      await capturedController.dispose();
+      return;
+    }
+
+    XFile? videoFile;
+    try {
+      videoFile = await capturedController.stopVideoRecording();
+    } catch (e) {
+      print('❌ [VIDEO] Ошибка остановки записи: $e');
+      await capturedController.dispose();
+      if (mounted) {
+        // ignore: invalid_use_of_protected_member
+        setState(() {
+          _isVideoUploading = false;
+        });
+      }
+      return;
+    }
+
+    await capturedController.dispose();
+
+    final rawPath = videoFile.path;
+    final rawFile = File(rawPath);
+
+    if (!await rawFile.exists() || await rawFile.length() == 0) {
+      _showErrorSnackBar('Видеофайл не найден или пуст');
+      if (mounted) {
+        // ignore: invalid_use_of_protected_member
+        setState(() {
+          _isVideoUploading = false;
+        });
+      }
+      return;
+    }
+
+    // Обрезаем видео через video_compress (легковесная альтернатива)
+    final dir = rawFile.parent;
+    final croppedPath =
+        '${dir.path}/video_sq_${DateTime.now().millisecondsSinceEpoch}.mp4';
+    const int targetSize = 480; // Target size for width and height
+
+    print('📹 [VIDEO_COMPRESS] Входной файл: $rawPath');
+
+    MediaInfo? mediaInfo;
+    try {
+      mediaInfo = await VideoCompress.compressVideo(
+        rawPath,
+        quality: VideoQuality.DefaultQuality, // Используем DefaultQuality
+        deleteOrigin: false, // Исходник удалим сами ниже
+      );
+    } catch (e) {
+      print('❌ [VIDEO_COMPRESS] Ошибка компрессии: $e');
+    }
+
+    if (mediaInfo == null || mediaInfo.file == null) {
+      print('❌ [VIDEO_COMPRESS] Не удалось получить сжатый файл');
+      _showErrorSnackBar('Ошибка обработки видео');
+      if (mounted) {
+        // ignore: invalid_use_of_protected_member
+        setState(() {
+          _isVideoUploading = false;
+        });
+      }
+      try {
+        if (await rawFile.exists()) {
+          await rawFile.delete();
+        }
+      } catch (_) {}
+      return;
+    }
+
+    final compressedFile = mediaInfo.file!;
+
+    // Переименовываем во временную папку чтобы не засорять кэш video_compress
+    try {
+      await compressedFile.copy(croppedPath);
+    } catch (e) {
+      print('⚠️ Ошибка копирования: $e');
+    }
+
+    print('✅ [VIDEO_COMPRESS] Успешно сжато: ${mediaInfo.path}');
+
+    // Удаляем исходный файл в любом случае
+    try {
+      await rawFile.delete();
+    } catch (_) {}
+
+    final file = File(croppedPath);
+    if (!await file.exists() || await file.length() == 0) {
+      _showErrorSnackBar('Обработанный видеофайл не найден');
+      if (mounted) {
+        // ignore: invalid_use_of_protected_member
+        setState(() {
+          _isVideoUploading = false;
+        });
+      }
+      return;
+    }
+
+    final fileSize = await file.length();
+
+    try {
+      await ApiService.instance.sendVideoMessage(
+        widget.chatId,
+        localPath: croppedPath,
+        durationSeconds: duration.inSeconds,
+        fileSize: fileSize,
+        width: targetSize,
+        height: targetSize,
+        senderId: _actualMyId,
+        isCircle: true,
+        onProgress: (progress) {
+          if (mounted) {
+            // ignore: invalid_use_of_protected_member
+            setState(() {
+              _isVideoUploading = progress < 1.0;
+              _videoUploadProgress = progress;
+            });
+          }
+        },
+      );
+
+      if (mounted) {
+        // ignore: invalid_use_of_protected_member
+        setState(() {
+          _isVideoUploading = false;
+          _videoUploadProgress = 0.0;
+          _isVideoUploadFailed = false;
+          _cachedVideoPath = null;
+        });
+      }
+
+      try {
+        if (await file.exists()) await file.delete();
+      } catch (_) {}
+    } catch (e) {
+      print('❌ [VIDEO] Ошибка отправки видеокружка: $e');
+      if (mounted) {
+        // ignore: invalid_use_of_protected_member
+        setState(() {
+          _isVideoUploading = false;
+          _videoUploadProgress = 0.0;
+          _isVideoUploadFailed = true;
+          _cachedVideoPath = croppedPath;
+        });
+        _showErrorSnackBar('Не удалось отправить видеокружок');
+      }
+    }
+  }
+
+  // Floating circular camera preview — positioned above the input bar
+  Widget _buildVideoCirclePreview() {
+    final controller = _cameraController;
+    if (controller == null || !controller.value.isInitialized) {
+      return const SizedBox.shrink();
+    }
+
+    const circleSize = 200.0;
+    const ringPadding = 6.0;
+    final outerSize = circleSize + ringPadding * 2;
+    final progress = (_videoRecordingDuration.inMilliseconds / 60000.0).clamp(
+      0.0,
+      1.0,
+    );
+    final previewSize = controller.value.previewSize;
+
+    final screenHeight = MediaQuery.of(context).size.height;
+
+    return Positioned(
+      bottom: screenHeight * 0.18,
+      left: 0,
+      right: 0,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: outerSize,
+              height: outerSize,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Progress arc
+                  CustomPaint(
+                    size: Size(outerSize, outerSize),
+                    painter: _VideoProgressArcPainter(progress: progress),
+                  ),
+                  // Circular camera preview
+                  ClipOval(
+                    child: SizedBox.square(
+                      dimension: circleSize,
+                      child: previewSize != null
+                          ? FittedBox(
+                              fit: BoxFit.cover,
+                              child: SizedBox(
+                                width: previewSize.height,
+                                height: previewSize.width,
+                                child: CameraPreview(controller),
+                              ),
+                            )
+                          : CameraPreview(controller),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (_isActuallyVideoRecording)
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  _formatVideoDuration(_videoRecordingDuration),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'monospace',
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVideoRecordingBar({
+    required bool isBlocked,
+    required bool isGlass,
+  }) {
+    final colors = Theme.of(context).colorScheme;
+
+    final cancelProgress =
+        (_recordCancelDragDx.abs() / _ChatScreenState._recordCancelThreshold)
+            .clamp(0.0, 1.0);
+    final cancelColor = Color.lerp(
+      colors.onSurface.withValues(alpha: 0.7),
+      colors.error,
+      cancelProgress,
+    )!;
+
+    final content = Row(
+      children: [
+        _RecordingDot(isRecording: _isActuallyVideoRecording),
+        const SizedBox(width: 8),
+        Text(
+          _formatVideoDuration(_videoRecordingDuration),
+          style: TextStyle(
+            color: colors.onSurface.withValues(alpha: 0.85),
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Center(
+            child: Transform.translate(
+              offset: Offset(_recordCancelDragDx, 0),
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: (!isBlocked) ? _cancelVideoRecordingUi : null,
+                child: Text(
+                  'CANCEL',
+                  style: TextStyle(
+                    color: cancelColor,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        const SizedBox(width: _ChatScreenState._recordSendButtonSpace),
+      ],
+    );
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onHorizontalDragStart: (!isBlocked)
+          ? (_) => _handleRecordCancelDragStart()
+          : null,
+      onHorizontalDragUpdate: (!isBlocked)
+          ? (d) => _handleRecordCancelDragUpdate(d)
+          : null,
+      onHorizontalDragEnd: (!isBlocked)
+          ? (_) => _handleVideoCancelDragEnd()
+          : null,
+      child: content,
+    );
+  }
+
+  void _handleVideoCancelDragEnd() {
+    final reached =
+        _recordCancelDragDx <= -_ChatScreenState._recordCancelThreshold;
+    if (reached) {
+      _cancelVideoRecordingUi();
+      return;
+    }
+
+    final tween = Tween<double>(begin: _recordCancelDragDx, end: 0.0).animate(
+      CurvedAnimation(
+        parent: _recordCancelReturnController,
+        curve: Curves.easeOutCubic,
+      ),
+    );
+    void listener() {
+      // ignore: invalid_use_of_protected_member
+      setState(() {
+        _recordCancelDragDx = tween.value;
+      });
+    }
+
+    _recordCancelReturnController
+      ..removeListener(listener)
+      ..reset();
+    _recordCancelReturnController.addListener(listener);
+    _recordCancelReturnController.forward().whenComplete(() {
+      _recordCancelReturnController.removeListener(listener);
+    });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Arc progress painter for the video circle
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _VideoProgressArcPainter extends CustomPainter {
+  final double progress;
+
+  _VideoProgressArcPainter({required this.progress});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2 - 2;
+
+    // Background track
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      -pi / 2,
+      2 * pi,
+      false,
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.25)
+        ..strokeWidth = 3
+        ..style = PaintingStyle.stroke,
+    );
+
+    // Progress fill
+    if (progress > 0) {
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        -pi / 2,
+        2 * pi * progress,
+        false,
+        Paint()
+          ..color = Colors.red
+          ..strokeWidth = 3
+          ..style = PaintingStyle.stroke
+          ..strokeCap = StrokeCap.round,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_VideoProgressArcPainter old) => old.progress != progress;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Blinking recording dot for the recording bar
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _RecordingDot extends StatefulWidget {
+  final bool isRecording;
+
+  const _RecordingDot({required this.isRecording});
+
+  @override
+  State<_RecordingDot> createState() => _RecordingDotState();
+}
+
+class _RecordingDotState extends State<_RecordingDot>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _opacity;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      duration: const Duration(milliseconds: 900),
+      vsync: this,
+    );
+    _opacity = Tween<double>(
+      begin: 1.0,
+      end: 0.2,
+    ).animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+    if (widget.isRecording) _ctrl.repeat(reverse: true);
+  }
+
+  @override
+  void didUpdateWidget(_RecordingDot old) {
+    super.didUpdateWidget(old);
+    if (widget.isRecording && !_ctrl.isAnimating) {
+      _ctrl.repeat(reverse: true);
+    } else if (!widget.isRecording) {
+      _ctrl.stop();
+      _ctrl.value = 1.0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _opacity,
+      child: Container(
+        width: 10,
+        height: 10,
+        decoration: const BoxDecoration(
+          color: Colors.red,
+          shape: BoxShape.circle,
+        ),
+      ),
+    );
   }
 }

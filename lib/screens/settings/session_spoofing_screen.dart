@@ -150,15 +150,6 @@ class _SessionSpoofingScreenState extends State<SessionSpoofingScreen> {
         .toList();
 
     if (filteredPresets.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Нет доступных пресетов для типа устройства $_selectedDeviceType.',
-            ),
-          ),
-        );
-      }
       return;
     }
 
@@ -240,7 +231,8 @@ class _SessionSpoofingScreenState extends State<SessionSpoofingScreen> {
       'build_number': _buildNumberController.text,
     };
 
-    final oldAppVersion = prefs.getString('spoof_appversion') ?? _hardcodedVersion;
+    final oldAppVersion =
+        prefs.getString('spoof_appversion') ?? _hardcodedVersion;
     final newAppVersion = _appVersionController.text;
 
     bool otherDataChanged = false;
@@ -282,16 +274,7 @@ class _SessionSpoofingScreenState extends State<SessionSpoofingScreen> {
     if (appVersionChanged && !otherDataChanged) {
       await _saveAllData(prefs);
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Перезайди!'),
-            duration: Duration(seconds: 3),
-          ),
-        );
-
-        Navigator.of(context).pop();
-      }
+      Navigator.of(context).pop();
     } else {
       final confirmed = await showDialog<bool>(
         context: context,
@@ -318,16 +301,7 @@ class _SessionSpoofingScreenState extends State<SessionSpoofingScreen> {
       try {
         await ApiService.instance.performFullReconnection();
 
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Настройки применены. Перезайдите в приложение.'),
-              backgroundColor: Colors.green,
-            ),
-          );
-
-          Navigator.of(context).pop();
-        }
+        Navigator.of(context).pop();
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -364,16 +338,6 @@ class _SessionSpoofingScreenState extends State<SessionSpoofingScreen> {
 
     try {
       final info = await VersionChecker.getLatestVersionInfo();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Актуальная версия у сервера: ${info['versionName']} (Build ${info['versionCode']})',
-            ),
-            backgroundColor: Colors.blue.shade700,
-          ),
-        );
-      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

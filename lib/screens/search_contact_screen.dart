@@ -48,19 +48,7 @@ class _SearchContactScreenState extends State<SearchContactScreen> {
           _foundContact = Contact.fromJson(contactData);
 
           _openChatWithContact(_foundContact!);
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Контакт найден!'),
-              backgroundColor: Colors.green,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              behavior: SnackBarBehavior.floating,
-              margin: const EdgeInsets.all(10),
-            ),
-          );
-        }
+        } else {}
       }
 
       if (message['type'] == 'contact_not_found') {
@@ -83,18 +71,6 @@ class _SearchContactScreenState extends State<SearchContactScreen> {
         setState(() {
           _errorMessage = errorMessage;
         });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(errorMessage),
-            backgroundColor: Colors.orange,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            behavior: SnackBarBehavior.floating,
-            margin: const EdgeInsets.all(10),
-          ),
-        );
       }
     });
   }
@@ -103,32 +79,10 @@ class _SearchContactScreenState extends State<SearchContactScreen> {
     final phone = _phoneController.text.trim();
 
     if (phone.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Введите номер телефона'),
-          backgroundColor: Colors.orange,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          behavior: SnackBarBehavior.floating,
-          margin: const EdgeInsets.all(10),
-        ),
-      );
       return;
     }
 
     if (!phone.startsWith('+') || phone.length < 10) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Введите номер телефона в формате +7XXXXXXXXXX'),
-          backgroundColor: Colors.orange,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          behavior: SnackBarBehavior.floating,
-          margin: const EdgeInsets.all(10),
-        ),
-      );
       return;
     }
 
@@ -168,17 +122,6 @@ class _SearchContactScreenState extends State<SearchContactScreen> {
 
       if (chatId == null) {
         print('⚠️ Чат не найден для контакта ${contact.id}');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Не удалось найти чат с этим контактом'),
-            backgroundColor: Colors.orange,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            behavior: SnackBarBehavior.floating,
-            margin: const EdgeInsets.all(10),
-          ),
-        );
         return;
       }
 
