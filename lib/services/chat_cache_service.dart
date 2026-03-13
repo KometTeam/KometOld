@@ -56,8 +56,11 @@ class ChatCacheService {
         return cached
             .cast<Map<String, dynamic>>()
             .where((c) {
-              final id = c['id'];
-              return id != null && id != 0;
+              final dynamic rawId = c['id'];
+              final intId = rawId is int
+                  ? rawId
+                  : int.tryParse(rawId?.toString() ?? '');
+              return intId != null && intId > 0;
             })
             .toList();
       }
