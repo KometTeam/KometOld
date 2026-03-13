@@ -67,20 +67,40 @@ android {
         }
     }
 
+    val isReleaseBuildRequested = gradle.startParameter.taskNames.any { taskName ->
+        taskName.contains("Release", ignoreCase = true)
+    }
+
     buildTypes {
-    getByName("release") {
-        isMinifyEnabled = true
-        isShrinkResources = true
-        proguardFiles(
-            getDefaultProguardFile("proguard-android-optimize.txt"),
-            "proguard-rules.pro"
-        )
-        
-        if (keyPropertiesFile.exists() || System.getenv("RELEASE_STORE_FILE") != null) {
-            signingConfig = signingConfigs.getByName("release")
+        getByName("release") {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+
+            val envStoreFile = System.getenv("RELEASE_STORE_FILE")
+            val envStorePassword = System.getenv("RELEASE_STORE_PASSWORD")
+            val envKeyAlias = System.getenv("RELEASE_KEY_ALIAS")
+            val envKeyPassword = System.getenv("RELEASE_KEY_PASSWORD")
+
+            val hasEnvVars = !envStoreFile.isNullOrBlank() &&
+                !envStorePassword.isNullOrBlank() &&
+                !envKeyAlias.isNullOrBlank() &&
+                !envKeyPassword.isNullOrBlank()
+
+            if (hasEnvVars || keyPropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            } else if (isReleaseBuildRequested) {
+                throw GradleException(
+                    "Release signing credentials are not configured. " +
+                    "Provide a key.properties file or set the RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD, " +
+                    "RELEASE_KEY_ALIAS, and RELEASE_KEY_PASSWORD environment variables."
+                )
+            }
         }
     }
-}
 
 }
 
