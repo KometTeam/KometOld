@@ -67,6 +67,10 @@ android {
         }
     }
 
+    val isReleaseBuildRequested = gradle.startParameter.taskNames.any { taskName ->
+        taskName.contains("Release", ignoreCase = true)
+    }
+
     buildTypes {
         getByName("release") {
             isMinifyEnabled = true
@@ -83,7 +87,7 @@ android {
 
             if (hasEnvVars || keyPropertiesFile.exists()) {
                 signingConfig = signingConfigs.getByName("release")
-            } else {
+            } else if (isReleaseBuildRequested) {
                 throw GradleException(
                     "Release signing credentials are not configured. " +
                     "Provide a key.properties file or set the RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD, " +
