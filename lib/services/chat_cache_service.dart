@@ -18,6 +18,18 @@ class ChatCacheService {
     print('✅ ChatCacheService инициализирован');
   }
 
+  /// Cleans up any active timers and pending cache updates.
+  Future<void> dispose() async {
+    // Cancel all scheduled flush timers to prevent writes after teardown.
+    for (final timer in _flushTimers.values) {
+      timer.cancel();
+    }
+    _flushTimers.clear();
+
+    // Clear any pending cache updates that will no longer be flushed.
+    _pendingCacheUpdates.clear();
+  }
+
   static const String _chatsKey = 'cached_chats';
   static const String _contactsKey = 'cached_contacts';
   static const String _messagesKey = 'cached_messages';
