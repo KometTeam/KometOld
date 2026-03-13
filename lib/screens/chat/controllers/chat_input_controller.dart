@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import '../../../api/api_service.dart';
 import '../../../models/message.dart';
 import '../../../services/chat_cache_service.dart';
-import '../../../../widgets/formatted_text_controller.dart';
+import '../../../widgets/formatted_text_controller.dart';
 
 /// Состояние отправки сообщения
 enum SendState { idle, sending, sent, error }
