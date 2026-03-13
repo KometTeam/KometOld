@@ -43,8 +43,13 @@ class ChatCacheService {
 
   void _scheduleFlush(int chatId) {
     _flushTimers[chatId]?.cancel();
-    _flushTimers[chatId] = Timer(_flushDebounce, () {
-      unawaited(flushPendingCache(chatId));
+    _flushTimers[chatId] = Timer(_flushDebounce, () async {
+      try {
+        await flushPendingCache(chatId);
+      } catch (e, st) {
+        print('Ошибка сброса кэша для чата $chatId: $e');
+        // Optionally log stack trace: print(st);
+      }
     });
   }
 
