@@ -508,8 +508,6 @@ class _SocketLogScreenState extends State<SocketLogScreen>
           .join('\n\n');
 
       await file.writeAsString(logText);
-
-      if (mounted) {}
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
