@@ -382,18 +382,12 @@ class _ChatScreenV2State extends State<ChatScreenV2> {
 
   void _showChatMenu() {
     final colors = Theme.of(context).colorScheme;
-    final RenderBox button = context.findRenderObject() as RenderBox;
-    final RenderBox overlay =
-        Navigator.of(context).overlay!.context.findRenderObject() as RenderBox;
-    final RelativeRect position = RelativeRect.fromRect(
-      Rect.fromPoints(
-        button.localToGlobal(Offset.zero, ancestor: overlay),
-        button.localToGlobal(
-          button.size.bottomRight(Offset.zero),
-          ancestor: overlay,
-        ),
-      ),
-      Offset.zero & overlay.size,
+    // Open the menu below the AppBar, spanning the available width.
+    const RelativeRect position = RelativeRect.fromLTRB(
+      0,
+      kToolbarHeight,
+      0,
+      0,
     );
 
     showMenu(

@@ -95,13 +95,6 @@ class ChatInputController extends ChangeNotifier {
       MentionDraft(userId: userId, name: name, from: from, length: len),
     );
 
-    textController.elements.add({
-      'type': 'USER_MENTION',
-      'from': from,
-      'length': len,
-    });
-    textController.notifyListeners();
-
     _showMentionDropdown = false;
     _notifyListenersSafe();
   }
@@ -286,11 +279,40 @@ class ChatInputController extends ChangeNotifier {
     if (!canSend) return;
 
     final cleanText = textController.text;
-    final List<Map<String, dynamic>> finalElements = [
-      ..._mentions.map((m) => m.toJson()),
+
+    // Объединяем элементы форматирования и упоминания, удаляем дубликаты
+    // и обеспечиваем стабильный порядок (по from, затем по type).
+    final List<Map<String, dynamic>> combinedElements = [
       ...textController.elements,
+      ..._mentions.map((m) => m.toJson()),
     ];
 
+    final Set<String> seenKeys = <String>{};
+    final List<Map<String, dynamic>> dedupedElements = [];
+
+    for (final element in combinedElements) {
+      final type = element['type']?.toString() ?? '';
+      final from = element['from'];
+      final length = element['length'];
+      final key = '$type|$from|$length';
+
+      if (seenKeys.add(key)) {
+        dedupedElements.add(element);
+      }
+    }
+
+    dedupedElements.sort((a, b) {
+      final int fromA = (a['from'] is int) ? a['from'] as int : 0;
+      final int fromB = (b['from'] is int) ? b['from'] as int : 0;
+      if (fromA != fromB) {
+        return fromA.compareTo(fromB);
+      }
+      final String typeA = a['type']?.toString() ?? '';
+      final String typeB = b['type']?.toString() ?? '';
+      return typeA.compareTo(typeB);
+    });
+
+    final List<Map<String, dynamic>> finalElements = dedupedElements;
     _sendState = SendState.sending;
     _notifyListenersSafe();
 

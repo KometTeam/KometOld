@@ -25,16 +25,23 @@ class CallsRestService {
       }
 
       // Формируем параметры для fb.do
+      final uid = prefs.getInt('user_id')?.toString();
+      if (uid == null || uid.isEmpty) {
+        throw Exception('Нет идентификатора пользователя для инициализации звонков');
+      }
       final params = {
-        'uid': '910342002155', // TODO: Получить из профиля
+        'uid': uid,
         'session_key': sessionKey,
         'session_secret_key': sessionSecretKey,
         'api_server': _baseUrl,
-        'external_user_id': prefs.getInt('user_id')?.toString() ?? '',
+        'external_user_id': uid,
       };
 
       print('📞 Инициализация сессии звонков...');
-      print('📤 Параметры: $params');
+      final safeParams = Map<String, String>.from(params);
+      safeParams['session_key'] = '***';
+      safeParams['session_secret_key'] = '***';
+      print('📤 Параметры (без секретов): $safeParams');
 
       final response = await http.post(
         Uri.parse('$_baseUrl/fb.do'),
