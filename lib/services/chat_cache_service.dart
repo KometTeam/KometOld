@@ -31,7 +31,12 @@ class ChatCacheService {
   final Map<int, List<Message>> _pendingCacheUpdates = {};
   final Map<int, Timer> _flushTimers = {};
 
-  static const Duration _flushDebounce = Duration(seconds: 2);
+  Duration _flushDebounce = const Duration(seconds: 2);
+
+  Duration get flushDebounce => _flushDebounce;
+  set flushDebounce(Duration value) {
+    _flushDebounce = value;
+  }
 
   Future<void> flushPendingCache(int chatId) async {
     _flushTimers.remove(chatId)?.cancel();
