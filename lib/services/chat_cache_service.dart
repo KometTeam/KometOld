@@ -29,12 +29,23 @@ class ChatCacheService {
   Duration get _messagesTTL => _settingsService.currentSettings.messagesTTL;
 
   final Map<int, List<Message>> _pendingCacheUpdates = {};
+  final Map<int, Timer> _flushTimers = {};
+
+  static const Duration _flushDebounce = Duration(seconds: 2);
 
   Future<void> flushPendingCache(int chatId) async {
+    _flushTimers.remove(chatId)?.cancel();
     final pending = _pendingCacheUpdates.remove(chatId);
     if (pending != null) {
       await cacheChatMessages(chatId, pending);
     }
+  }
+
+  void _scheduleFlush(int chatId) {
+    _flushTimers[chatId]?.cancel();
+    _flushTimers[chatId] = Timer(_flushDebounce, () {
+      unawaited(flushPendingCache(chatId));
+    });
   }
 
   Future<void> cacheChats(List<Map<String, dynamic>> chats) async {
@@ -262,6 +273,7 @@ class ChatCacheService {
       }
 
       _pendingCacheUpdates[chatId] = updatedMessages;
+      _scheduleFlush(chatId);
     } catch (e) {
       print('Ошибка добавления сообщения в кэш: $e');
     }
