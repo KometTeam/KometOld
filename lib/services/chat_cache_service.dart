@@ -40,9 +40,18 @@ class ChatCacheService {
 
   Future<void> flushPendingCache(int chatId) async {
     _flushTimers.remove(chatId)?.cancel();
-    final pending = _pendingCacheUpdates.remove(chatId);
-    if (pending != null) {
+    final pending = _pendingCacheUpdates[chatId];
+    if (pending == null || pending.isEmpty) return;
+
+    try {
       await cacheChatMessages(chatId, pending);
+      // Only remove if no new pending list has been assigned in the meantime
+      if (identical(_pendingCacheUpdates[chatId], pending)) {
+        _pendingCacheUpdates.remove(chatId);
+      }
+    } catch (e) {
+      // Keep pending messages so they can be retried on the next flush
+      print('Ошибка кэширования сообщений для чата $chatId: $e');
     }
   }
 
