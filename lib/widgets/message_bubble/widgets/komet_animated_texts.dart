@@ -34,20 +34,28 @@ class _GalaxyAnimatedTextState extends State<GalaxyAnimatedText>
       animation: _controller,
       builder: (context, child) {
         final t = _controller.value;
-        final color = Color.lerp(Colors.black, Colors.white, t)!;
 
         return ShaderMask(
           shaderCallback: (Rect bounds) {
             return LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [color, Color.lerp(Colors.white, Colors.black, t)!],
+              colors: [
+                Color.lerp(Colors.deepPurpleAccent, Colors.blueAccent, t)!,
+                Color.lerp(Colors.blueAccent, Colors.pinkAccent, t)!,
+                Color.lerp(Colors.pinkAccent, Colors.deepPurpleAccent, t)!,
+              ],
+              stops: const [0.0, 0.5, 1.0],
             ).createShader(bounds);
           },
           blendMode: BlendMode.srcIn,
           child: Text(
             widget.text,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.5,
+            ),
           ),
         );
       },

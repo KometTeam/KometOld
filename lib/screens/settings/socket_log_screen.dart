@@ -373,18 +373,18 @@ class _SocketLogScreenState extends State<SocketLogScreen>
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: Colors.blue.withValues(alpha: 0.2),
-                  border: Border(
+                  border: const Border(
                     bottom: BorderSide(color: Colors.blue, width: 2),
                   ),
                 ),
-                child: Row(
+                child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.arrow_upward, color: Colors.blue),
-                    const SizedBox(width: 8),
+                    Icon(Icons.arrow_upward, color: Colors.blue),
+                    SizedBox(width: 8),
                     Text(
-                      'Отправлено (${filteredSent.length})',
-                      style: const TextStyle(
+                      'Отправлено',
+                      style: TextStyle(
                         fontWeight: FontWeight.bold,
                         color: Colors.blue,
                       ),
@@ -424,18 +424,18 @@ class _SocketLogScreenState extends State<SocketLogScreen>
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
                   color: Colors.green.withValues(alpha: 0.2),
-                  border: Border(
+                  border: const Border(
                     bottom: BorderSide(color: Colors.green, width: 2),
                   ),
                 ),
-                child: Row(
+                child: const Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.arrow_downward, color: Colors.green),
-                    const SizedBox(width: 8),
+                    Icon(Icons.arrow_downward, color: Colors.green),
+                    SizedBox(width: 8),
                     Text(
-                      'Получено (${filteredReceived.length})',
-                      style: const TextStyle(
+                      'Получено',
+                      style: TextStyle(
                         fontWeight: FontWeight.bold,
                         color: Colors.green,
                       ),
@@ -478,9 +478,6 @@ class _SocketLogScreenState extends State<SocketLogScreen>
         )
         .join('\n\n');
     Clipboard.setData(ClipboardData(text: logText));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Отфильтрованный журнал скопирован')),
-    );
   }
 
   void _shareLogs() async {
@@ -511,20 +508,6 @@ class _SocketLogScreenState extends State<SocketLogScreen>
           .join('\n\n');
 
       await file.writeAsString(logText);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Логи сохранены: ${file.path}'),
-            action: SnackBarAction(
-              label: 'Открыть',
-              onPressed: () => SharePlus.instance.share(
-                ShareParams(files: [XFile(file.path)]),
-              ),
-            ),
-          ),
-        );
-      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -1077,9 +1060,6 @@ class _AnimatedLogEntryCardState extends State<AnimatedLogEntryCard>
             TextButton.icon(
               onPressed: () {
                 Clipboard.setData(ClipboardData(text: prettyJson));
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('JSON скопирован')),
-                );
               },
               icon: const Icon(Icons.copy),
               label: const Text("Копировать"),
@@ -1091,7 +1071,9 @@ class _AnimatedLogEntryCardState extends State<AnimatedLogEntryCard>
           ],
         ),
       );
-    } catch (_) {}
+    } catch (e) {
+      print('⚠️ Ошибка показа диалога с деталями сообщения: $e');
+    }
   }
 
   (String?, String?) _extractInfo(String message) {

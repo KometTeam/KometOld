@@ -57,6 +57,18 @@
     @androidx.annotation.Keep *;
 }
 
+# Правила для ffmpeg_kit_flutter_new (пакет com.antonkarpenko)
+-keep class com.antonkarpenko.ffmpegkit.** { *; }
+-keep interface com.antonkarpenko.ffmpegkit.** { *; }
+-dontwarn com.antonkarpenko.ffmpegkit.**
+
+# Оригинальный пакет arthenica
+-keep class com.arthenica.ffmpegkit.** { *; }
+-keep interface com.arthenica.ffmpegkit.** { *; }
+-dontwarn com.arthenica.ffmpegkit.**
+-keep class com.arthenica.smartexception.java.** { *; }
+-dontwarn com.arthenica.smartexception.java.**
+
 # Правила для Apache Tika
 -dontwarn javax.xml.stream.XMLStreamException
 -dontwarn javax.xml.stream.**

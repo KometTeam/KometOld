@@ -2,7 +2,21 @@ import 'dart:typed_data';
 import 'package:msgpack_dart/msgpack_dart.dart';
 import 'package:es_compression/lz4.dart';
 
-final lz4Codec = Lz4Codec();
+Lz4Codec? _lz4Codec;
+bool _lz4Initialized = false;
+
+Lz4Codec? get _lz4 {
+  if (!_lz4Initialized) {
+    _lz4Initialized = true;
+    try {
+      _lz4Codec = Lz4Codec();
+    } catch (e) {
+      print('⚠️ LZ4 compression not available: $e');
+      _lz4Codec = null;
+    }
+  }
+  return _lz4Codec;
+}
 
 Uint8List packPacket({
   required int ver,
@@ -14,17 +28,21 @@ Uint8List packPacket({
   Uint8List payloadBytes = serialize(payload);
   bool isCompressed = false;
 
-  if (payloadBytes.length >= 32) {
-    final uncompressedSize = ByteData(4)
-      ..setUint32(0, payloadBytes.length, Endian.big);
+  if (payloadBytes.length >= 32 && _lz4 != null) {
+    try {
+      final uncompressedSize = ByteData(4)
+        ..setUint32(0, payloadBytes.length, Endian.big);
 
-    final compressedData = lz4Codec.encode(payloadBytes);
+      final compressedData = _lz4!.encode(payloadBytes);
 
-    final builder = BytesBuilder();
-    builder.add(uncompressedSize.buffer.asUint8List());
-    builder.add(compressedData);
-    payloadBytes = builder.toBytes();
-    isCompressed = true;
+      final builder = BytesBuilder();
+      builder.add(uncompressedSize.buffer.asUint8List());
+      builder.add(compressedData);
+      payloadBytes = builder.toBytes();
+      isCompressed = true;
+    } catch (e) {
+      print('⚠️ LZ4 compression failed, sending uncompressed: $e');
+    }
   }
 
   final header = ByteData(10);
@@ -72,11 +90,16 @@ Map<String, dynamic>? unpackPacket(Uint8List data) {
   Uint8List payloadBytes = data.sublist(10, 10 + payloadLength);
 
   if (compFlag != 0) {
-    try {
-      final compressedData = payloadBytes.sublist(4);
-
-      payloadBytes = Uint8List.fromList(lz4Codec.decode(compressedData));
-    } catch (e) {
+    if (_lz4 != null) {
+      try {
+        final compressedData = payloadBytes.sublist(4);
+        payloadBytes = Uint8List.fromList(_lz4!.decode(compressedData));
+      } catch (e) {
+        print('⚠️ LZ4 decompression failed: $e');
+        return null;
+      }
+    } else {
+      print('⚠️ LZ4 not available, cannot decompress packet');
       return null;
     }
   }

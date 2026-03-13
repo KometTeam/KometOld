@@ -32,7 +32,7 @@ class _PasswordAuthScreenState extends State<PasswordAuthScreen> {
         });
       }
 
-      if (message['opcode'] == 115 && message['cmd'] == 1 && mounted) {
+      if (message['opcode'] == 115 && message['cmd'] == 256 && mounted) {
         final payload = message['payload'];
         if (payload != null &&
             payload['tokenAttrs']?['LOGIN']?['token'] != null) {
@@ -126,9 +126,10 @@ class _PasswordAuthScreenState extends State<PasswordAuthScreen> {
         }
       }
 
-      if (message['opcode'] == 115 && message['cmd'] == 3 && mounted) {
+      if (message['opcode'] == 115 && message['cmd'] == 768 && mounted) {
         setState(() {
           _isLoading = false;
+          _passwordSent = false;
         });
 
         final error = message['payload'];
@@ -161,7 +162,12 @@ class _PasswordAuthScreenState extends State<PasswordAuthScreen> {
     _email = authData['email'];
   }
 
+  bool _passwordSent = false;
+
   void _submitPassword() async {
+    // Предотвращаем повторную отправку пока идёт загрузка или пароль уже отправлен
+    if (_isLoading || _passwordSent) return;
+
     final password = _passwordController.text.trim();
     if (password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -198,6 +204,7 @@ class _PasswordAuthScreenState extends State<PasswordAuthScreen> {
 
     setState(() {
       _isLoading = true;
+      _passwordSent = true;
     });
 
     try {
@@ -205,6 +212,7 @@ class _PasswordAuthScreenState extends State<PasswordAuthScreen> {
     } catch (e) {
       setState(() {
         _isLoading = false;
+        _passwordSent = false;
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

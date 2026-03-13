@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:gwid/api/api_service.dart';
 import 'package:gwid/models/contact.dart';
+import 'package:gwid/screens/chat_screen.dart';
 
 class UserIdLookupScreen extends StatefulWidget {
   const UserIdLookupScreen({super.key});
@@ -203,8 +204,62 @@ class _UserIdLookupScreenState extends State<UserIdLookupScreen> {
             ],
           ),
         ),
+        const SizedBox(height: 24),
+        // Кнопка "Написать"
+        FilledButton.icon(
+          onPressed: () => _openChatWithUser(contact),
+          icon: const Icon(Icons.message_rounded),
+          label: const Text('Написать'),
+          style: FilledButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+            textStyle: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
       ],
     );
+  }
+
+  /// Открыть чат с пользователем
+  void _openChatWithUser(Contact contact) async {
+    try {
+      // Используем userId как chatId (стандартная практика для диалогов)
+      final chatId = contact.id;
+      
+      // Получаем свой ID из ApiService
+      final userId = ApiService.instance.userId;
+      final int myId = (userId is int) ? userId as int : int.tryParse(userId?.toString() ?? '') ?? 0;
+      
+      if (!mounted) return;
+      
+      // Закрываем экран поиска
+      Navigator.of(context).pop();
+      
+      // Открываем чат с найденным пользователем
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => ChatScreen(
+            chatId: chatId,
+            contact: contact,
+            myId: myId,
+            isGroupChat: false,
+            isChannel: false,
+          ),
+        ),
+      );
+    } catch (e) {
+      print('Ошибка открытия чата: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Ошибка открытия чата: $e'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildInfoTile({

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:gwid/api/api_service.dart';
-import 'package:gwid/screens/home_screen.dart';
 
 class ReconnectionScreen extends StatefulWidget {
   const ReconnectionScreen({super.key});
@@ -80,10 +79,7 @@ class _ReconnectionScreenState extends State<ReconnectionScreen> {
     Timer(const Duration(milliseconds: 1500), () {
       if (mounted) {
         print('ReconnectionScreen: Навигация к HomeScreen...');
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (context) => const HomeScreen()),
-          (route) => false,
-        );
+        Navigator.of(context).popUntil((route) => route.isFirst);
       }
     });
   }

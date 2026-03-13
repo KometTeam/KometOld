@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:provider/provider.dart';
 import 'package:gwid/utils/theme_provider.dart';
+
 import 'package:battery_plus/battery_plus.dart';
 import 'dart:io' show Platform;
 
@@ -45,23 +46,6 @@ class OptimizationScreen extends StatelessWidget {
                   subtitle: const Text("Показывать FPS справа сверху"),
                   value: theme.showFpsOverlay,
                   onChanged: (value) => theme.setShowFpsOverlay(value),
-                ),
-                const SizedBox(height: 8),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.timeline),
-                  title: const Text("Да ниче он бля не делает"),
-                  subtitle: Text("Оно визуал😭😭"),
-                ),
-                Slider(
-                  value: theme.maxFrameRate.toDouble(),
-                  min: 30,
-                  max: 120,
-                  divisions: 9,
-                  label: "${theme.maxFrameRate} FPS",
-                  onChanged: (value) {
-                    theme.setMaxFrameRate(value.round());
-                  },
                 ),
                 const SizedBox(height: 16),
                 const Divider(),
@@ -218,7 +202,9 @@ class _ResourceStatsWidgetState extends State<_ResourceStatsWidget> {
             _batteryState = batteryState;
           });
         }
-      } catch (e) {}
+      } catch (e) {
+        print('⚠️ Ошибка получения уровня батареи: $e');
+      }
     }
   }
 

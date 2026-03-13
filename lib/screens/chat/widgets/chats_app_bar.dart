@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:gwid/utils/theme_provider.dart';
+import 'package:gwid/theme/theme.dart';
 
 /// Builder для AppBar экрана чатов
 class ChatsAppBarBuilder {
@@ -80,10 +81,7 @@ class ChatsAppBarBuilder {
                     layoutBuilder: (currentChild, previousChildren) {
                       return Stack(
                         alignment: Alignment.centerLeft,
-                        children: [
-                          ...previousChildren,
-                          if (currentChild != null) currentChild,
-                        ],
+                        children: [...previousChildren, ?currentChild],
                       );
                     },
                     child: currentTitleWidget,
@@ -121,7 +119,7 @@ class ChatsAppBarBuilder {
                   tooltip: 'Сферум',
                 ),
               IconButton(
-                icon: Icon(Icons.download, color: Colors.white),
+                icon: const Icon(Icons.download, color: Colors.white),
                 onPressed: onDownloadsPressed,
                 tooltip: 'Загрузки',
               ),

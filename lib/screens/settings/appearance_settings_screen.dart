@@ -66,8 +66,14 @@ class _AppearanceSettingsScreenState extends State<AppearanceSettingsScreen>
     final colors = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
-    return Scaffold(
-      body: Container(
+    return GestureDetector(
+      onHorizontalDragUpdate: (details) {
+        if (details.delta.dx > 10) {
+          Navigator.of(context).pop();
+        }
+      },
+      child: Scaffold(
+        body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
@@ -130,6 +136,7 @@ class _AppearanceSettingsScreenState extends State<AppearanceSettingsScreen>
               ),
             ],
           ),
+        ),
         ),
       ),
     );
@@ -238,8 +245,10 @@ class _AppearanceSettingsScreenState extends State<AppearanceSettingsScreen>
           description: 'Тема, обои, цвета и другие настройки внешнего вида',
           onTap: () {
             Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (context) => const CustomizationScreen(),
+              PageRouteBuilder(
+                pageBuilder: (context, animation, secondaryAnimation) => const CustomizationScreen(),
+                transitionDuration: Duration.zero,
+                reverseTransitionDuration: Duration.zero,
               ),
             );
           },
@@ -250,7 +259,6 @@ class _AppearanceSettingsScreenState extends State<AppearanceSettingsScreen>
           ),
         ),
         const SizedBox(height: 28),
-        // Info Box
         Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(

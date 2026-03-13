@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gwid/api/api_service.dart';
 import 'package:gwid/models/chat.dart';
 import 'package:gwid/models/contact.dart';
@@ -9,6 +10,7 @@ import 'package:gwid/models/chat_folder.dart';
 import 'package:gwid/services/notification_service.dart';
 import 'package:gwid/services/message_queue_service.dart';
 import 'package:gwid/services/chat_cache_service.dart';
+import 'package:gwid/services/message_read_status_service.dart';
 
 class MessageHandler {
   final void Function(VoidCallback) setState;
@@ -29,10 +31,19 @@ class MessageHandler {
   final Function(Profile) setMyProfile;
   final Function(String) showTokenExpiredDialog;
   final bool Function(Chat) isSavedMessages;
+  final Function(Chat)? onNewChat;
 
   // Дедупликация сообщений - храним ID последних обработанных сообщений
   static final Set<String> _processedMessageIds = {};
   static const int _maxProcessedMessages = 100;
+  
+  // Дедупликация обновлений чатов
+  static final Map<int, int> _lastChatUpdateTime = {};
+  static const int _chatUpdateThrottleMs = 500;
+
+  // Debouncer для filterChats - объединяет множественные вызовы в один
+  Timer? _filterChatsDebouncer;
+  bool _filterChatsScheduled = false;
 
   MessageHandler({
     required this.setState,
@@ -53,8 +64,35 @@ class MessageHandler {
     required this.setMyProfile,
     required this.showTokenExpiredDialog,
     required this.isSavedMessages,
+    this.onNewChat,
   });
 
+  void _addNewChatSafely(Chat newChat) {
+    if (onNewChat != null) {
+      onNewChat!(newChat);
+    } else {
+      final savedIndex = allChats.indexWhere(isSavedMessages);
+      final insertIndex = savedIndex >= 0 ? savedIndex + 1 : 0;
+      allChats.insert(insertIndex, newChat);
+    }
+  }
+
+  /// Вызывает filterChats с debouncing для оптимизации при множественных обновлениях
+  void _debouncedFilterChats() {
+    _filterChatsDebouncer?.cancel();
+    _filterChatsScheduled = true;
+    _filterChatsDebouncer = Timer(const Duration(milliseconds: 50), () {
+      if (_filterChatsScheduled) {
+        _filterChatsScheduled = false;
+        filterChats();
+      }
+    });
+  }
+
+  /// Освобождает ресурсы
+  void dispose() {
+    _filterChatsDebouncer?.cancel();
+  }
   /// Получить текстовое представление вложения для уведомления
   String _getAttachmentPreviewText(Message message) {
     if (message.attaches.isEmpty) {
@@ -164,6 +202,14 @@ class MessageHandler {
     return ApiService.instance.messages.listen((message) {
       if (!getMounted()) return;
 
+      if (message['type'] == 'auto_switched_account') {
+        print('🔄 Автопереключение аккаунта: ${message['accountId']}');
+        if (getMounted()) {
+          refreshChats();
+        }
+        return;
+      }
+
       if (message['type'] == 'invalid_token') {
         print(
           'Получено событие недействительного токена, перенаправляем на вход',
@@ -179,6 +225,12 @@ class MessageHandler {
       final payload = message['payload'];
 
       if (opcode == 19 && (cmd == 0x100 || cmd == 256) && payload != null) {
+        _handleProfileUpdate(payload);
+        return;
+      }
+
+      // Обработка push-уведомлений об обновлении профиля (opcode 159)
+      if (opcode == 159 && payload != null) {
         _handleProfileUpdate(payload);
         return;
       }
@@ -220,11 +272,13 @@ class MessageHandler {
         // Локальное обновление чата (без cmd, это локальное сообщение)
         _handleNewChat(payload);
       } else if (opcode == 128 && chatId != null) {
-        _handleNewMessage(chatId, payload);
+        unawaited(_handleNewMessage(chatId, payload));
       } else if (opcode == 67 && chatId != null) {
         _handleEditedMessage(chatId, payload);
       } else if ((opcode == 66 || opcode == 142) && chatId != null) {
         _handleDeletedMessages(chatId, payload);
+      } else if (opcode == 130) {
+        _handleMessageReadStatus(payload);
       } else if (opcode == 132) {
         _handlePresenceUpdate(payload);
       } else if (opcode == 36) {
@@ -236,7 +290,7 @@ class MessageHandler {
       } else if (opcode == 55) {
         _handleChatUpdate(payload, cmd);
       } else if (opcode == 135) {
-        _handleChatRemoved(payload);
+        _handleChatChanged(payload);
       } else if (opcode == 272) {
         _handleFoldersUpdate(payload);
       } else if (opcode == 274) {
@@ -258,6 +312,33 @@ class MessageHandler {
         }
       });
     }
+
+    // Обновляем favIndex из config.chats
+    final config = payload['config'] as Map<String, dynamic>?;
+    final configChats = config?['chats'] as Map<String, dynamic>?;
+    if (configChats != null && configChats.isNotEmpty) {
+      Future.microtask(() {
+        final context = getContext();
+        if (!context.mounted) return;
+        setState(() {
+          for (var i = 0; i < allChats.length; i++) {
+            final chatIdStr = allChats[i].id.toString();
+            final chatConfig = configChats[chatIdStr] as Map<String, dynamic>?;
+            if (chatConfig != null) {
+              final newFavIndex = chatConfig['favIndex'] as int? ?? 0;
+              if (allChats[i].favIndex != newFavIndex) {
+                allChats[i] = allChats[i].copyWith(favIndex: newFavIndex);
+              }
+            } else {
+              if (allChats[i].favIndex != 0) {
+                allChats[i] = allChats[i].copyWith(favIndex: 0);
+              }
+            }
+          }
+        });
+        _debouncedFilterChats();
+      });
+    }
   }
 
   void _handleNewChat(Map<String, dynamic> payload) {
@@ -267,24 +348,33 @@ class MessageHandler {
 
     // Если есть полный объект чата - используем его
     if (chatJson != null) {
-      final newChat = Chat.fromJson(chatJson);
+      final newChat = Chat.tryFromJson(chatJson);
+      if (newChat == null) return;
       ApiService.instance.updateChatInCacheFromJson(chatJson);
 
       final context = getContext();
       if (context.mounted) {
+        final isInActiveChat = ApiService.instance.currentActiveChatId == newChat.id;
         setState(() {
-          final existingIndex = allChats.indexWhere(
-            (chat) => chat.id == newChat.id,
-          );
-          if (existingIndex != -1) {
-            allChats[existingIndex] = newChat;
+          final oldIndex = allChats.indexWhere((chat) => chat.id == newChat.id);
+          if (oldIndex != -1) {
+            if (newChat.favIndex > 0) {
+              allChats[oldIndex] = newChat;
+            } else {
+              allChats.removeAt(oldIndex);
+              _insertChatAtCorrectPosition(newChat);
+            }
           } else {
-            final savedIndex = allChats.indexWhere(isSavedMessages);
-            final insertIndex = savedIndex >= 0 ? savedIndex + 1 : 0;
-            allChats.insert(insertIndex, newChat);
+            _addNewChatSafely(newChat);
           }
-          filterChats();
         });
+        if (!isInActiveChat) {
+          if (newChat.favIndex > 0) {
+            setState(() {});
+          } else {
+            _debouncedFilterChats();
+          }
+        }
       }
     }
     // Если есть только сообщение и chatId - обновляем существующий чат
@@ -292,26 +382,50 @@ class MessageHandler {
       final newMessage = Message.fromJson(messageJson);
       final context = getContext();
       if (context.mounted) {
+        final isInActiveChat = ApiService.instance.currentActiveChatId == chatId;
+        bool isPinned = false;
         setState(() {
-          final chatIndex = allChats.indexWhere((chat) => chat.id == chatId);
-          if (chatIndex != -1) {
-            final oldChat = allChats[chatIndex];
+          final oldIndex = allChats.indexWhere((chat) => chat.id == chatId);
+          if (oldIndex != -1) {
+            final oldChat = allChats[oldIndex];
             final updatedChat = oldChat.copyWith(lastMessage: newMessage);
-            allChats.removeAt(chatIndex);
-            _insertChatAtCorrectPosition(updatedChat);
-            filterChats();
+            isPinned = updatedChat.favIndex > 0;
+            if (isPinned) {
+              allChats[oldIndex] = updatedChat;
+            } else {
+              allChats.removeAt(oldIndex);
+              _insertChatAtCorrectPosition(updatedChat);
+            }
           }
         });
+        if (!isInActiveChat && !isPinned) _debouncedFilterChats();
       }
     }
   }
 
-  void _handleNewMessage(int chatId, Map<String, dynamic> payload) {
+  Future<void> _handleNewMessage(int chatId, Map<String, dynamic> payload) async {
+    print('🔔 [MessageHandler] _handleNewMessage вызван для chatId: $chatId');
+
     if (allChats.isEmpty) {
+      print('🔔 [MessageHandler] allChats пустой, выход');
       return;
     }
 
+    // КРИТИЧНО: Игнорируем сообщения о звонках (CONTROL attach) - они вызывают баги
+    final messageJson = payload['message'] as Map<String, dynamic>?;
+    if (messageJson != null) {
+      final attaches = messageJson['attaches'] as List<dynamic>?;
+      if (attaches != null && attaches.isNotEmpty) {
+        final hasControl = attaches.any((a) => a is Map && a['_type'] == 'CONTROL');
+        if (hasControl) {
+          print('⏭️ [MessageHandler] Пропускаем CONTROL-сообщение (звонок)');
+          return;
+        }
+      }
+    }
+
     final newMessage = Message.fromJson(payload['message']);
+    print('🔔 [MessageHandler] Сообщение: id=${newMessage.id}, senderId=${newMessage.senderId}, text=${newMessage.text.substring(0, newMessage.text.length > 50 ? 50 : newMessage.text.length)}...');
 
     if (newMessage.status == 'REMOVED') {
       ApiService.instance.clearCacheForChat(chatId);
@@ -348,8 +462,6 @@ class MessageHandler {
       _processedMessageIds.remove(_processedMessageIds.first);
     }
 
-    ApiService.instance.clearCacheForChat(chatId);
-
     // Получаем myId из профиля
     int? myId;
     final lastPayload = ApiService.instance.lastChatsPayload;
@@ -366,76 +478,148 @@ class MessageHandler {
 
     // Не показываем уведомление для своих сообщений
     bool shouldShowNotification = (myId == null || newMessage.senderId != myId);
+    print('🔔 [MessageHandler] myId=$myId, senderId=${newMessage.senderId}, shouldShowNotification=$shouldShowNotification');
 
-    // Если мы в приложении и в этом чате - не показываем уведомление
-    if (shouldShowNotification &&
-        ApiService.instance.isAppInForeground &&
-        ApiService.instance.currentActiveChatId == chatId) {
+    final bool isInActiveChat = ApiService.instance.currentActiveChatId == chatId;
+
+    // Never show a push notification for the currently opened chat.
+    if (shouldShowNotification && isInActiveChat) {
+      print('🔔 [MessageHandler] В foreground и в этом чате - не показываем');
       shouldShowNotification = false;
     }
+    if (isInActiveChat) {
+      unawaited(NotificationService().clearNotificationMessagesForChat(chatId));
+    }
+    print('🔔 [MessageHandler] isAppInForeground=${ApiService.instance.isAppInForeground}, currentActiveChatId=${ApiService.instance.currentActiveChatId}');
 
     final int chatIndex = allChats.indexWhere((chat) => chat.id == chatId);
+    print('🔔 [MessageHandler] chatIndex=$chatIndex');
     if (shouldShowNotification && chatIndex != -1) {
       final oldChat = allChats[chatIndex];
-      // Проверяем как по myId, так и по ownerId чата
-      if (newMessage.senderId == oldChat.ownerId ||
-          (myId != null && newMessage.senderId == myId)) {
-        shouldShowNotification = false;
+      print('🔔 [MessageHandler] oldChat.ownerId=${oldChat.ownerId}, oldChat.type=${oldChat.type}');
+      // Для каналов НЕ проверяем senderId == ownerId, т.к. оба равны 0
+      // Проверяем только для личных чатов и групп
+      final isChannel = oldChat.type == 'CHANNEL';
+      if (!isChannel) {
+        // Проверяем как по myId, так и по ownerId чата (только для НЕ-каналов)
+        if (newMessage.senderId == oldChat.ownerId ||
+            (myId != null && newMessage.senderId == myId)) {
+          print('🔔 [MessageHandler] senderId совпадает с ownerId или myId - не показываем');
+          shouldShowNotification = false;
+        }
+      } else {
+        print('🔔 [MessageHandler] Это канал, пропускаем проверку ownerId');
       }
     }
 
     if (shouldShowNotification) {
-      final contact = contacts[newMessage.senderId];
+      print('🔔 [MessageHandler] Показываем уведомление!');
       final chatFromPayload = payload['chat'] as Map<String, dynamic>?;
 
-      if (contact == null) {
-        _loadAndShowNotification(
+      // Для каналов используем специальную логику - показываем название канала
+      if (chatIndex != -1 && allChats[chatIndex].type == 'CHANNEL') {
+        _showChannelNotification(
           chatId,
           newMessage,
-          newMessage.senderId,
+          allChats[chatIndex],
           chatFromPayload,
         );
       } else {
-        _showNotificationWithContact(
-          chatId,
-          newMessage,
-          contact,
-          chatFromPayload,
-        );
+        final contact = contacts[newMessage.senderId];
+        if (contact == null) {
+          _loadAndShowNotification(
+            chatId,
+            newMessage,
+            newMessage.senderId,
+            chatFromPayload,
+          );
+        } else {
+          _showNotificationWithContact(
+            chatId,
+            newMessage,
+            contact,
+            chatFromPayload,
+          );
+        }
       }
+    }
+
+    // Определяем, наше ли это сообщение (до проверки автопрочтения)
+    bool isMyMessage = false;
+    if (chatIndex != -1) {
+      final oldChat = allChats[chatIndex];
+      isMyMessage = (myId != null && newMessage.senderId == myId) ||
+          newMessage.senderId == oldChat.ownerId;
+    } else {
+      // Для новых чатов считаем сообщение "не нашим" по умолчанию
+      isMyMessage = myId != null && newMessage.senderId == myId;
+    }
+
+    // Проверяем, нужно ли автоматически отметить сообщение как прочитанное
+    // Условия: приложение на переднем плане, пользователь в этом чате, сообщение не наше, режим скрытия онлайна выключен
+    bool shouldAutoMarkAsRead = false;
+    final isForegroundActiveChat = ApiService.instance.isAppInForeground && isInActiveChat;
+    
+    print('🔔 [MessageHandler] Проверка автопрочтения: isForegroundActiveChat=$isForegroundActiveChat, isMyMessage=$isMyMessage');
+    
+    if (isForegroundActiveChat && !isMyMessage) {
+      // Проверяем настройку скрытия онлайна
+      final prefs = await SharedPreferences.getInstance();
+      final isHiddenMode = prefs.getBool('privacy_hidden') ?? false;
+      // Автоматически отмечаем как прочитанное только если режим скрытия выключен
+      shouldAutoMarkAsRead = !isHiddenMode;
+      print('🔔 [MessageHandler] Режим скрытия онлайна: $isHiddenMode, shouldAutoMarkAsRead=$shouldAutoMarkAsRead');
+    }
+
+    // Если нужно автоматически отметить как прочитанное - делаем это
+    if (shouldAutoMarkAsRead) {
+      print('🔔 [MessageHandler] Автоматически отмечаем сообщение как прочитанное');
+      ApiService.instance.markMessageAsRead(chatId, newMessage.id);
     }
 
     if (chatIndex != -1) {
       final oldChat = allChats[chatIndex];
 
-      // Определяем, наше ли это сообщение
-      final isMyMessage =
-          (myId != null && newMessage.senderId == myId) ||
-          newMessage.senderId == oldChat.ownerId;
+      // Увеличиваем счётчик непрочитанных только если:
+      // 1. Это не наше сообщение
+      // 2. Не включено автоматическое прочтение (скрытие онлайна выключено и мы в чате)
+      final shouldIncrementUnread = !isMyMessage && !shouldAutoMarkAsRead && !isInActiveChat;
+      print('🔔 [MessageHandler] shouldIncrementUnread=$shouldIncrementUnread (isMyMessage=$isMyMessage, shouldAutoMarkAsRead=$shouldAutoMarkAsRead)');
 
       final updatedChat = oldChat.copyWith(
         lastMessage: newMessage,
-        newMessages: !isMyMessage
+        newMessages: shouldIncrementUnread
             ? oldChat.newMessages + 1
             : oldChat.newMessages,
       );
 
+      final isPinned = updatedChat.favIndex > 0;
       setState(() {
-        allChats.removeAt(chatIndex);
-        _insertChatAtCorrectPosition(updatedChat);
-        filterChats();
+        if (isPinned) {
+          // Закреплённый чат не двигается — просто обновляем на месте
+          allChats[chatIndex] = updatedChat;
+        } else {
+          allChats.removeAt(chatIndex);
+          _insertChatAtCorrectPosition(updatedChat);
+        }
       });
+      // Не перефильтровываем если это наше сообщение в активный чат
+      if (!(isMyMessage && isInActiveChat)) {
+        if (isPinned) {
+          // Закреплённый чат не двигается — просто перестраиваем UI
+          setState(() {});
+        } else {
+          _debouncedFilterChats();
+        }
+      }
     } else if (payload['chat'] is Map<String, dynamic>) {
       final chatJson = payload['chat'] as Map<String, dynamic>;
-      final newChat = Chat.fromJson(chatJson);
+      final newChat = Chat.tryFromJson(chatJson);
+      if (newChat == null) return;
       ApiService.instance.updateChatInCacheFromJson(chatJson);
 
-      setState(() {
-        final savedIndex = allChats.indexWhere(isSavedMessages);
-        final insertIndex = savedIndex >= 0 ? savedIndex + 1 : 0;
-        allChats.insert(insertIndex, newChat);
-        filterChats();
-      });
+      setState(() => _addNewChatSafely(newChat));
+      _debouncedFilterChats();
     } else {
       final lastPayload = ApiService.instance.lastChatsPayload;
       if (lastPayload != null) {
@@ -449,16 +633,19 @@ class MessageHandler {
             }
           }
           if (chatJson != null) {
-            final newChat = Chat.fromJson(chatJson);
+            final newChat = Chat.tryFromJson(chatJson);
+            if (newChat == null) return;
+            // Для новых чатов тоже учитываем автоматическое прочтение
+            final shouldIncrementUnread = !isMyMessage && !shouldAutoMarkAsRead && !isInActiveChat;
             final updatedChat = newChat.copyWith(
               lastMessage: Message.fromJson(payload['message']),
-              newMessages: newChat.newMessages + 1,
+              newMessages: shouldIncrementUnread ? newChat.newMessages + 1 : newChat.newMessages,
             );
             setState(() {
               allChats.add(updatedChat);
               _insertChatAtCorrectPosition(updatedChat);
-              filterChats();
             });
+            _debouncedFilterChats();
           }
         }
       }
@@ -467,7 +654,6 @@ class MessageHandler {
 
   void _handleEditedMessage(int chatId, Map<String, dynamic> payload) {
     final editedMessage = Message.fromJson(payload['message']);
-    ApiService.instance.clearCacheForChat(chatId);
 
     final int chatIndex = allChats.indexWhere((chat) => chat.id == chatId);
     if (chatIndex != -1) {
@@ -477,8 +663,8 @@ class MessageHandler {
         setState(() {
           allChats.removeAt(chatIndex);
           _insertChatAtCorrectPosition(updatedChat);
-          filterChats();
         });
+        _debouncedFilterChats();
       }
     }
   }
@@ -486,7 +672,6 @@ class MessageHandler {
   void _handleDeletedMessages(int chatId, Map<String, dynamic> payload) {
     final rawMessageIds = payload['messageIds'] as List<dynamic>? ?? [];
     final deletedMessageIds = rawMessageIds.map((id) => id.toString()).toList();
-    ApiService.instance.clearCacheForChat(chatId);
 
     final int chatIndex = allChats.indexWhere((chat) => chat.id == chatId);
     if (chatIndex != -1) {
@@ -504,12 +689,13 @@ class MessageHandler {
                 ? filtered.first
                 : null;
             if (updatedChatData != null) {
-              final updatedChat = Chat.fromJson(updatedChatData);
+              final updatedChat = Chat.tryFromJson(updatedChatData);
+              if (updatedChat == null) return;
               setState(() {
                 allChats.removeAt(chatIndex);
-                allChats.insert(0, updatedChat);
-                filterChats();
+                _insertChatAtCorrectPosition(updatedChat);
               });
+              _debouncedFilterChats();
             }
           }
         });
@@ -598,7 +784,8 @@ class MessageHandler {
     }
 
     if (effectiveChatJson != null) {
-      final newChat = Chat.fromJson(effectiveChatJson);
+      final newChat = Chat.tryFromJson(effectiveChatJson);
+      if (newChat == null) return;
       ApiService.instance.updateChatInCacheFromJson(effectiveChatJson);
       final context = getContext();
       if (context.mounted) {
@@ -609,12 +796,10 @@ class MessageHandler {
           if (existingIndex != -1) {
             allChats[existingIndex] = newChat;
           } else {
-            final savedIndex = allChats.indexWhere(isSavedMessages);
-            final insertIndex = savedIndex >= 0 ? savedIndex + 1 : 0;
-            allChats.insert(insertIndex, newChat);
+            _addNewChatSafely(newChat);
           }
         });
-        filterChats();
+        _debouncedFilterChats();
       }
     } else {
       refreshChats();
@@ -627,7 +812,8 @@ class MessageHandler {
     if (chatJson != null) {
       final chatType = chatJson['type'] as String?;
       if (chatType == 'CHAT') {
-        final newChat = Chat.fromJson(chatJson);
+        final newChat = Chat.tryFromJson(chatJson);
+        if (newChat == null) return;
         ApiService.instance.updateChatInCacheFromJson(chatJson);
         final context = getContext();
         if (context.mounted) {
@@ -638,12 +824,10 @@ class MessageHandler {
             if (existingIndex != -1) {
               allChats[existingIndex] = newChat;
             } else {
-              final savedIndex = allChats.indexWhere(isSavedMessages);
-              final insertIndex = savedIndex >= 0 ? savedIndex + 1 : 0;
-              allChats.insert(insertIndex, newChat);
+              _addNewChatSafely(newChat);
             }
-            filterChats();
           });
+          _debouncedFilterChats();
         }
       }
     }
@@ -653,7 +837,8 @@ class MessageHandler {
     if (cmd != 0x100 && cmd != 256) return;
     final chatJson = payload['chat'] as Map<String, dynamic>?;
     if (chatJson != null) {
-      final updatedChat = Chat.fromJson(chatJson);
+      final updatedChat = Chat.tryFromJson(chatJson);
+      if (updatedChat == null) return;
       ApiService.instance.updateChatInCacheFromJson(chatJson);
       final context = getContext();
       if (context.mounted) {
@@ -668,25 +853,104 @@ class MessageHandler {
             final insertIndex = savedIndex >= 0 ? savedIndex + 1 : 0;
             allChats.insert(insertIndex, updatedChat);
           }
-          filterChats();
         });
+        _debouncedFilterChats();
       }
     }
   }
 
-  void _handleChatRemoved(Map<String, dynamic> payload) {
-    if (payload['chat'] is! Map<String, dynamic>) return;
-    final removedChat = payload['chat'] as Map<String, dynamic>;
-    final int? removedChatId = removedChat['id'] as int?;
-    final String? status = removedChat['status'] as String?;
+  void _handleChatChanged(Map<String, dynamic> payload) {
+    try {
+      if (payload['chat'] is! Map<String, dynamic>) return;
+      
+      final chatJson = payload['chat'] as Map<String, dynamic>;
+      final int? chatId = chatJson['id'] as int?;
+      final String? status = chatJson['status'] as String?;
+      if (chatId == null) return;
 
-    if (removedChatId != null && status == 'REMOVED') {
-      final context = getContext();
-      if (context.mounted) {
-        setState(() {
-          allChats.removeWhere((chat) => chat.id == removedChatId);
-        });
+      // Дедупликация: игнорируем повторные обновления в течение 500мс
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final lastUpdate = _lastChatUpdateTime[chatId] ?? 0;
+      if (now - lastUpdate < _chatUpdateThrottleMs) {
+        print('⏭️ [opcode 135] Пропускаем дубликат обновления чата $chatId');
+        return;
       }
+      _lastChatUpdateTime[chatId] = now;
+
+      print('🔄 [opcode 135] chatId=$chatId, status=$status');
+
+      final context = getContext();
+      if (!context.mounted) {
+        print('⚠️ [opcode 135] Context not mounted');
+        return;
+      }
+
+      if (status == 'REMOVED') {
+        print('🗑️ [opcode 135] Удаляем чат $chatId');
+        // Удаляем чат из списка
+        setState(() {
+          allChats.removeWhere((chat) => chat.id == chatId);
+        });
+        _debouncedFilterChats();
+        // Чистим disk cache чтобы чат не воскрес после перезапуска
+        ChatCacheService().removeChatFromCachedList(chatId);
+        ChatCacheService().clearChatCache(chatId);
+      } else if (status == 'ACTIVE') {
+        print('✅ [opcode 135] Обновляем/добавляем чат $chatId');
+        
+        // КРИТИЧНО: Если есть videoConversation - зануляем его перед парсингом
+        final hasVideoConv = chatJson['videoConversation'] != null;
+        if (hasVideoConv) {
+          print('   ⚠️ [opcode 135] Обнаружен videoConversation, удаляем из JSON');
+          chatJson['videoConversation'] = null;
+        }
+        
+        // КРИТИЧНО: парсинг Chat.tryFromJson может зависнуть на videoConversation
+        Chat? newChat;
+        try {
+          print('   📝 [opcode 135] Парсинг Chat.tryFromJson...');
+          newChat = Chat.tryFromJson(chatJson);
+          print('   ✅ [opcode 135] Chat.tryFromJson успешно');
+        } catch (e, stackTrace) {
+          print('   ❌ [opcode 135] Ошибка Chat.tryFromJson: $e');
+          print('   Stack: $stackTrace');
+          return;
+        }
+        if (newChat == null) {
+          return;
+        }
+
+        try {
+          print('   📝 [opcode 135] updateChatInCacheFromJson...');
+          ApiService.instance.updateChatInCacheFromJson(chatJson);
+          print('   ✅ [opcode 135] Кэш обновлен');
+        } catch (e) {
+          print('   ⚠️ [opcode 135] Ошибка обновления кэша: $e');
+          // Продолжаем даже если кэш не обновился
+        }
+
+        final existingIndex = allChats.indexWhere((chat) => chat.id == chatId);
+        if (existingIndex != -1) {
+          print('   🔄 [opcode 135] Обновляем существующий чат на позиции $existingIndex');
+          allChats[existingIndex] = newChat!;
+        } else {
+          print('   ➕ [opcode 135] Добавляем новый чат');
+          _addNewChatSafely(newChat!);
+        }
+        
+        // Вызываем setState только если контекст всё ещё mounted
+        if (context.mounted) {
+          setState(() {});
+          print('   ✅ [opcode 135] setState выполнен');
+        }
+        
+        print('✅ [opcode 135] _handleChatChanged завершен успешно');
+      }
+    } catch (e, stackTrace) {
+      print('❌ [opcode 135] КРИТИЧЕСКАЯ ОШИБКА в _handleChatChanged: $e');
+      print('Stack trace: $stackTrace');
+      print('Payload: $payload');
+      // НЕ пробрасываем ошибку дальше - это предотвратит зависание
     }
   }
 
@@ -699,12 +963,18 @@ class MessageHandler {
     try {
       final foldersJson = payload['folders'] as List<dynamic>?;
       if (foldersJson != null) {
+        // Защищенный маппинг - пропускаем битые папки
         final newFolders = foldersJson.map((json) {
-          final jsonMap = json is Map<String, dynamic>
-              ? json
-              : Map<String, dynamic>.from(json as Map);
-          return ChatFolder.fromJson(jsonMap);
-        }).toList();
+          try {
+            final jsonMap = json is Map<String, dynamic>
+                ? json
+                : Map<String, dynamic>.from(json as Map);
+            return ChatFolder.fromJson(jsonMap);
+          } catch (err) {
+            print('⚠️ Ошибка парсинга папки: $err');
+            return null; // Пропускаем битую папку
+          }
+        }).whereType<ChatFolder>().toList(); // Оставляем только валидные
 
         final context = getContext();
         if (context.mounted) {
@@ -715,11 +985,11 @@ class MessageHandler {
             sortFoldersByOrder(foldersOrder);
           });
           updateFolderTabController();
-          filterChats();
+          _debouncedFilterChats();
         }
       }
     } catch (e) {
-      print('Ошибка обработки папок из opcode 272: $e');
+      print('❌ Критическая ошибка обработки папок из opcode 272: $e');
     }
   }
 
@@ -747,7 +1017,7 @@ class MessageHandler {
           });
 
           updateFolderTabController();
-          filterChats();
+          _debouncedFilterChats();
 
           if (isNewFolder) {
             final newFolderIndex = folders.indexWhere((f) => f.id == folderId);
@@ -780,7 +1050,7 @@ class MessageHandler {
         });
 
         updateFolderTabController();
-        filterChats();
+        _debouncedFilterChats();
 
         if (currentIndex >= folderTabController.length) {
           folderTabController.animateTo(0);
@@ -798,39 +1068,45 @@ class MessageHandler {
   }
 
   void _insertChatAtCorrectPosition(Chat chat) {
-    if (isSavedMessages(chat)) {
-      if (chat.id == 0) {
-        allChats.insert(0, chat);
-      } else {
-        final savedIndex = allChats.indexWhere(
-          (c) => isSavedMessages(c) && c.id == 0,
-        );
-        final insertIndex = savedIndex >= 0 ? savedIndex + 1 : 0;
-        allChats.insert(insertIndex, chat);
+    // Вставляем чат в правильную позицию по времени последнего сообщения
+    final chatTime = chat.lastMessage.time;
+    int insertIndex = 0;
+    for (int i = 0; i < allChats.length; i++) {
+      if (chatTime >= allChats[i].lastMessage.time) {
+        insertIndex = i;
+        break;
       }
-    } else {
-      final savedIndex = allChats.indexWhere(isSavedMessages);
-      final insertIndex = savedIndex >= 0 ? savedIndex + 1 : 0;
-      allChats.insert(insertIndex, chat);
+      insertIndex = i + 1;
     }
+    allChats.insert(insertIndex, chat);
   }
 
   /// Показать уведомление с известным контактом
+  Future<bool> _isChatArchived(int chatId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final userId = ApiService.instance.userId ?? '0';
+    final key = 'archived_chats_$userId';
+    final ids = prefs.getStringList(key) ?? [];
+    return ids.contains(chatId.toString());
+  }
+
   void _showNotificationWithContact(
     int chatId,
     Message message,
     Contact contact, [
     Map<String, dynamic>? chatFromPayload,
   ]) async {
-    // Получаем данные чата
+    if (await _isChatArchived(chatId)) return;
     final effectiveChat = await _getEffectiveChat(chatId, chatFromPayload);
 
-    // Группы: chatId < 0 ИЛИ type='CHAT' ИЛИ isGroup
-    final isGroupChat =
-        chatId < 0 ||
-        (effectiveChat != null &&
-            (effectiveChat.isGroup || effectiveChat.type == 'CHAT'));
+    // Сначала проверяем канал, потом группу
     final isChannel = effectiveChat?.type == 'CHANNEL';
+    // Группы: chatId < 0 ИЛИ type='CHAT' ИЛИ isGroup, НО не канал
+    final isGroupChat =
+        !isChannel &&
+        (chatId < 0 ||
+            (effectiveChat != null &&
+                (effectiveChat.isGroup || effectiveChat.type == 'CHAT')));
     final groupTitle =
         effectiveChat?.title ??
         effectiveChat?.displayTitle ??
@@ -847,6 +1123,29 @@ class MessageHandler {
       isGroupChat: isGroupChat,
       isChannel: isChannel,
       groupTitle: groupTitle,
+    );
+  }
+
+  /// Показать уведомление для канала
+  void _showChannelNotification(
+    int chatId,
+    Message message,
+    Chat channel, [
+    Map<String, dynamic>? chatFromPayload,
+  ]) {
+    final channelName = channel.displayTitle;
+    final avatarUrl = channel.baseIconUrl;
+
+    print('🔔 [MessageHandler] Показываем уведомление канала: $channelName');
+
+    NotificationService().showMessageNotification(
+      chatId: chatId,
+      senderName: channelName,
+      messageText: _getAttachmentPreviewText(message),
+      avatarUrl: avatarUrl,
+      isGroupChat: false,
+      isChannel: true,
+      groupTitle: channelName,
     );
   }
 
@@ -895,13 +1194,17 @@ class MessageHandler {
     int userId, [
     Map<String, dynamic>? chatFromPayload,
   ]) async {
+    if (await _isChatArchived(chatId)) return;
     final effectiveChat = await _getEffectiveChat(chatId, chatFromPayload);
 
-    final isGroupChat =
-        chatId < 0 ||
-        (effectiveChat != null &&
-            (effectiveChat.isGroup || effectiveChat.type == 'CHAT'));
+    // Сначала проверяем канал, потом группу
     final isChannel = effectiveChat?.type == 'CHANNEL';
+    // Группы: chatId < 0 ИЛИ type='CHAT' ИЛИ isGroup, НО не канал
+    final isGroupChat =
+        !isChannel &&
+        (chatId < 0 ||
+            (effectiveChat != null &&
+                (effectiveChat.isGroup || effectiveChat.type == 'CHAT')));
     final groupTitle =
         effectiveChat?.title ??
         effectiveChat?.displayTitle ??
@@ -927,21 +1230,49 @@ class MessageHandler {
     // Ищем в allChats
     try {
       return allChats.firstWhere((c) => c.id == chatId);
-    } catch (_) {}
+    } catch (e) {
+      print('⚠️ Чат $chatId не найден в allChats: $e');
+    }
 
     // Из payload
     if (chatFromPayload != null) {
-      return Chat.fromJson(chatFromPayload);
+      return Chat.tryFromJson(chatFromPayload);
     }
 
     // Из кэша
     try {
       final cachedChatJson = await ChatCacheService().getChatById(chatId);
       if (cachedChatJson != null) {
-        return Chat.fromJson(cachedChatJson);
+        return Chat.tryFromJson(cachedChatJson);
       }
-    } catch (_) {}
+    } catch (e) {
+      print('⚠️ Ошибка получения чата $chatId из кэша: $e');
+    }
 
     return null;
+  }
+
+  /// Обработка opcode 130 - статус прочитанности сообщений
+  /// 
+  /// Payload: {
+  ///   "setAsUnread": false,     // false = прочитали, true = пометить непрочитанным
+  ///   "chatId": 6747636,        // ID чата
+  ///   "userId": 103666767,      // ID пользователя (кто прочитал)
+  ///   "mark": 1771481427964     // ID сообщения которое прочли
+  /// }
+  void _handleMessageReadStatus(Map<String, dynamic> payload) {
+    print('📖 [opcode 130] Получен статус прочитанности: $payload');
+    
+    // Передаем обработку в сервис
+    MessageReadStatusService().handleReadStatusUpdate(payload);
+    
+    // Триггерим обновление UI для чата
+    final chatId = payload['chatId'] as int?;
+    if (chatId != null) {
+      final context = getContext();
+      if (context.mounted) {
+        setState(() {});
+      }
+    }
   }
 }

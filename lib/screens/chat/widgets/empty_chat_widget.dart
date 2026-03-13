@@ -25,7 +25,13 @@ class EmptyChatWidget extends StatelessWidget {
             const SizedBox(
               width: 170,
               height: 170,
-              child: Center(child: CircularProgressIndicator()),
+              child: Center(
+                child: Icon(
+                  Icons.chat_bubble_outline,
+                  size: 80,
+                  color: Colors.grey,
+                ),
+              ),
             ),
             const SizedBox(height: 24),
           ],

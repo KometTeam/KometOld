@@ -84,11 +84,19 @@ class _OTPScreenState extends State<OTPScreen>
       }
 
       if (message['opcode'] == 18 && mounted && !_isNavigating) {
-        _isNavigating = true;
         print('Получен ответ opcode 18, полное сообщение: $message');
         final payload = message['payload'];
         print('Payload при авторизации: $payload');
 
+        // Если требуется пароль, не обрабатываем здесь - это делает password_required хендлер
+        if (payload != null && payload['passwordChallenge'] != null) {
+          print(
+            'Обнаружен passwordChallenge, ожидаем навигацию на экран пароля',
+          );
+          return;
+        }
+
+        _isNavigating = true;
         String? finalToken;
         String? userId;
         String? registerToken;
@@ -178,30 +186,12 @@ class _OTPScreenState extends State<OTPScreen>
                     ),
                     (route) => false,
                   );
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('АЛО ТЫ НЕ В ВАЙТЛИСТЕ'),
-                      backgroundColor: Colors.red,
-                      duration: Duration(seconds: 5),
-                    ),
-                  );
                 }
                 return;
               }
 
               if (mounted) {
                 setState(() => _isLoading = false);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text('Код верный! Вход выполнен.'),
-                    backgroundColor: Colors.green,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    behavior: SnackBarBehavior.floating,
-                    margin: const EdgeInsets.all(10),
-                  ),
-                );
                 Navigator.of(context).pushAndRemoveUntil(
                   MaterialPageRoute(builder: (context) => const HomeScreen()),
                   (route) => false,

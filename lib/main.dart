@@ -1,17 +1,23 @@
-import 'package:flutter/material.dart';
-import 'package:dynamic_color/dynamic_color.dart';
-import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:intl/date_symbol_data_local.dart';
+import 'dart:async';
 import 'dart:io';
 import 'dart:math';
-import 'screens/home_screen.dart';
-import 'screens/phone_entry_screen.dart';
-import 'utils/theme_provider.dart';
-import 'package:provider/provider.dart';
+import 'dart:ui';
+import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
-import 'package:gwid/api/api_service.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:dynamic_color/dynamic_color.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
+import 'package:uuid/uuid.dart';
+
+import 'api/api_service.dart';
 import 'connection_lifecycle_manager.dart';
+import 'screens/home_screen.dart';
+import 'screens/phone_entry_screen.dart';
+import 'theme/theme.dart';
 import 'services/cache_service.dart';
 import 'services/avatar_cache_service.dart';
 import 'services/chat_cache_service.dart';
@@ -21,49 +27,36 @@ import 'services/music_player_service.dart';
 import 'services/whitelist_service.dart';
 import 'services/notification_service.dart';
 import 'services/message_queue_service.dart';
-import 'plugins/plugin_service.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:uuid/uuid.dart';
-import 'package:flutter_timezone/flutter_timezone.dart';
+import 'services/cache_auto_cleanup_service.dart';
+import 'services/calls_service.dart';
+import 'services/message_read_status_service.dart';
+import 'utils/theme_provider.dart';
 import 'utils/device_presets.dart';
+import 'plugins/plugin_service.dart';
+import 'widgets/incoming_call_overlay.dart';
+import 'widgets/floating_call_overlay.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> _generateInitialAndroidSpoof() async {
   try {
     final prefs = await SharedPreferences.getInstance();
-    final isSpoofingEnabled = prefs.getBool('spoofing_enabled') ?? false;
-
-    if (isSpoofingEnabled) {
-      print('Спуф уже настроен, генерация не требуется');
-      return;
-    }
-
-    print('Генерируем автоматический спуф для Android...');
+    if (prefs.getBool('spoofing_enabled') ?? false) return;
 
     final androidPresets = devicePresets
         .where((p) => p.deviceType == 'ANDROID')
         .toList();
+    if (androidPresets.isEmpty) return;
 
-    if (androidPresets.isEmpty) {
-      print('Не найдены пресеты для Android');
-      return;
-    }
-
-    final random = Random();
-    final preset = androidPresets[random.nextInt(androidPresets.length)];
-
-    const uuid = Uuid();
-    final deviceId = uuid.v4();
+    final preset = androidPresets[Random().nextInt(androidPresets.length)];
+    final deviceId = const Uuid().v4();
 
     String timezone;
     try {
-      final timezoneInfo = await FlutterTimezone.getLocalTimezone();
-      timezone = timezoneInfo.identifier;
+      timezone = (await FlutterTimezone.getLocalTimezone()).identifier;
     } catch (_) {
       timezone = 'Europe/Moscow';
     }
-
     final locale = Platform.localeName.split('_').first;
 
     await prefs.setBool('spoofing_enabled', true);
@@ -77,88 +70,138 @@ Future<void> _generateInitialAndroidSpoof() async {
     await prefs.setString('spoof_deviceid', deviceId);
     await prefs.setString('spoof_devicetype', 'ANDROID');
     await prefs.setString('spoof_appversion', '25.21.3');
-
-    print('Спуф для Android успешно сгенерирован:');
-    print('  - Устройство: ${preset.deviceName}');
-    print('  - ОС: ${preset.osVersion}');
-    print('  - Device ID: $deviceId');
-    print('  - Часовой пояс: $timezone');
-    print('  - Локаль: $locale');
-  } catch (e) {
-    print('Ошибка при генерации спуфа: $e');
-  }
+  } catch (_) {}
 }
 
 Future<void> main() async {
+  // Подавляем надоедливые GTK/GDK warnings на Linux
+  if (Platform.isLinux) {
+    // Перенаправляем stderr чтобы отфильтровать Gdk warnings
+    final originalPrint = debugPrint;
+    debugPrint = (String? message, {int? wrapWidth}) {
+      if (message != null && 
+          (message.contains('Gdk-WARNING') || 
+           message.contains('Error converting selection'))) {
+        return; // Игнорируем эти сообщения
+      }
+      originalPrint(message, wrapWidth: wrapWidth);
+    };
+  }
+  
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+    debugPrint('💥 [Global] FlutterError: ${details.exceptionAsString()}');
+    debugPrint('💥 [Global] Stack: ${details.stack}');
+  };
+
+  PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    debugPrint('💥 [Global] PlatformDispatcher error: $error');
+    debugPrint('💥 [Global] Stack: $stack');
+    return true;
+  };
+
   WidgetsFlutterBinding.ensureInitialized();
-  await initializeDateFormatting();
 
-  print("Генерируем спуф для Android при первом запуске...");
-  await _generateInitialAndroidSpoof();
-  print("Проверка и генерация спуфа завершена");
+  await runZonedGuarded(
+    () async {
+      await initializeDateFormatting();
 
-  print("Инициализируем сервисы кеширования...");
-  await CacheService().initialize();
-  await AvatarCacheService().initialize();
-  await ChatCacheService().initialize();
-  await ContactLocalNamesService().initialize();
-  await MessageQueueService().initialize();
-  print("Сервисы кеширования инициализированы");
+      await _generateInitialAndroidSpoof();
 
-  print("Инициализируем AccountManager...");
-  await AccountManager().initialize();
-  await AccountManager().migrateOldAccount();
-  print("AccountManager инициализирован");
+      try {
+        await Future.wait([
+          CacheService().initialize(),
+          AvatarCacheService().initialize(),
+          ChatCacheService().initialize(),
+          ContactLocalNamesService().initialize(),
+          MessageQueueService().initialize(),
+          MessageReadStatusService().initialize(),
+        ]);
+      } catch (e) {
+        debugPrint('Error init cache: $e');
+      }
 
-  print("Инициализируем MusicPlayerService...");
-  await MusicPlayerService().initialize();
-  print("MusicPlayerService инициализирован");
+      try {
+        await CacheAutoCleanupService().initialize();
+      } catch (_) {}
 
-  print("Инициализируем PluginService...");
-  await PluginService().initialize();
-  print("PluginService инициализирован");
+      try {
+        await AccountManager().initialize();
+        await AccountManager().migrateOldAccount();
+      } catch (_) {}
 
-  print("Инициализируем WhitelistService...");
-  await WhitelistService().loadWhitelist();
-  print("WhitelistService инициализирован");
+      try {
+        await MusicPlayerService().initialize();
+      } catch (_) {}
 
-  print("Инициализируем NotificationService...");
-  await NotificationService().initialize();
-  NotificationService().setNavigatorKey(navigatorKey);
-  print("NotificationService инициализирован");
+      try {
+        await PluginService().initialize();
+      } catch (_) {}
 
-  if (Platform.isAndroid) {
-    print("Инициализируем фоновый сервис для Android...");
-    await initializeBackgroundService();
-    print("Фоновый сервис инициализирован");
-  }
+      try {
+        await WhitelistService().loadWhitelist();
+      } catch (_) {}
 
-  print("Очищаем сессионные значения...");
-  await ApiService.clearSessionValues();
-  print("Сессионные значения очищены");
+      try {
+        await NotificationService().initialize();
+        NotificationService().setNavigatorKey(navigatorKey);
+      } catch (e) {
+        debugPrint('Error init NotificationService: $e');
+      }
 
-  final hasToken = await ApiService.instance.hasToken();
-  print("При запуске приложения токен ${hasToken ? 'найден' : 'не найден'}");
+      try {
+        CallsService.instance.initialize();
+      } catch (_) {}
 
-  if (hasToken) {
-    await WhitelistService().validateCurrentUserIfNeeded();
+      if (Platform.isAndroid) {
+        try {
+          await initializeBackgroundService();
+        } catch (e) {
+          debugPrint('Error init BackgroundService: $e');
+        }
+      }
 
-    if (await ApiService.instance.hasToken()) {
-      print("Инициируем подключение к WebSocket при запуске...");
-      ApiService.instance.connect();
-    } else {
-      print("Токен удалён после проверки вайтлиста, автологин отключён");
-    }
-  }
+      bool hasToken = false;
+      try {
+        await ApiService.clearSessionValues();
+        hasToken = await ApiService.instance.hasToken();
 
-  runApp(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (context) => ThemeProvider()),
-        ChangeNotifierProvider(create: (context) => MusicPlayerService()),
-      ],
-      child: ConnectionLifecycleManager(child: MyApp(hasToken: hasToken)),
-    ),
+        if (hasToken) {
+          await WhitelistService().validateCurrentUserIfNeeded();
+          if (await ApiService.instance.hasToken()) {
+            ApiService.instance.connect();
+          }
+        }
+      } catch (e) {
+        debugPrint('Error init ApiService: $e');
+      }
+
+      try {
+        runApp(
+          MultiProvider(
+            providers: [
+              ChangeNotifierProvider(create: (context) => ThemeProvider()),
+              ChangeNotifierProvider(create: (context) => MusicPlayerService()),
+            ],
+            child: ConnectionLifecycleManager(child: MyApp(hasToken: hasToken)),
+          ),
+        );
+      } catch (e, stack) {
+        debugPrint('CRITICAL FAIL: $e\n$stack');
+        // В крайнем случае запускаем хоть что-то чтобы не было полностью мертвого приложения
+        runApp(
+          MaterialApp(
+            home: Scaffold(
+              body: Center(child: Text('Фатальная ошибка загрузки: $e')),
+            ),
+          ),
+        );
+      }
+    },
+    (Object error, StackTrace stack) {
+      debugPrint('💥 [Global] runZonedGuarded error: $error');
+      debugPrint('💥 [Global] Stack: $stack');
+    },
   );
 }
 
@@ -170,12 +213,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final themeProvider = context.watch<ThemeProvider>();
-
-    if (themeProvider.optimization) {
-      timeDilation = 0.001;
-    } else {
-      timeDilation = 1.0;
-    }
+    timeDilation = themeProvider.optimization ? 0.001 : 1.0;
 
     return DynamicColorBuilder(
       builder: (ColorScheme? lightDynamic, ColorScheme? darkDynamic) {
@@ -199,7 +237,7 @@ class MyApp extends StatelessWidget {
                   TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
                 },
               )
-            : PageTransitionsTheme(
+            : const PageTransitionsTheme(
                 builders: {
                   TargetPlatform.android: CupertinoPageTransitionsBuilder(),
                 },
@@ -254,6 +292,7 @@ class MyApp extends StatelessWidget {
             ),
           ),
         );
+
         final ThemeData oledTheme = baseDarkTheme.copyWith(
           scaffoldBackgroundColor: Colors.black,
           colorScheme: baseDarkTheme.colorScheme.copyWith(
@@ -295,13 +334,17 @@ class MyApp extends StatelessWidget {
             final showHud =
                 themeProvider.debugShowPerformanceOverlay ||
                 themeProvider.showFpsOverlay;
-            return SizedBox.expand(
-              child: Stack(
-                children: [
-                  if (child != null) child,
-                  if (showHud)
-                    const Positioned(top: 8, right: 56, child: _MiniFpsHud()),
-                ],
+            return FloatingCallOverlay(
+              child: SizedBox.expand(
+                child: Stack(
+                  children: [
+                    child ?? const SizedBox(),
+                    // Overlay для входящих звонков
+                    const IncomingCallOverlay(),
+                    if (showHud)
+                      const Positioned(top: 8, right: 56, child: _MiniFpsHud()),
+                  ],
+                ),
               ),
             );
           },
@@ -315,7 +358,6 @@ class MyApp extends StatelessWidget {
           ],
           supportedLocales: const [Locale('ru'), Locale('en')],
           locale: const Locale('ru'),
-
           home: hasToken ? const HomeScreen() : const PhoneEntryScreen(),
         );
       },
@@ -354,11 +396,13 @@ class _MiniFpsHudState extends State<_MiniFpsHud> {
       _timings.removeRange(0, _timings.length - _sampleSize);
     }
     if (_timings.isEmpty) return;
+
     final double avg =
         _timings
-            .map((t) => (t.totalSpan.inMicroseconds) / 1000.0)
+            .map((t) => t.totalSpan.inMicroseconds / 1000.0)
             .fold(0.0, (a, b) => a + b) /
         _timings.length;
+
     if (!mounted) return;
     setState(() {
       _avgMs = avg;

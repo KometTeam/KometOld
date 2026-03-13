@@ -138,17 +138,7 @@ class _NetworkScreenState extends State<NetworkScreen>
       ),
     );
 
-    if (confirmed == true) {
-      await _loadNetworkStats();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Статистика сброшена'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    }
+    await _loadNetworkStats();
   }
 
   String _formatBytes(double bytes) {

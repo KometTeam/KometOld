@@ -287,9 +287,6 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
 
                 widget.onChatUpdated?.call();
                 Navigator.of(context).pop();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Название группы изменено')),
-                );
               }
             },
             child: const Text('Изменить'),
@@ -302,9 +299,6 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   void _showAddMemberDialog() {
     final chatData = ApiService.instance.lastChatsPayload;
     if (chatData == null || chatData['contacts'] == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Не удалось загрузить контакты')),
-      );
       return;
     }
 
@@ -329,12 +323,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       availableContacts.addAll(contacts.cast<Map<String, dynamic>>());
     }
 
-    if (availableContacts.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Нет доступных контактов для добавления')),
-      );
-      return;
-    }
+    return;
 
     showDialog(
       context: context,
@@ -344,13 +333,6 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
           if (selectedContacts.isNotEmpty) {
             ApiService.instance.addGroupMember(widget.chatId, selectedContacts);
             Navigator.of(context).pop();
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  'Добавлено ${selectedContacts.length} участников',
-                ),
-              ),
-            );
           }
         },
       ),
@@ -360,9 +342,6 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   void _showRemoveMemberDialog() {
     final currentChat = _getCurrentGroupChat();
     if (currentChat == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Не удалось загрузить данные группы')),
-      );
       return;
     }
 
@@ -372,9 +351,6 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
 
     final chatData = ApiService.instance.lastChatsPayload;
     if (chatData == null || chatData['contacts'] == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Не удалось загрузить контакты')),
-      );
       return;
     }
 
@@ -400,12 +376,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       }
     }
 
-    if (removableMembers.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Нет участников для удаления')),
-      );
-      return;
-    }
+    return;
 
     showDialog(
       context: context,
@@ -418,11 +389,6 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
               selectedMembers,
             );
             Navigator.of(context).pop();
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Удалено ${selectedMembers.length} участников'),
-              ),
-            );
           }
         },
       ),
@@ -432,9 +398,6 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
   void _showPromoteToAdminDialog() {
     final currentChat = _getCurrentGroupChat();
     if (currentChat == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Не удалось загрузить данные группы')),
-      );
       return;
     }
 
@@ -444,9 +407,6 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
 
     final chatData = ApiService.instance.lastChatsPayload;
     if (chatData == null || chatData['contacts'] == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Не удалось загрузить контакты')),
-      );
       return;
     }
 
@@ -472,14 +432,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       }
     }
 
-    if (promotableMembers.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Нет участников для назначения администратором'),
-        ),
-      );
-      return;
-    }
+    return;
 
     showDialog(
       context: context,
@@ -487,13 +440,6 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
         members: promotableMembers,
         onPromoteToAdmin: (memberId) {
           Navigator.of(context).pop();
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Функция назначения администратора будет добавлена',
-              ),
-            ),
-          );
         },
       ),
     );
@@ -523,13 +469,6 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                     ..pop()
                     ..pop();
                   widget.onChatUpdated?.call();
-
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Вы вышли из группы'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
                 }
               } catch (e) {
                 if (mounted) {
@@ -564,12 +503,6 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
           await Clipboard.setData(ClipboardData(text: cachedLink));
 
           if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Ссылка скопирована: $cachedLink'),
-              action: SnackBarAction(label: 'OK', onPressed: () {}),
-            ),
-          );
           return;
         }
       }
@@ -582,22 +515,10 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
       if (!mounted) return;
 
       if (link == null || link.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Не удалось получить пригласительную ссылку'),
-          ),
-        );
         return;
       }
 
       await Clipboard.setData(ClipboardData(text: link));
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Ссылка скопирована: $link'),
-          action: SnackBarAction(label: 'OK', onPressed: () {}),
-        ),
-      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -728,15 +649,28 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
 
     bool amIAdmin = false;
     bool canSeeLink = false;
+    bool canEditInfo = false;
+    bool canInvitePeople = false;
     final currentChat = _getCurrentGroupChat();
     if (currentChat != null) {
+      // Also should check for admin permissions
+
       final admins = currentChat['admins'] as List<dynamic>? ?? [];
       amIAdmin = admins.contains(widget.myId);
 
       final options = currentChat['options'] as Map<String, dynamic>?;
+
       final membersCanSeeLink =
           options?['MEMBERS_CAN_SEE_PRIVATE_LINK'] as bool? ?? false;
       canSeeLink = amIAdmin || membersCanSeeLink;
+
+      final onlyOwnerCanChangeIconTitle =
+          options?['ONLY_OWNER_CAN_CHANGE_ICON_TITLE'] as bool? ?? false;
+      canEditInfo = amIAdmin || !onlyOwnerCanChangeIconTitle;
+
+      final canInvite = options?['ONLY_ADMIN_CAN_ADD_MEMBER'] as bool? ?? false;
+
+      canInvitePeople = amIAdmin || !canInvite;
     }
 
     return SliverPadding(
@@ -820,7 +754,8 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
             const SizedBox(height: 8),
           ],
 
-          if (amIAdmin) ...[
+          // TODO: Добавить проверку прав администратора
+          if (canEditInfo) ...[
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
@@ -832,7 +767,11 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
                 ),
               ),
             ),
+
             const SizedBox(height: 12),
+          ],
+
+          if (canInvitePeople) ...[
             Row(
               children: [
                 Expanded(
@@ -861,6 +800,9 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
               ],
             ),
             const SizedBox(height: 12),
+          ],
+
+          if (amIAdmin) ...[
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(
@@ -1110,7 +1052,7 @@ class _GroupSettingsScreenState extends State<GroupSettingsScreen> {
             ),
           ),
           trailing: isOwner
-              ? Icon(Icons.star, color: Colors.amber, size: 20)
+              ? const Icon(Icons.star, color: Colors.amber, size: 20)
               : isAdmin
               ? Icon(
                   Icons.admin_panel_settings,
