@@ -94,6 +94,10 @@ class _ChatsListPageState extends State<ChatsListPage>
       );
     }
 
+    final idToIndex = {
+      for (var i = 0; i < chatsForFolder.length; i++) chatsForFolder[i].id: i,
+    };
+
     return ScrollConfiguration(
       behavior: ScrollConfiguration.of(context).copyWith(
         dragDevices: {
@@ -115,7 +119,7 @@ class _ChatsListPageState extends State<ChatsListPage>
         updateItemBuilder: (context, animation, chat) {
           return widget.buildChatListItem(
             chat,
-            chatsForFolder.indexOf(chat),
+            idToIndex[chat.id] ?? 0,
             widget.folder,
           );
         },
