@@ -29,12 +29,42 @@ class ChatCacheService {
   Duration get _messagesTTL => _settingsService.currentSettings.messagesTTL;
 
   final Map<int, List<Message>> _pendingCacheUpdates = {};
+  final Map<int, Timer> _flushTimers = {};
+
+  Duration _flushDebounce = const Duration(seconds: 2);
+
+  Duration get flushDebounce => _flushDebounce;
+  set flushDebounce(Duration value) {
+    _flushDebounce = value;
+  }
 
   Future<void> flushPendingCache(int chatId) async {
-    final pending = _pendingCacheUpdates.remove(chatId);
-    if (pending != null) {
+    _flushTimers.remove(chatId)?.cancel();
+    final pending = _pendingCacheUpdates[chatId];
+    if (pending == null || pending.isEmpty) return;
+
+    try {
       await cacheChatMessages(chatId, pending);
+      // Only remove if no new pending list has been assigned in the meantime
+      if (identical(_pendingCacheUpdates[chatId], pending)) {
+        _pendingCacheUpdates.remove(chatId);
+      }
+    } catch (e) {
+      // Keep pending messages so they can be retried on the next flush
+      print('Ошибка кэширования сообщений для чата $chatId: $e');
     }
+  }
+
+  void _scheduleFlush(int chatId) {
+    _flushTimers[chatId]?.cancel();
+    _flushTimers[chatId] = Timer(_flushDebounce, () async {
+      try {
+        await flushPendingCache(chatId);
+      } catch (e, st) {
+        print('Ошибка сброса кэша для чата $chatId: $e');
+        // Optionally log stack trace: print(st);
+      }
+    });
   }
 
   Future<void> cacheChats(List<Map<String, dynamic>> chats) async {
@@ -265,6 +295,7 @@ class ChatCacheService {
       }
 
       _pendingCacheUpdates[chatId] = updatedMessages;
+      _scheduleFlush(chatId);
     } catch (e) {
       print('Ошибка добавления сообщения в кэш: $e');
     }
