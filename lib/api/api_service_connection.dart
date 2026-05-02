@@ -9,7 +9,8 @@ extension ApiServiceConnection on ApiService {
     if (_onlineCompleter?.isCompleted ?? false) {
       _onlineCompleter = Completer<void>();
     }
-    _buffer = Uint8List(0);
+
+    _packetBuffer.reset();
 
     _socketSubscription?.cancel();
     _socketSubscription = null;
@@ -17,7 +18,9 @@ extension ApiServiceConnection on ApiService {
     if (close && _socket != null) {
       try {
         await _socket!.close();
-      } catch (_) {}
+      } catch (e) {
+        print('⚠️ Ошибка закрытия сокета: $e');
+      }
     }
     _socket = null;
   }
@@ -84,7 +87,8 @@ extension ApiServiceConnection on ApiService {
       );
 
       _socketConnected = true;
-      _buffer = Uint8List(0);
+
+      _packetBuffer.reset();
       _seq = 0;
 
       _listen();
@@ -136,6 +140,68 @@ extension ApiServiceConnection on ApiService {
     _socketConnected = false;
     _pingTimer?.cancel();
 
+    // Удаляем невалидный аккаунт и переключаемся на следующий (если есть)
+    try {
+      final accountManager = AccountManager();
+      await accountManager.initialize();
+
+      // Используем UUID аккаунта (не userId пользователя) для идентификации
+      final invalidAccount = accountManager.currentAccount;
+      final invalidAccountUuid = invalidAccount?.id;
+
+      print('🔄 Токен недействителен, удаляем аккаунт $invalidAccountUuid');
+
+      // Ищем следующий аккаунт до удаления
+      final accounts = accountManager.accounts;
+      final nextAccount = accounts.firstWhere(
+        (a) => a.id != invalidAccountUuid && a.token.isNotEmpty,
+        orElse: () => throw Exception('Нет доступных аккаунтов'),
+      );
+
+      // Удаляем невалидный аккаунт если он не единственный
+      if (invalidAccountUuid != null) {
+        try {
+          await accountManager.removeAccount(invalidAccountUuid);
+        } catch (e) {
+          print('⚠️ Не удалось удалить аккаунт: $e');
+        }
+      }
+
+      print('🔄 Переключаемся на аккаунт ${nextAccount.id}');
+      await accountManager.switchAccount(nextAccount.id);
+      authToken = nextAccount.token;
+      userId = nextAccount.userId;
+
+      _resetSession();
+      _messageController.add({
+        'type': 'auto_switched_account',
+        'message': 'Автоматически переключились на другой аккаунт',
+        'accountId': nextAccount.id,
+      });
+
+      // Переподключаемся с новым аккаунтом
+      unawaited(connect());
+      return;
+    } catch (e) {
+      print('⚠️ Не удалось переключиться на другой аккаунт: $e');
+    }
+
+    // Нет других аккаунтов — удаляем данные и отправляем на экран входа
+    try {
+      final accountManager = AccountManager();
+      await accountManager.initialize();
+      final invalidAccountUuid = accountManager.currentAccount?.id;
+      if (invalidAccountUuid != null) {
+        // Единственный аккаунт — очищаем токен вместо удаления
+        await prefs.remove('multi_accounts');
+        await prefs.remove('current_account_id');
+      }
+    } catch (e) {
+      print('⚠️ Ошибка очистки аккаунтов: $e');
+    }
+
+    userId = null;
+
     _messageController.add({
       'type': 'invalid_token',
       'message': 'Токен недействителен, требуется повторная авторизация',
@@ -174,7 +240,8 @@ extension ApiServiceConnection on ApiService {
       'userAgent': userAgentPayload,
     };
 
-    await _sendMessage(6, payload);
+
+    await _sendMessage(6, payload, requireSessionReady: false);
     _handshakeSent = true;
   }
 
@@ -191,40 +258,6 @@ extension ApiServiceConnection on ApiService {
     });
   }
 
-  void _startAnalyticsTimer() {
-    _analyticsTimer?.cancel();
-    _analyticsTimer = Timer.periodic(
-      Duration(seconds: 10 + (DateTime.now().millisecondsSinceEpoch % 41)),
-      (timer) async {
-        if (_isSessionOnline && _isSessionReady && _userId != null) {
-          try {
-            final now = DateTime.now().millisecondsSinceEpoch;
-            final Map<String, dynamic> params = {
-              'session_id': _sessionId,
-              'action_id': _actionId++,
-              'screen_to': 150,
-            };
-
-            await _sendMessage(5, {
-              "events": [
-                {
-                  "type": "NAV",
-                  "event": "HEARTBEAT",
-                  "userId": _userId,
-                  "time": now,
-                  "params": params,
-                },
-              ],
-            });
-            _log('📊 Отправлена периодическая аналитика (opcode=5)');
-          } catch (e) {
-            print('Ошибка отправки аналитики: $e');
-          }
-        }
-      },
-    );
-  }
-
   Future<void> connect() async {
     if (_socketConnected && _isSessionOnline) {
       return;
@@ -237,6 +270,9 @@ extension ApiServiceConnection on ApiService {
 
     _isSessionOnline = false;
     _isSessionReady = false;
+    
+    clearChatMessageContactCache();
+    _missingContactIds.clear();
 
     _connectionStatusController.add("connecting");
     _updateConnectionState(
@@ -252,7 +288,6 @@ extension ApiServiceConnection on ApiService {
 
   Future<void> reconnect() async {
     _reconnectAttempts = 0;
-    _currentUrlIndex = 0;
 
     _connectionStatusController.add("connecting");
     try {
@@ -288,6 +323,38 @@ extension ApiServiceConnection on ApiService {
     return await _sendMessage(opcode, payload);
   }
 
+  Future<dynamic> sendRequest(
+      int opcode,
+      Map<String, dynamic> payload, {
+        Duration timeout = const Duration(seconds: 30),
+      }) async {
+
+    // Не ждем готовности сессии для Opcode 19 (Auth), иначе она будет ждать саму себя
+    if (opcode != 19) {
+      await waitUntilOnline();
+    }
+
+    if (!_socketConnected || _socket == null) {
+      throw Exception('Socket is not connected. Connect first.');
+    }
+
+
+    final seq = await _sendMessage(opcode, payload, requireSessionReady: false);
+
+    if (seq == -1) {
+      throw Exception('Ошибка отправки сообщения (сокет закрыт или не готов)');
+    }
+
+    final completer = _pendingManager.get(seq);
+
+    if (completer == null) {
+      // Такое маловероятно, если _sendMessage отработал корректно
+      throw Exception('Внутренняя ошибка: запрос не был зарегистрирован');
+    }
+
+    return completer.future.timeout(timeout);
+  }
+
   Future<int> sendAndTrackFullJsonRequest(String jsonString) async {
     if (!_socketConnected || _socket == null) {
       throw Exception('Socket is not connected. Connect first.');
@@ -300,44 +367,14 @@ extension ApiServiceConnection on ApiService {
     return await _sendMessage(opcode, payload);
   }
 
-  Future<int> _sendMessage(int opcode, Map<String, dynamic> payload) async {
-    if (!_socketConnected || _socket == null) {
-      print('⚠️ Сокет не подключен, пропускаем opcode=$opcode');
-      _reconnect();
-      return -1;
-    }
+  Future<Map<String, dynamic>> joinGroupCall(String joinLink) async {
+    final response = await sendRequest(89, {
+      'link': joinLink,
+    });
 
-    try {
-      if (_socket == null) {
-        print('⚠️ Сокет не инициализирован, пропускаем opcode=$opcode');
-        return -1;
-      }
-      _socket!.remoteAddress;
-    } catch (e) {
-      print('⚠️ Сокет закрыт, пропускаем opcode=$opcode');
-      _socketConnected = false;
-      _socket = null;
-      return -1;
-    }
-
-    _seq = (_seq + 1) % 256;
-    final seq = _seq;
-    final packet = _packPacket(10, 0, seq, opcode, payload);
-
-    _log('📤 ОТПРАВКА: ver=10, cmd=0, seq=$seq, opcode=$opcode');
-    _log('📤 PAYLOAD: ${truncatePayloadObjectForLog(payload)}');
-    _log('📤 Размер пакета: ${packet.length} байт');
-
-    try {
-      _socket!.add(packet);
-    } catch (e) {
-      print('❌ Ошибка отправки пакета: $e');
-      await _resetSocket(close: true);
-      return -1;
-    }
-
-    return seq;
+    return response as Map<String, dynamic>;
   }
+
 
   void _listen() async {
     if (!_socketConnected || _socket == null) {
@@ -349,12 +386,13 @@ extension ApiServiceConnection on ApiService {
     }
 
     _socketSubscription = _socket!.listen(
-      _handleSocketData,
+      _handleSocketData, // Метод определен в ApiService (main file)
       onError: (error) {
         print('← ERROR Socket: $error');
         _isSessionOnline = false;
         _isSessionReady = false;
         _socketConnected = false;
+        _pendingManager.clearAll(reason: 'Socket error: $error');
         _healthMonitor.onError(error.toString());
         _updateConnectionState(
           conn_state.ConnectionState.error,
@@ -367,6 +405,7 @@ extension ApiServiceConnection on ApiService {
         _isSessionOnline = false;
         _isSessionReady = false;
         _socketConnected = false;
+        _pendingManager.clearAll(reason: 'Connection closed');
         _stopHealthMonitoring();
         _updateConnectionState(
           conn_state.ConnectionState.disconnected,
@@ -402,11 +441,35 @@ extension ApiServiceConnection on ApiService {
         '📥 ПОЛУЧЕНО: ver=$ver, cmd=$cmd ($cmdType), seq=$seq, opcode=$opcode',
       );
       if (opcode != 19) {
-        _log('📥 PAYLOAD: ${truncatePayloadObjectForLog(payload)}');
+        final bool shouldLogPayload =
+            opcode != 132 &&
+            opcode != 48 &&
+            opcode != 49;
+
+        if (shouldLogPayload) {
+          if (opcode == 129) {
+            _log('📥 🔔 OPCODE 129 PAYLOAD: $payload');
+          } else {
+            _log('📥 PAYLOAD: ${truncatePayloadObjectForLog(payload)}');
+          }
+        }
       }
 
       if (opcode == 2) {
         _healthMonitor.onPongReceived();
+      }
+
+      if (opcode == 134 && payload != null) {
+        _processServerPrivacyConfig(payload["config"]);
+      }
+
+      // Обновляем кэш профиля при получении push-уведомления opcode 159
+      if (opcode == 159 && payload != null) {
+        final profileData = payload['profile'] as Map<String, dynamic>?;
+        if (profileData != null && _lastChatsPayload != null) {
+          _lastChatsPayload!['profile'] = profileData;
+          print('🔄 Кэш профиля обновлён из push opcode 159');
+        }
       }
 
       if (cmd == 0x300 || cmd == 768) {
@@ -414,8 +477,7 @@ extension ApiServiceConnection on ApiService {
         print('❌ Детали ошибки: ${truncatePayloadObjectForLog(payload)}');
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 97 &&
+      if (decodedMessage['opcode'] == 97 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256) &&
           decodedMessage['payload'] != null &&
           decodedMessage['payload']['token'] != null) {
@@ -425,8 +487,7 @@ extension ApiServiceConnection on ApiService {
         return;
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 6 &&
+      if (decodedMessage['opcode'] == 6 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         _isSessionOnline = true;
         _isSessionReady = false;
@@ -451,12 +512,19 @@ extension ApiServiceConnection on ApiService {
         }
       }
 
-      if (decodedMessage is Map &&
-          (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
+      if (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768) {
         final error = decodedMessage['payload'];
         final errorMsg = error?['message'] ?? error?['error'] ?? 'server_error';
         print('← ERROR: $errorMsg');
         _healthMonitor.onError(errorMsg);
+
+        // Пробрасываем ERROR в messages stream с seq, чтобы ожидающие запросы могли поймать ошибку
+        _messageController.add({
+          'cmd': 3,
+          'seq': decodedMessage['seq'],
+          'opcode': decodedMessage['opcode'],
+          'payload': error,
+        });
 
         if (error != null && error['localizedMessage'] != null) {
           _errorController.add(error['localizedMessage']);
@@ -479,7 +547,7 @@ extension ApiServiceConnection on ApiService {
             final messagePayload = decodedMessage['payload'];
             if (messagePayload != null && messagePayload['message'] != null) {
               final messageData =
-                  messagePayload['message'] as Map<String, dynamic>;
+              messagePayload['message'] as Map<String, dynamic>;
               final cid = messageData['cid'] as int?;
               if (cid != null) {
                 final queueItem = QueueItem(
@@ -511,7 +579,7 @@ extension ApiServiceConnection on ApiService {
             _messageController.add({
               'type': 'invalid_token',
               'message':
-                  'Токен авторизации недействителен. Требуется повторная авторизация.',
+              'Токен авторизации недействителен. Требуется повторная авторизация.',
             });
             _reconnect();
           });
@@ -519,8 +587,7 @@ extension ApiServiceConnection on ApiService {
         }
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 18 &&
+      if (decodedMessage['opcode'] == 18 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256) &&
           decodedMessage['payload'] != null) {
         final payload = decodedMessage['payload'];
@@ -529,6 +596,11 @@ extension ApiServiceConnection on ApiService {
           _currentPasswordTrackId = challenge['trackId'];
           _currentPasswordHint = challenge['hint'];
           _currentPasswordEmail = challenge['email'];
+
+          // Сохраняем факт наличия 2FA пароля
+          SharedPreferences.getInstance().then((prefs) {
+            prefs.setBool('has_2fa_password', true);
+          });
 
           _messageController.add({
             'type': 'password_required',
@@ -540,8 +612,7 @@ extension ApiServiceConnection on ApiService {
         }
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 22 &&
+      if (decodedMessage['opcode'] == 22 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
@@ -550,8 +621,7 @@ extension ApiServiceConnection on ApiService {
         });
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 116 &&
+      if (decodedMessage['opcode'] == 116 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
@@ -560,8 +630,122 @@ extension ApiServiceConnection on ApiService {
         });
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 57 &&
+      // opcode 112: Начало установки/управления 2FA - получаем trackId
+      if (decodedMessage['opcode'] == 112 &&
+          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+        final payload = decodedMessage['payload'];
+        _messageController.add({
+          'type': '2fa_setup_started',
+          'trackId': payload?['trackId'],
+          'payload': payload,
+        });
+      }
+
+      // opcode 104: Информация о текущей 2FA (email, hint, enabled)
+      if (decodedMessage['opcode'] == 104 &&
+          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+        final payload = decodedMessage['payload'];
+        _messageController.add({
+          'type': '2fa_info',
+          'enabled': payload?['password']?['enabled'] ?? false,
+          'email': payload?['password']?['email'],
+          'hint': payload?['password']?['hint'],
+          'payload': payload,
+        });
+      }
+
+      // opcode 113: Результат проверки пароля 2FA
+      if (decodedMessage['opcode'] == 113 &&
+          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+        final payload = decodedMessage['payload'];
+        _messageController.add({
+          'type': '2fa_password_verified',
+          'trackId': payload?['trackId'],
+          'payload': payload,
+        });
+      }
+
+      // opcode 113 ERROR: Неверный пароль 2FA
+      if (decodedMessage['opcode'] == 113 &&
+          (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
+        _messageController.add({
+          'type': '2fa_password_wrong',
+          'payload': decodedMessage['payload'],
+        });
+      }
+
+      // opcode 107: Пароль 2FA установлен
+      if (decodedMessage['opcode'] == 107 &&
+          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+        _messageController.add({
+          'type': '2fa_password_set',
+          'payload': decodedMessage['payload'],
+        });
+      }
+
+      // opcode 108: Подсказка 2FA установлена
+      if (decodedMessage['opcode'] == 108 &&
+          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+        _messageController.add({
+          'type': '2fa_hint_set',
+          'payload': decodedMessage['payload'],
+        });
+      }
+
+      // opcode 109: Email для 2FA установлен, получаем данные для ввода кода
+      if (decodedMessage['opcode'] == 109 &&
+          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+        final payload = decodedMessage['payload'];
+        _messageController.add({
+          'type': '2fa_email_set',
+          'blockingDuration': payload?['blockingDuration'],
+          'codeLength': payload?['codeLength'],
+          'trackId': payload?['trackId'],
+          'payload': payload,
+        });
+      }
+
+      // opcode 110: Email подтверждён
+      if (decodedMessage['opcode'] == 110 &&
+          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+        final payload = decodedMessage['payload'];
+        _messageController.add({
+          'type': '2fa_email_verified',
+          'email': payload?['email'],
+          'trackId': payload?['trackId'],
+          'payload': payload,
+        });
+      }
+
+      // opcode 111: 2FA успешно установлен
+      if (decodedMessage['opcode'] == 111 &&
+          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+        // Сервер завершит все сессии кроме текущей — игнорируем opcode 97
+        _isTerminatingOtherSessions = true;
+        Future.delayed(const Duration(seconds: 5), () {
+          _isTerminatingOtherSessions = false;
+        });
+        // Сохраняем факт установки 2FA пароля
+        SharedPreferences.getInstance().then((prefs) {
+          prefs.setBool('has_2fa_password', true);
+        });
+        _messageController.add({
+          'type': '2fa_setup_complete',
+          'payload': decodedMessage['payload'],
+        });
+      }
+
+      // 2FA Setup error handlers
+      if ((decodedMessage['cmd'] == 768 || decodedMessage['cmd'] == 0x300) &&
+          [104, 107, 108, 109, 110, 111, 112, 113].contains(decodedMessage['opcode'])) {
+        _messageController.add({
+          'type': '2fa_error',
+          'opcode': decodedMessage['opcode'],
+          'payload': decodedMessage['payload'],
+        });
+      }
+
+      if (decodedMessage['opcode'] == 57 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
@@ -570,15 +754,13 @@ extension ApiServiceConnection on ApiService {
         });
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 46 &&
+      if (decodedMessage['opcode'] == 46 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         final payload = decodedMessage['payload'];
         _messageController.add({'type': 'contact_found', 'payload': payload});
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 46 &&
+      if (decodedMessage['opcode'] == 46 &&
           (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
@@ -587,15 +769,13 @@ extension ApiServiceConnection on ApiService {
         });
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 32 &&
+      if (decodedMessage['opcode'] == 32 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         final payload = decodedMessage['payload'];
         _messageController.add({'type': 'channels_found', 'payload': payload});
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 32 &&
+      if (decodedMessage['opcode'] == 32 &&
           (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
@@ -604,8 +784,48 @@ extension ApiServiceConnection on ApiService {
         });
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 89 &&
+      if ((decodedMessage['opcode'] == 68 || decodedMessage['opcode'] == 60) &&
+          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+        final payload = decodedMessage['payload'];
+        _messageController.add({
+          'type': 'global_search_result',
+          'payload': payload,
+          'opcode': decodedMessage['opcode'],
+          'seq': decodedMessage['seq'],
+        });
+      }
+
+      if ((decodedMessage['opcode'] == 68 || decodedMessage['opcode'] == 60) &&
+          (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
+        final payload = decodedMessage['payload'];
+        _messageController.add({
+          'type': 'global_search_error',
+          'payload': payload,
+          'opcode': decodedMessage['opcode'],
+          'seq': decodedMessage['seq'],
+        });
+      }
+
+      // Обработка ответа на loadChat (opcode 49) - обновляем данные чата
+      if (decodedMessage['opcode'] == 49 &&
+          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+        final payload = decodedMessage['payload'];
+        print('📥 [Connection] Ответ на opcode 49. Ключи payload: ${payload?.keys.toList()}');
+        final chat = payload['chat'] as Map<String, dynamic>?;
+        
+        if (chat != null) {
+          print('✅ [Connection] Получены данные чата из opcode 49, обновляем кэш');
+          print('   Ключи chat: ${chat.keys.toList()}');
+          if (chat.containsKey('admins')) {
+            print('   Админы: ${chat['admins']}');
+          }
+          updateChatInCacheFromJson(chat);
+        } else {
+          print('⚠️ [Connection] payload[\'chat\'] отсутствует в opcode 49!');
+        }
+      }
+
+      if (decodedMessage['opcode'] == 89 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         final payload = decodedMessage['payload'];
         final chat = payload['chat'] as Map<String, dynamic>?;
@@ -631,15 +851,23 @@ extension ApiServiceConnection on ApiService {
         }
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 89 &&
+      if (decodedMessage['opcode'] == 89 &&
           (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
         final payload = decodedMessage['payload'];
         _messageController.add({'type': 'channel_error', 'payload': payload});
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 57 &&
+      if (decodedMessage['opcode'] == 89 && decodedMessage['cmd'] == 1) {
+        final payload = decodedMessage['payload'];
+        if (payload != null && payload['videoConference'] != null) {
+          _messageController.add({
+            'type': 'video_conference_joined',
+            'payload': payload,
+          });
+        }
+      }
+
+      if (decodedMessage['opcode'] == 57 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
@@ -648,22 +876,19 @@ extension ApiServiceConnection on ApiService {
         });
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 57 &&
+      if (decodedMessage['opcode'] == 57 &&
           (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
         final payload = decodedMessage['payload'];
         _messageController.add({'type': 'channel_error', 'payload': payload});
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 59 &&
+      if (decodedMessage['opcode'] == 59 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         final payload = decodedMessage['payload'];
         _messageController.add({'type': 'group_members', 'payload': payload});
       }
 
-      if (decodedMessage is Map &&
-          decodedMessage['opcode'] == 162 &&
+      if (decodedMessage['opcode'] == 162 &&
           (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
         final payload = decodedMessage['payload'];
         try {
@@ -677,9 +902,7 @@ extension ApiServiceConnection on ApiService {
         }
       }
 
-      if (decodedMessage is Map<String, dynamic>) {
-        _messageController.add(decodedMessage);
-      }
+      _messageController.add(decodedMessage);
     } catch (e) {
       print('← ERROR invalid message: $e');
     }
@@ -709,10 +932,15 @@ extension ApiServiceConnection on ApiService {
     _socketSubscription?.cancel();
     _socketSubscription = null;
 
+    // Очищаем все pending requests при переподключении
+    _pendingManager.clearAll(reason: 'Reconnecting');
+
     if (_socket != null) {
       try {
         _socket!.close();
-      } catch (e) {}
+      } catch (e) {
+        print('⚠️ Ошибка закрытия сокета при переподключении: $e');
+      }
       _socket = null;
     }
     _socketConnected = false;
@@ -724,8 +952,6 @@ extension ApiServiceConnection on ApiService {
       _onlineCompleter = Completer<void>();
     }
     _chatsFetchedInThisSession = false;
-
-    _currentUrlIndex = 0;
 
     _reconnectDelaySeconds = (_reconnectDelaySeconds * 2).clamp(1, 30);
     final jitter = (DateTime.now().millisecondsSinceEpoch % 1000) / 1000.0;
@@ -785,16 +1011,16 @@ extension ApiServiceConnection on ApiService {
       unawaited(
         _sendMessage(item.opcode, item.payload)
             .then((_) {
-              print(
-                'Сообщение из очереди успешно отправлено, удаляем из очереди: ${item.id}',
-              );
+          print(
+            'Сообщение из очереди успешно отправлено, удаляем из очереди: ${item.id}',
+          );
 
-              _queueService.markMessageAsProcessed(item.id);
-              _queueService.removeFromQueue(item.id);
-            })
+          _queueService.markMessageAsProcessed(item.id);
+          _queueService.removeFromQueue(item.id);
+        })
             .catchError((e) {
-              print('Ошибка отправки из очереди: $e, оставляем в очереди');
-            }),
+          print('Ошибка отправки из очереди: $e, оставляем в очереди');
+        }),
       );
     }
 
@@ -807,11 +1033,11 @@ extension ApiServiceConnection on ApiService {
           unawaited(
             _sendMessage(item.opcode, item.payload)
                 .then((_) {
-                  _queueService.removeFromQueue(item.id);
-                })
+              _queueService.removeFromQueue(item.id);
+            })
                 .catchError((e) {
-                  print('Ошибка загрузки чата из очереди: $e');
-                }),
+              print('Ошибка загрузки чата из очереди: $e');
+            }),
           );
         } else {
           print(
@@ -833,13 +1059,15 @@ extension ApiServiceConnection on ApiService {
     }
     _socketConnected = false;
 
+    // Очищаем все pending requests при принудительном переподключении
+    _pendingManager.clearAll(reason: 'Force reconnect');
+
     _isReconnecting = false;
     _reconnectAttempts = 0;
     _reconnectDelaySeconds = 2;
     _isSessionOnline = false;
     _isSessionReady = false;
     _chatsFetchedInThisSession = false;
-    _currentUrlIndex = 0;
     if (_onlineCompleter?.isCompleted ?? false) {
       _onlineCompleter = Completer<void>();
     }
@@ -865,10 +1093,15 @@ extension ApiServiceConnection on ApiService {
       if (_socket != null) {
         try {
           _socket!.close();
-        } catch (e) {}
+        } catch (e) {
+          print('⚠️ Ошибка закрытия сокета при полном переподключении: $e');
+        }
         _socket = null;
       }
       _socketConnected = false;
+
+      // Очищаем все pending requests при полном переподключении
+      _pendingManager.clearAll(reason: 'Full reconnection');
 
       _isReconnecting = false;
       _reconnectAttempts = 0;
@@ -877,7 +1110,6 @@ extension ApiServiceConnection on ApiService {
       _isSessionReady = false;
       _handshakeSent = false;
       _chatsFetchedInThisSession = false;
-      _currentUrlIndex = 0;
       if (_onlineCompleter?.isCompleted ?? false) {
         _onlineCompleter = Completer<void>();
       }
@@ -918,6 +1150,9 @@ extension ApiServiceConnection on ApiService {
       conn_state.ConnectionState.disconnected,
       message: 'Отключено пользователем',
     );
+
+    // Очищаем все pending requests при отключении
+    _pendingManager.clearAll(reason: 'Disconnected by user');
 
     _socket?.close();
     _socket = null;

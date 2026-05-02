@@ -86,6 +86,20 @@ extension ApiServicePrivacy on ApiService {
   void _processServerPrivacyConfig(Map<String, dynamic>? config) {
     if (config == null) return;
 
+    final serverConfig = config['server'] as Map<String, dynamic>?;
+    if (serverConfig != null) {
+      final inviteLink = serverConfig['invite-link'] as String?;
+      final inviteShort = serverConfig['invite-short'] as String?;
+      if (inviteLink != null) ApiService.instance.serverInviteLink = inviteLink;
+      if (inviteShort != null) ApiService.instance.serverInviteShort = inviteShort;
+      if (inviteLink != null || inviteShort != null) {
+        SharedPreferences.getInstance().then((prefs) {
+          if (inviteLink != null) prefs.setString('server_invite_link', inviteLink);
+          if (inviteShort != null) prefs.setString('server_invite_short', inviteShort);
+        });
+      }
+    }
+
     final userConfig = config['user'] as Map<String, dynamic>?;
     if (userConfig == null) return;
 
@@ -113,6 +127,9 @@ extension ApiServicePrivacy on ApiService {
       }
       if (userConfig.containsKey('HIDDEN')) {
         prefs.setBool('privacy_hidden', userConfig['HIDDEN']);
+      }
+      if (userConfig.containsKey('SAFE_MODE')) {
+        prefs.setBool('privacy_safe_mode', userConfig['SAFE_MODE'] ?? false);
       }
     });
 

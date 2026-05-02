@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:gwid/api/api_service.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
-import 'utils/theme_provider.dart';
 
 class ConnectionLifecycleManager extends StatefulWidget {
   final Widget child;
@@ -16,9 +14,7 @@ class ConnectionLifecycleManager extends StatefulWidget {
 
 class _ConnectionLifecycleManagerState extends State<ConnectionLifecycleManager>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
-  bool _isReconnecting = false;
   late AnimationController _animationController;
-  late Animation<Offset> _slideAnimation;
 
   @override
   void initState() {
@@ -32,10 +28,6 @@ class _ConnectionLifecycleManagerState extends State<ConnectionLifecycleManager>
       vsync: this,
     );
 
-    _slideAnimation =
-        Tween<Offset>(begin: const Offset(0, -1), end: Offset.zero).animate(
-          CurvedAnimation(parent: _animationController, curve: Curves.easeOut),
-        );
   }
 
   @override
@@ -94,23 +86,12 @@ class _ConnectionLifecycleManagerState extends State<ConnectionLifecycleManager>
 
     if (!actuallyConnected) {
       print("🔌 Соединение потеряно. Запускаем переподключение...");
-      if (mounted) {
-        setState(() {
-          _isReconnecting = true;
-        });
-        _animationController.forward();
-      }
+      _animationController.forward();
 
       try {
         await ApiService.instance.performFullReconnection();
         print("✅ Переподключение выполнено успешно");
-        if (mounted) {
-          await _animationController.reverse();
-          if (!mounted) return;
-          setState(() {
-            _isReconnecting = false;
-          });
-        }
+        await _animationController.reverse();
       } catch (e) {
         print("❌ Ошибка при переподключении: $e");
         Future.delayed(const Duration(seconds: 3), () async {
@@ -118,22 +99,10 @@ class _ConnectionLifecycleManagerState extends State<ConnectionLifecycleManager>
             print("🔁 Повторная попытка переподключения...");
             try {
               await ApiService.instance.performFullReconnection();
-              if (mounted) {
-                await _animationController.reverse();
-                if (!mounted) return;
-                setState(() {
-                  _isReconnecting = false;
-                });
-              }
+              await _animationController.reverse();
             } catch (e) {
               print("❌ Повторная попытка не удалась: $e");
-              if (mounted) {
-                await _animationController.reverse();
-                if (!mounted) return;
-                setState(() {
-                  _isReconnecting = false;
-                });
-              }
+              await _animationController.reverse();
             }
           }
         });
@@ -143,9 +112,6 @@ class _ConnectionLifecycleManagerState extends State<ConnectionLifecycleManager>
 
   @override
   Widget build(BuildContext context) {
-    final theme = Provider.of<ThemeProvider>(context);
-    final accentColor = theme.accentColor;
-
     return Directionality(
       textDirection: TextDirection.ltr,
       child: Stack(children: [widget.child]),

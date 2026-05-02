@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'dart:async';
 import 'dart:io' show File;
 import 'dart:convert' show base64Decode, jsonDecode, jsonEncode;
@@ -11,10 +12,12 @@ import 'package:intl/intl.dart';
 import 'package:gwid/models/message.dart';
 import 'package:gwid/models/contact.dart';
 import 'package:gwid/utils/theme_provider.dart';
+import 'package:gwid/theme/theme.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/services.dart';
 import 'dart:ui';
 import 'package:flutter_linkify/flutter_linkify.dart';
+import 'package:linkify/linkify.dart' show UrlLinkifier;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gwid/screens/chat_screen.dart';
 import 'package:gwid/services/avatar_cache_service.dart';
@@ -30,15 +33,27 @@ import 'package:gwid/services/music_player_service.dart';
 import 'package:platform_info/platform_info.dart';
 import 'package:gwid/utils/download_path_helper.dart';
 import 'package:gwid/services/chat_encryption_service.dart';
+import 'package:gwid/services/komet_enc_meta_service.dart';
+import 'package:gwid/widgets/encrypted_file_tile.dart';
 import 'package:file_picker/file_picker.dart';
 import 'dart:typed_data';
 import 'package:gwid/widgets/message_bubble/models/message_read_status.dart';
 import 'package:gwid/widgets/message_bubble/models/komet_segment.dart';
 import 'package:gwid/widgets/message_bubble/services/file_download_service.dart';
 import 'package:gwid/widgets/message_bubble/widgets/komet_animated_texts.dart';
-import 'package:gwid/widgets/message_bubble/widgets/media/audio_player_widget.dart';
 import 'package:gwid/widgets/message_bubble/utils/user_color_helper.dart';
 import 'package:gwid/widgets/message_bubble/widgets/dialogs/custom_emoji_dialog.dart';
+import 'package:gwid/widgets/message_bubble/widgets/media/audio_player_widget.dart';
+
+/// Вспомогательный класс для хранения информации о совпадении URL
+class LinkifyMatch {
+  final int start;
+  final int end;
+  final String text;
+  final bool hasProtocol;
+
+  LinkifyMatch(this.start, this.end, this.text, this.hasProtocol);
+}
 
 class DomainLinkifier extends Linkifier {
   const DomainLinkifier();
@@ -48,31 +63,125 @@ class DomainLinkifier extends Linkifier {
     List<LinkifyElement> elements,
     LinkifyOptions options,
   ) {
+    // Регулярка для поиска URL с протоколом и без
+    // Требует валидную доменную зону из списка, чтобы избежать ложных срабатываний на обычные слова с точкой
+    final validTlds =
+        r'рф|онлайн|сайт|ру|su|com|net|org|mil|edu|arpa|gov|biz|info|aero|inc|name|app|dev|io|co|shop|club|guru|ninja|xyz|top|store|tech|space|world|today|news|ua|by|kz|uz|ge|az|am|md|tj|tm|kg|lv|lt|ee|pl|cz|sk|hu|ro|bg|rs|hr|si|al|ba|mk|me|ua|cn|jp|kr|tw|hk|sg|my|id|th|vn|ph|in|pk|bd|lk|np|au|nz|ca|us|uk|de|fr|it|es|pt|nl|be|ch|at|se|no|dk|fi|is|ie|uk|gov|edu|mil|int|eu|biz|info|name|museum|coop|aero|jobs|mobi|travel|xxx|post|geo|mail|рф|дети|москва|онлайн|сайт|бел';
+
+    // URL с протоколом - разрешаем любой домен
+    final urlWithProtocolRegex = RegExp(
+      r'(?:https?|ftp|telnet)://(?:[а-яёa-z0-9_-]{1,32}(?::[а-яёa-z0-9_-]{1,32})?@)?(?:[а-яёa-z0-9-]{1,128}\.)+(?:' +
+          validTlds +
+          r')(?::[0-9]{1,5})?(?:/[а-яёa-z0-9.,_@%&?+=~/-]*)?(?:#[^ ]*)?',
+      caseSensitive: false,
+    );
+
+    // URL без протокола с www.
+    final urlWithWwwRegex = RegExp(
+      r'(?:www\.)[а-яёa-z0-9-]{1,128}\.(?:' +
+          validTlds +
+          r')(?::[0-9]{1,5})?(?:/[а-яёa-z0-9.,_@%&?+=~/-]*)?(?:#[^ ]*)?',
+      caseSensitive: false,
+    );
+
+    // Голые домены без протокола и без www (напр. max.ru, olo.su)
+    // Требуем word-boundary: слева не буква/цифра/точка, справа — не буква/цифра после TLD
+    final urlWithoutProtocolRegex = RegExp(
+      r'(?<![а-яёa-z0-9._-])(?:[а-яёa-z0-9](?:[а-яёa-z0-9-]{0,61}[а-яёa-z0-9])?\.)+(?:' +
+          validTlds +
+          r')(?::[0-9]{1,5})?(?:/[а-яёa-z0-9.,_@%&?+=~/-]*)?(?:#[^ ]*)?(?![а-яёa-z0-9])',
+      caseSensitive: false,
+      unicode: true,
+    );
+
+    // IP адреса
+    final ipRegex = RegExp(
+      r'(?:(?:https?|ftp|telnet)://)?(?!0)(?:(?!0[^.]|255)[0-9]{1,3}\.){3}(?!0|255)[0-9]{1,3}(?::[0-9]{1,5})?(?:/[а-яёa-z0-9.,_@%&?+=~/-]*)?(?:#[^ ]*)?',
+      caseSensitive: false,
+    );
+
     final List<LinkifyElement> list = [];
 
     for (final element in elements) {
       if (element is TextElement) {
-        final text = element.text;
-        final matches = RegExp(
-          r'\b([a-zA-Z0-9-]+\.)*[a-zA-Z0-9-]+\.[a-zA-Z]{2,}\b',
-        ).allMatches(text);
+        String text = element.text;
+        final List<LinkifyMatch> allMatches = [];
 
-        if (matches.isNotEmpty) {
+        // Собираем все совпадения из всех регулярок
+        for (final match in urlWithProtocolRegex.allMatches(text)) {
+          allMatches.add(
+            LinkifyMatch(
+              match.start,
+              match.end,
+              text.substring(match.start, match.end),
+              true,
+            ),
+          );
+        }
+        for (final match in urlWithWwwRegex.allMatches(text)) {
+          if (!allMatches.any(
+            (m) => match.start >= m.start && match.end <= m.end,
+          )) {
+            allMatches.add(
+              LinkifyMatch(
+                match.start,
+                match.end,
+                text.substring(match.start, match.end),
+                false,
+              ),
+            );
+          }
+        }
+        for (final match in urlWithoutProtocolRegex.allMatches(text)) {
+          // Проверяем, что это не пересекается с уже найденными
+          if (!allMatches.any(
+            (m) => match.start >= m.start && match.end <= m.end,
+          )) {
+            allMatches.add(
+              LinkifyMatch(
+                match.start,
+                match.end,
+                text.substring(match.start, match.end),
+                false,
+              ),
+            );
+          }
+        }
+        for (final match in ipRegex.allMatches(text)) {
+          if (!allMatches.any(
+            (m) => match.start >= m.start && match.end <= m.end,
+          )) {
+            allMatches.add(
+              LinkifyMatch(
+                match.start,
+                match.end,
+                text.substring(match.start, match.end),
+                true,
+              ),
+            );
+          }
+        }
+
+        // Сортируем по позиции
+        allMatches.sort((a, b) => a.start.compareTo(b.start));
+
+        if (allMatches.isNotEmpty) {
           var lastIndex = 0;
-          for (final match in matches) {
+          for (final match in allMatches) {
             if (match.start > lastIndex) {
               list.add(TextElement(text.substring(lastIndex, match.start)));
             }
 
-            final url = text.substring(match.start, match.end);
-            // Пропускаем, если URL уже содержит протокол (обработается UrlLinkifier)
-            if (!url.startsWith('http://') && !url.startsWith('https://')) {
-              final fullUrl = 'https://$url';
-              list.add(LinkableElement(url, fullUrl));
-            } else {
-              // Если уже содержит протокол, добавляем как обычный текст
-              list.add(TextElement(url));
-            }
+            final url = match.text;
+            // Добавляем протокол, если его нет
+            final fullUrl =
+                url.startsWith('http://') ||
+                    url.startsWith('https://') ||
+                    url.startsWith('ftp://') ||
+                    url.startsWith('telnet://')
+                ? url
+                : 'https://$url';
+            list.add(LinkableElement(url, fullUrl));
 
             lastIndex = match.end;
           }
@@ -98,9 +207,11 @@ bool isMobile =
     Platform.instance.operatingSystem.android;
 
 class ChatMessageBubble extends StatelessWidget {
+  static final Expando<List<KometSegment>> _segmentsCache = Expando();
   final Message message;
   final bool isMe;
   final MessageReadStatus? readStatus;
+  final bool isHighlighted;
   final bool deferImageLoading;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
@@ -142,6 +253,7 @@ class ChatMessageBubble extends StatelessWidget {
     required this.message,
     required this.isMe,
     this.readStatus,
+    this.isHighlighted = false,
     this.deferImageLoading = false,
     this.onEdit,
     this.onDelete,
@@ -169,7 +281,7 @@ class ChatMessageBubble extends StatelessWidget {
     this.isFirstInGroup = false,
     this.isLastInGroup = false,
     this.isGrouped = false,
-    this.avatarVerticalOffset = -35.0,
+    this.avatarVerticalOffset = -8.0,
     this.chatId,
     this.isEncryptionPasswordSet = false,
     this.decryptedText,
@@ -188,13 +300,18 @@ class ChatMessageBubble extends StatelessWidget {
   }
 
   EdgeInsets _getMessageMargin(BuildContext context) {
+    final bool needsSmallLeftInset = !isMe && (
+      (!isGroupChat && !isChannel) // direct chat (no leading avatar)
+    );
+    final leftMargin = needsSmallLeftInset ? 6.0 : 0.0;
+
     if (isLastInGroup) {
-      return const EdgeInsets.only(bottom: 6);
+      return EdgeInsets.only(left: leftMargin, bottom: 6);
     }
     if (isFirstInGroup) {
-      return const EdgeInsets.only(bottom: 2);
+      return EdgeInsets.only(left: leftMargin, bottom: 2);
     }
-    return const EdgeInsets.only(bottom: 2);
+    return EdgeInsets.only(left: leftMargin, bottom: 2);
   }
 
   Widget _buildForwardedMessage(
@@ -249,10 +366,45 @@ class ChatMessageBubble extends StatelessWidget {
 
     void handleTap() {
       final myId = myUserId ?? 0;
-      if (originalSenderId == null || myId == 0) {
+      if (myId == 0) return;
+
+      // Если это пересланное из канала/группы — переходим туда
+      final forwardedChatId = link['chatId'] as int?;
+      final forwardedChatLink = link['chatLink'] as String?;
+      final forwardedChatName = link['chatName'] as String?;
+      // Переходим в канал только если есть chatName (признак канала/группы)
+      // и chatId отрицательный (у людей chatId положительный или отсутствует)
+      final isChannelOrGroup = forwardedChatId != null &&
+          forwardedChatId < 0 &&
+          forwardedChatName != null &&
+          forwardedChatName.isNotEmpty;
+      if (isChannelOrGroup) {
+        final channelContact = Contact(
+          id: forwardedChatId,
+          name: forwardedChatName ?? forwardedSenderName,
+          firstName: forwardedChatName ?? forwardedSenderName,
+          lastName: '',
+          photoBaseUrl: forwardedSenderAvatarUrl,
+          link: forwardedChatLink,
+          options: const ['BOT'],
+        );
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (ctx) => ChatScreen(
+              chatId: forwardedChatId,
+              contact: channelContact,
+              myId: myId,
+              isGroupChat: false,
+              isChannel: true,
+              channelLink: forwardedChatLink,
+            ),
+          ),
+        );
         return;
       }
 
+      // Иначе — показываем профиль пользователя
+      if (originalSenderId == null) return;
       showModalBottomSheet(
         context: context,
         isScrollControlled: true,
@@ -383,15 +535,6 @@ class ChatMessageBubble extends StatelessWidget {
                 isUltraOptimized,
                 messageTextOpacity,
               ),
-              Column(
-                children: _buildAudioWithCaption(
-                  context,
-                  attaches,
-                  textColor,
-                  isUltraOptimized,
-                  messageTextOpacity,
-                ),
-              ),
               ..._buildPhotosWithCaption(
                 context,
                 attaches,
@@ -470,11 +613,10 @@ class ChatMessageBubble extends StatelessWidget {
                   );
 
                   final linkStyle = TextStyle(
-                    color: textColor.withValues(
-                      alpha: 0.9 * messageTextOpacity,
-                    ),
+                    color: const Color(0xFF90CAF9),
                     fontSize: 14,
                     decoration: TextDecoration.underline,
+                    decorationColor: const Color(0xFF90CAF9),
                   );
 
                   Future<void> onOpenLink(LinkableElement link) async {
@@ -498,32 +640,7 @@ class ChatMessageBubble extends StatelessWidget {
                   }
 
                   if (isEncrypted && !isEncryptionPasswordSet) {
-                    return Text(
-                      'это зашифрованное сообщение, для его отображения поставьте пароль шифрования на чат.',
-                      style: TextStyle(
-                        color: Colors.red,
-                        fontStyle: FontStyle.italic,
-                        fontSize: 14,
-                      ),
-                    );
-                  }
-
-                  if (isEncrypted &&
-                      isEncryptionPasswordSet &&
-                      snapshot.hasData &&
-                      snapshot.data != null &&
-                      decryptedForwardedText == null) {
-                    return Text(
-                      'некорректный ключ расшифровки, пароль точно верен?',
-                      style: TextStyle(
-                        color: Colors.red,
-                        fontStyle: FontStyle.italic,
-                        fontSize: 14,
-                      ),
-                    );
-                  }
-
-                  if (decryptedForwardedText != null) {
+                    // Зашифрованное, пароль не задан → ЗАКРЫТЫЙ замок 🔒
                     return Wrap(
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
@@ -532,12 +649,75 @@ class ChatMessageBubble extends StatelessWidget {
                           child: Icon(
                             Icons.lock,
                             size: 14,
+                            color: Colors.red.withValues(
+                              alpha: 0.8 * messageTextOpacity,
+                            ),
+                          ),
+                        ),
+                        const Flexible(
+                          child: Text(
+                            'это зашифрованное сообщение, для его отображения поставьте пароль шифрования на чат.',
+                            style: TextStyle(
+                              color: Colors.red,
+                              fontStyle: FontStyle.italic,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  }
+
+                  if (isEncrypted &&
+                      isEncryptionPasswordSet &&
+                      snapshot.hasData &&
+                      snapshot.data != null &&
+                      decryptedForwardedText == null) {
+                    // Зашифрованное, расшифровать не удалось → ЗАКРЫТЫЙ замок 🔒
+                    return Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6.0, top: 2.0),
+                          child: Icon(
+                            Icons.lock,
+                            size: 14,
+                            color: Colors.red.withValues(
+                              alpha: 0.8 * messageTextOpacity,
+                            ),
+                          ),
+                        ),
+                        const Flexible(
+                          child: Text(
+                            'некорректный ключ расшифровки, пароль точно верен?',
+                            style: TextStyle(
+                              color: Colors.red,
+                              fontStyle: FontStyle.italic,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      ],
+                    );
+                  }
+
+                  if (decryptedForwardedText != null) {
+                    // Расшифрованное → ОТКРЫТЫЙ замок 🔓
+                    return Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(right: 6.0, top: 2.0),
+                          child: Icon(
+                            Icons.lock_open,
+                            size: 14,
                             color: textColor.withValues(
                               alpha: 0.7 * messageTextOpacity,
                             ),
                           ),
                         ),
                         _buildMixedMessageContent(
+                          context,
                           displayText,
                           defaultTextStyle,
                           linkStyle,
@@ -549,6 +729,7 @@ class ChatMessageBubble extends StatelessWidget {
                   }
 
                   return _buildMixedMessageContent(
+                    context,
                     displayText,
                     defaultTextStyle,
                     linkStyle,
@@ -858,6 +1039,15 @@ class ChatMessageBubble extends StatelessWidget {
     final themeProvider = Provider.of<ThemeProvider>(context);
     final isUltraOptimized = themeProvider.ultraOptimizeChats;
 
+    // Системные сообщения (CONTROL) отображаются по центру без аватарки
+    final isSystemMessage =
+        message.attaches.isNotEmpty &&
+        message.attaches.every((a) => a['_type'] == 'CONTROL') &&
+        message.text.isEmpty;
+    if (isSystemMessage) {
+      return _buildSystemMessage(context);
+    }
+
     final isStickerOnly =
         message.attaches.length == 1 &&
         message.attaches.any((a) => a['_type'] == 'STICKER') &&
@@ -953,14 +1143,19 @@ class ChatMessageBubble extends StatelessWidget {
     );
 
     Future<void> onOpenLink(LinkableElement link) async {
-      final uri = Uri.parse(link.url);
-      if (await canLaunchUrl(uri)) {
+      final uri = Uri.tryParse(link.url);
+      if (uri == null) return;
+      try {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
-      } else {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Не удалось открыть ссылку: ${link.url}')),
-          );
+      } catch (_) {
+        try {
+          await launchUrl(uri, mode: LaunchMode.platformDefault);
+        } catch (e) {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Не удалось открыть ссылку: ${link.url}')),
+            );
+          }
         }
       }
     }
@@ -987,7 +1182,11 @@ class ChatMessageBubble extends StatelessWidget {
       messageContentChildren,
     );
 
-    if (onReaction != null || (isMe && (onEdit != null || onDelete != null))) {
+    if (onReaction != null ||
+        onReply != null ||
+        onForward != null ||
+        onComplain != null ||
+        (isMe && (onEdit != null || onDelete != null))) {
       if (isMobile) {
         messageContent = _LongPressContextMenuWrapper(
           child: messageContent,
@@ -1008,63 +1207,72 @@ class ChatMessageBubble extends StatelessWidget {
           ? CrossAxisAlignment.end
           : CrossAxisAlignment.start,
       children: [
-        Row(
-          mainAxisAlignment: isMe
-              ? MainAxisAlignment.end
-              : MainAxisAlignment.start,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            if (!isMe && isGroupChat && !isChannel) ...[
-              SizedBox(
-                width: 40,
-                child: isLastInGroup
-                    ? Transform.translate(
-                        offset: Offset(0, avatarVerticalOffset),
-                        child: _buildSenderAvatar(),
-                      )
-                    : null,
-              ),
-            ],
-            Flexible(child: messageContent),
-            if (message.isDeleted && themeProvider.showDeletedMessages) ...[
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.error.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
+        AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(messageBorderRadius),
+            color: isHighlighted
+                ? Theme.of(context).colorScheme.primary.withOpacity(0.25)
+                : Colors.transparent,
+          ),
+          child: Row(
+            mainAxisAlignment: isMe
+                ? MainAxisAlignment.end
+                : MainAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              if (!isMe && isGroupChat && !isChannel) ...[
+                SizedBox(
+                  width: 40,
+                  child: isLastInGroup
+                      ? Transform.translate(
+                          offset: Offset(0, avatarVerticalOffset),
+                          child: _buildSenderAvatar(),
+                        )
+                      : null,
                 ),
-                child: Icon(
-                  Icons.delete_outline,
-                  color: Theme.of(context).colorScheme.error,
-                  size: 16,
-                ),
-              ),
-            ],
-            if (message.originalText != null &&
-                themeProvider.viewRedactHistory) ...[
-              const SizedBox(width: 8),
-              GestureDetector(
-                onTap: () => _showRedactHistory(context),
-                child: Container(
+              ],
+              Flexible(child: messageContent),
+              if (message.isDeleted && themeProvider.showDeletedMessages) ...[
+                const SizedBox(width: 8),
+                Container(
                   padding: const EdgeInsets.all(6),
                   decoration: BoxDecoration(
                     color: Theme.of(
                       context,
-                    ).colorScheme.secondary.withValues(alpha: 0.1),
+                    ).colorScheme.error.withValues(alpha: 0.1),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
-                    Icons.edit_outlined,
-                    color: Theme.of(context).colorScheme.secondary,
+                    Icons.delete_outline,
+                    color: Theme.of(context).colorScheme.error,
                     size: 16,
                   ),
                 ),
-              ),
+              ],
+              if (message.originalText != null &&
+                  themeProvider.viewRedactHistory) ...[
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: () => _showRedactHistory(context),
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.secondary.withValues(alpha: 0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.edit_outlined,
+                      color: Theme.of(context).colorScheme.secondary,
+                      size: 16,
+                    ),
+                  ),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ],
     );
@@ -1200,7 +1408,7 @@ class ChatMessageBubble extends StatelessWidget {
               : MainAxisAlignment.start,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            if (!isMe && isGroupChat && !isChannel) ...[
+            if (!isMe && isGroupChat) ...[
               SizedBox(
                 width: 40,
                 child: isLastInGroup
@@ -1229,7 +1437,9 @@ class ChatMessageBubble extends StatelessWidget {
                       : CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (isGroupChat && !isMe && senderName != null)
+                    if (isGroupChat &&
+                        !isMe &&
+                        senderName != null)
                       Padding(
                         padding: const EdgeInsets.only(left: 2.0, bottom: 0.0),
                         child: Text(
@@ -1246,7 +1456,9 @@ class ChatMessageBubble extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
-                    if (isGroupChat && !isMe && senderName != null)
+                    if (isGroupChat &&
+                        !isMe &&
+                        senderName != null)
                       const SizedBox(height: 2),
 
                     Text(
@@ -1327,6 +1539,54 @@ class ChatMessageBubble extends StatelessWidget {
     );
   }
 
+  Widget _buildSystemMessage(BuildContext context) {
+    final control = message.attaches.firstWhere((a) => a['_type'] == 'CONTROL');
+    final shortMessage = control['shortMessage'] as String? ?? '';
+
+    if (shortMessage.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: isDarkMode
+                ? Colors.white.withOpacity(0.1)
+                : Colors.black.withOpacity(0.05),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.info_outline,
+                size: 14,
+                color: isDarkMode ? Colors.white70 : Colors.black54,
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  shortMessage,
+                  style: TextStyle(
+                    color: isDarkMode ? Colors.white70 : Colors.black54,
+                    fontSize: 12,
+                    fontStyle: FontStyle.italic,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildStickerOnlyMessage(BuildContext context) {
     final sticker = message.attaches.firstWhere((a) => a['_type'] == 'STICKER');
     final stickerSize = 170.0;
@@ -1346,7 +1606,7 @@ class ChatMessageBubble extends StatelessWidget {
               : MainAxisAlignment.start,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            if (!isMe && isGroupChat && !isChannel) ...[
+            if (!isMe && isGroupChat) ...[
               SizedBox(
                 width: 40,
                 child: isLastInGroup
@@ -1435,7 +1695,9 @@ class ChatMessageBubble extends StatelessWidget {
         final b64 = previewData.substring(idx + 7);
         try {
           previewBytes = base64Decode(b64);
-        } catch (_) {}
+        } catch (e) {
+          print('⚠️ Ошибка декодирования base64 превью видеокружка: $e');
+        }
       }
     }
 
@@ -1456,7 +1718,7 @@ class ChatMessageBubble extends StatelessWidget {
         : const Color(0xFF6b7280);
 
     Widget videoContent = Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
       child: Column(
         crossAxisAlignment: isMe
             ? CrossAxisAlignment.end
@@ -1624,7 +1886,7 @@ class ChatMessageBubble extends StatelessWidget {
         : const Color(0xFF6b7280);
 
     Widget photoContent = Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
       child: Column(
         crossAxisAlignment: isMe
             ? CrossAxisAlignment.end
@@ -1636,7 +1898,7 @@ class ChatMessageBubble extends StatelessWidget {
                 : MainAxisAlignment.start,
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              if (!isMe && isGroupChat && !isChannel) ...[
+              if (!isMe && isGroupChat) ...[
                 SizedBox(
                   width: 40,
                   child: isLastInGroup
@@ -1750,10 +2012,13 @@ class ChatMessageBubble extends StatelessWidget {
         : const Color(0xFF6b7280);
 
     final showNameHeader =
-        videos.length == 1 && isGroupChat && !isMe && senderName != null;
+        videos.length == 1 &&
+        isGroupChat &&
+        !isMe &&
+        senderName != null;
 
     Widget videoContent = Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
       child: Column(
         crossAxisAlignment: isMe
             ? CrossAxisAlignment.end
@@ -1780,7 +2045,9 @@ class ChatMessageBubble extends StatelessWidget {
                 final b64 = previewData.substring(idx + 7);
                 try {
                   previewBytes = base64Decode(b64);
-                } catch (_) {}
+                } catch (e) {
+                  print('⚠️ Ошибка декодирования base64 превью видео: $e');
+                }
               }
             }
 
@@ -1807,10 +2074,10 @@ class ChatMessageBubble extends StatelessWidget {
                       : MainAxisAlignment.start,
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
-                    if (!isMe && isGroupChat && !isChannel && index == 0) ...[
+                    if (!isMe && isGroupChat) ...[
                       SizedBox(
                         width: 40,
-                        child: isLastInGroup
+                        child: index == 0 && isLastInGroup
                             ? Transform.translate(
                                 offset: Offset(0, avatarVerticalOffset),
                                 child: _buildSenderAvatar(),
@@ -1944,10 +2211,13 @@ class ChatMessageBubble extends StatelessWidget {
         : const Color(0xFF6b7280);
 
     final showNameHeader =
-        files.length == 1 && isGroupChat && !isMe && senderName != null;
+        files.length == 1 &&
+        isGroupChat &&
+        !isMe &&
+        senderName != null;
 
     Widget fileContent = Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 6.0),
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
       child: Column(
         crossAxisAlignment: isMe
             ? CrossAxisAlignment.end
@@ -1959,7 +2229,7 @@ class ChatMessageBubble extends StatelessWidget {
                 : MainAxisAlignment.start,
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              if (!isMe && isGroupChat && !isChannel) ...[
+              if (!isMe && isGroupChat) ...[
                 SizedBox(
                   width: 40,
                   child: isLastInGroup
@@ -2131,7 +2401,14 @@ class ChatMessageBubble extends StatelessWidget {
     bool isUltraOptimized,
     double messageTextOpacity,
   ) {
-    final photos = attaches.where((a) => a['_type'] == 'PHOTO').toList();
+    final photos = attaches.where((a) {
+      if (a['_type'] != 'PHOTO') return false;
+      // Real photo attaches have width/height from server
+      if (a['width'] != null || a['height'] != null) return true;
+      final url = (a['url'] ?? a['baseUrl'] ?? '') as String;
+      // Accept image-like URLs
+      return RegExp(r'\.(jpg|jpeg|png|gif|webp|bmp)(\?|$)', caseSensitive: false).hasMatch(url);
+    }).toList();
     final List<Widget> widgets = [];
 
     if (photos.isEmpty) return widgets;
@@ -2172,7 +2449,9 @@ class ChatMessageBubble extends StatelessWidget {
           final b64 = previewData.substring(idx + 7);
           try {
             previewBytes = base64Decode(b64);
-          } catch (_) {}
+          } catch (e) {
+            print('⚠️ Ошибка декодирования base64 превью: $e');
+          }
         }
       } else if (previewDataRaw is List<dynamic>) {
         try {
@@ -2186,7 +2465,9 @@ class ChatMessageBubble extends StatelessWidget {
           } else {
             previewBytes = Uint8List.fromList(intList);
           }
-        } catch (_) {}
+        } catch (e) {
+          print('⚠️ Ошибка преобразования previewData: $e');
+        }
       }
 
       String? highQualityThumbnailUrl;
@@ -2398,6 +2679,64 @@ class ChatMessageBubble extends StatelessWidget {
     return widgets;
   }
 
+  List<Widget> _buildControlMessages(
+    BuildContext context,
+    List<Map<String, dynamic>> attaches,
+    Color textColor,
+    bool isUltraOptimized,
+    double messageTextOpacity,
+  ) {
+    final controls = attaches.where((a) {
+      final type = a['_type'];
+      return type == 'CONTROL';
+    }).toList();
+    final List<Widget> widgets = [];
+
+    if (controls.isEmpty) return widgets;
+
+    for (final control in controls) {
+      final event = control['event'] as String?;
+      final shortMessage = control['shortMessage'] as String?;
+
+      // Отображаем системные сообщения (звонки, и т.д.)
+      if (event == 'system' &&
+          shortMessage != null &&
+          shortMessage.isNotEmpty) {
+        widgets.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.info_outline,
+                  size: 16,
+                  color: textColor.withValues(alpha: 0.7 * messageTextOpacity),
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    shortMessage,
+                    style: TextStyle(
+                      color: textColor.withValues(
+                        alpha: 0.8 * messageTextOpacity,
+                      ),
+                      fontSize: 13,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+        widgets.add(const SizedBox(height: 6));
+      }
+    }
+
+    return widgets;
+  }
+
   Widget _buildCallWidget(
     BuildContext context,
     Map<String, dynamic> callData,
@@ -2425,7 +2764,7 @@ class ChatMessageBubble extends StatelessWidget {
         final callTypeText = callType == 'VIDEO' ? 'Видеозвонок' : 'Звонок';
         callText = '$callTypeText, $durationText';
         callIcon = callType == 'VIDEO' ? Icons.videocam : Icons.call;
-        callColor = Theme.of(context).colorScheme.primary;
+        callColor = Colors.green; // Зелёный цвет для успешных звонков
         break;
 
       case 'MISSED':
@@ -2462,45 +2801,16 @@ class ChatMessageBubble extends StatelessWidget {
         break;
     }
 
-    return Container(
-      decoration: BoxDecoration(
-        color: callColor.withValues(alpha: 0.1),
-        borderRadius: borderRadius,
-        border: Border.all(color: callColor.withValues(alpha: 0.3), width: 1),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            Container(
-              width: 48,
-              height: 48,
-              decoration: BoxDecoration(
-                color: callColor.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(callIcon, color: callColor, size: 24),
-            ),
-            const SizedBox(width: 12),
-
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    callText,
-                    style: TextStyle(
-                      color: callColor,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+    // Компактный вид как в оригинале - просто иконка + текст
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(callIcon, size: 18, color: callColor),
+          const SizedBox(width: 6),
+          Text(callText, style: TextStyle(color: callColor, fontSize: 14)),
+        ],
       ),
     );
   }
@@ -2785,6 +3095,32 @@ class ChatMessageBubble extends StatelessWidget {
 
     final fileId = fileData['fileId'] as int?;
     final token = fileData['token'] as String?;
+
+    // Зашифрованный файл: отображаем через EncryptedFileTile.
+    // Метка `_komet_enc=true` ставится отправителем (api_service_media).
+    // Если её нет, но meta-сервис помнит оригинальное имя по fileId —
+    // это тоже наш зашифрованный файл (impl-detail KometEncMetaService).
+    final isKometEnc = fileData['_komet_enc'] == true ||
+        (fileId != null &&
+            KometEncMetaService.instance.getOriginalNameSync(fileId) != null);
+    if (isKometEnc && fileId != null) {
+      // Если в attach есть originalName — используем его, иначе fileName
+      // (которое может быть маскированным `file_..._....bin`).
+      final origName = (fileData['originalName'] as String?) ?? fileName;
+      return EncryptedFileTile(
+        fileName: origName,
+        fileSize: fileSize,
+        fileId: fileId,
+        token: token,
+        chatId: chatId,
+        textColor: textColor,
+        isUltraOptimized: isUltraOptimized,
+        showNameHeader: showNameHeader,
+        onDownload: () =>
+            _handleFileDownload(context, fileId, token, origName, chatId),
+      );
+    }
+
     final progressNotifier = fileId != null
         ? FileDownloadProgressService().getProgress(fileId.toString())
         : null;
@@ -3436,72 +3772,63 @@ class ChatMessageBubble extends StatelessWidget {
     }
   }
 
-  List<Widget> _buildAudioWithCaption(
+  List<Widget> _buildAudioAttachments(
     BuildContext context,
-    List<Map<String, dynamic>> attaches,
+    List<dynamic> attaches,
     Color textColor,
     bool isUltraOptimized,
     double messageTextOpacity,
   ) {
-    final audioMessages = attaches.where((a) => a['_type'] == 'AUDIO').toList();
     final List<Widget> widgets = [];
+    final audioAttaches = attaches
+        .whereType<Map>()
+        .map((e) => e.cast<String, dynamic>())
+        .where((a) => a['_type']?.toString().toUpperCase() == 'AUDIO')
+        .toList();
 
-    if (audioMessages.isEmpty) return widgets;
+    for (final audio in audioAttaches) {
+      final url = (audio['url'] ?? audio['baseUrl'] ?? '').toString();
+      // Пробуем получить длительность из разных полей (приходит в МИЛЛИСЕКУНДАХ!)
+      final durationMs = (audio['count'] is num)
+          ? (audio['count'] as num).toInt()
+          : (audio['duration'] is num)
+          ? (audio['duration'] as num).toInt()
+          : int.tryParse(audio['count']?.toString() ?? '') ??
+                int.tryParse(audio['duration']?.toString() ?? '') ??
+                0;
 
-    for (final audio in audioMessages) {
+      // Конвертируем миллисекунды в секунды
+      final durationSeconds = durationMs ~/ 1000;
+      final audioId = (audio['audioId'] is num)
+          ? (audio['audioId'] as num).toInt()
+          : (audio['id'] is num)
+          ? (audio['id'] as num).toInt()
+          : null;
+
       widgets.add(
-        _buildAudioWidget(
-          context,
-          audio,
-          textColor,
-          isUltraOptimized,
-          messageTextOpacity,
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 320),
+            child: AudioPlayerWidget(
+              url: url,
+              duration: durationSeconds * 1000,
+              durationText: durationSeconds > 0
+                  ? '${durationSeconds ~/ 60}:${(durationSeconds % 60).toString().padLeft(2, '0')}'
+                  : '0:00',
+              wave: audio['wave']?.toString(),
+              waveBytes: null,
+              audioId: audioId,
+              textColor: textColor,
+              borderRadius: BorderRadius.circular(14),
+              messageTextOpacity: messageTextOpacity,
+            ),
+          ),
         ),
       );
-      widgets.add(const SizedBox(height: 6));
     }
 
     return widgets;
-  }
-
-  Widget _buildAudioWidget(
-    BuildContext context,
-    Map<String, dynamic> audioData,
-    Color textColor,
-    bool isUltraOptimized,
-    double messageTextOpacity,
-  ) {
-    final borderRadius = BorderRadius.circular(isUltraOptimized ? 8 : 12);
-    final url = audioData['url'] as String?;
-    final duration = audioData['duration'] as int? ?? 0;
-
-    final waveRaw = audioData['wave'];
-    final wave = waveRaw is String ? waveRaw : null;
-    Uint8List? waveBytes;
-    if (waveRaw is List<dynamic>) {
-      try {
-        waveBytes = Uint8List.fromList(List<int>.from(waveRaw));
-      } catch (_) {}
-    }
-
-    final audioId = audioData['audioId'] as int?;
-
-    final durationSeconds = (duration / 1000).round();
-    final minutes = durationSeconds ~/ 60;
-    final seconds = durationSeconds % 60;
-    final durationText = '$minutes:${seconds.toString().padLeft(2, '0')}';
-
-    return AudioPlayerWidget(
-      url: url ?? '',
-      duration: duration,
-      durationText: durationText,
-      wave: wave,
-      waveBytes: waveBytes,
-      audioId: audioId,
-      textColor: textColor,
-      borderRadius: borderRadius,
-      messageTextOpacity: messageTextOpacity,
-    );
   }
 
   Future<void> _handleFileDownload(
@@ -3682,15 +4009,6 @@ class ChatMessageBubble extends StatelessWidget {
       token: token,
       chatId: chatId,
     );
-
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Начато скачивание файла...'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-    }
   }
 
   void _startBackgroundDownload(
@@ -3789,16 +4107,6 @@ class ChatMessageBubble extends StatelessWidget {
           musicMetadata[fileId] = track.toJson();
           await prefs.setString('music_metadata', jsonEncode(musicMetadata));
         }
-      }
-
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Файл сохранен: $fileName'),
-            duration: const Duration(seconds: 3),
-            action: SnackBarAction(label: 'OK', onPressed: () {}),
-          ),
-        );
       }
     } catch (e) {
       FileDownloadProgressService().clearProgress(fileId);
@@ -4146,11 +4454,30 @@ class ChatMessageBubble extends StatelessWidget {
   void _openPhotoViewer(BuildContext context, Map<String, dynamic> attach) {
     List<Map<String, dynamic>>? galleryPhotos = allPhotos;
 
+    // Don't use gallery for non-PHOTO attachments (e.g., GIFs, which have different _type)
+    final attachType = attach['_type'] as String?;
+    if (attachType != null && attachType != 'PHOTO') {
+      galleryPhotos = null;
+    }
+
     if (galleryPhotos != null && galleryPhotos.isNotEmpty) {
-      final initialIndex = galleryPhotos.indexWhere(
-        (p) =>
-            (p['url'] ?? p['baseUrl']) == (attach['url'] ?? attach['baseUrl']),
-      );
+      final attachUrl = (attach['url'] ?? attach['baseUrl'])?.toString() ?? '';
+      // photoId может быть в поле 'photoId' или 'id'
+      final attachPhotoId = (attach['photoId'] ?? attach['id'])?.toString() ?? '';
+      int initialIndex = -1;
+      for (int i = 0; i < galleryPhotos.length; i++) {
+        final p = galleryPhotos[i];
+        final pPhotoId = (p['photoId'] ?? p['id'])?.toString() ?? '';
+        final pUrl = (p['url'] ?? p['baseUrl'])?.toString() ?? '';
+        // Сравниваем по photoId (наиболее надёжно)
+        final idMatch = attachPhotoId.isNotEmpty && pPhotoId.isNotEmpty && pPhotoId == attachPhotoId;
+        // Сравниваем по полному URL (не обрезаем по ?, т.к. r= это уникальный токен фото)
+        final urlMatch = pUrl.isNotEmpty && attachUrl.isNotEmpty && pUrl == attachUrl;
+        if (idMatch || urlMatch) {
+          initialIndex = i;
+          break;
+        }
+      }
       if (initialIndex != -1) {
         _openPhotoGallery(context, galleryPhotos, initialIndex);
         return;
@@ -4272,7 +4599,9 @@ class ChatMessageBubble extends StatelessWidget {
         final b64 = preview.substring(idx + 7);
         try {
           previewBytes = base64Decode(b64);
-        } catch (_) {}
+        } catch (e) {
+          print('⚠️ Ошибка декодирования base64 превью фото: $e');
+        }
       }
     }
 
@@ -4400,7 +4729,7 @@ class ChatMessageBubble extends StatelessWidget {
             onTap: onSenderNameTap,
 
             child: Padding(
-              padding: const EdgeInsets.only(left: 2.0, bottom: 0.0),
+              padding: const EdgeInsets.only(left: 0.0, bottom: 0.0),
               child: Text(
                 senderName!,
                 style: TextStyle(
@@ -4418,7 +4747,32 @@ class ChatMessageBubble extends StatelessWidget {
           ),
         ),
 
-      if (isGroupChat && !isMe && senderName != null) const SizedBox(height: 2),
+      if (isGroupChat && !isMe && senderName != null)
+        const SizedBox(height: 2),
+      // Показываем кто переслал сообщение
+      if (message.isForwarded && forwardedFrom != null)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.forward,
+                size: 12,
+                color: textColor.withValues(alpha: 0.5),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                'Переслано от $forwardedFrom',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: textColor.withValues(alpha: 0.6),
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
+          ),
+        ),
       if (message.isForwarded && message.link != null) ...[
         if (message.link is Map<String, dynamic>)
           _buildForwardedMessage(
@@ -4439,7 +4793,7 @@ class ChatMessageBubble extends StatelessWidget {
               isUltraOptimized,
               messageBorderRadius,
             ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 2),
         ],
         if (attachesToShow.isNotEmpty) ...[
           ..._buildCallsWithCaption(
@@ -4449,7 +4803,14 @@ class ChatMessageBubble extends StatelessWidget {
             isUltraOptimized,
             messageTextOpacity,
           ),
-          ..._buildAudioWithCaption(
+          ..._buildControlMessages(
+            context,
+            attachesToShow,
+            textColor,
+            isUltraOptimized,
+            messageTextOpacity,
+          ),
+          ..._buildAudioAttachments(
             context,
             attachesToShow,
             textColor,
@@ -4499,27 +4860,7 @@ class ChatMessageBubble extends StatelessWidget {
           if (ChatEncryptionService.isEncryptedMessage(message.text) &&
               message.text.length > 1 &&
               !isEncryptionPasswordSet)
-            Text(
-              'это зашифрованное сообщение, для его отображение поставьте пароль шифрования на чат.',
-              style: TextStyle(
-                color: Colors.red,
-                fontStyle: FontStyle.italic,
-                fontSize: 14,
-              ),
-            )
-          else if (ChatEncryptionService.isEncryptedMessage(message.text) &&
-              message.text.length > 1 &&
-              isEncryptionPasswordSet &&
-              decryptedText == null)
-            Text(
-              'некорректный ключ расшифровки, пароль точно верен?',
-              style: TextStyle(
-                color: Colors.red,
-                fontStyle: FontStyle.italic,
-                fontSize: 14,
-              ),
-            )
-          else if (decryptedText != null)
+            // Зашифрованное, пароль не задан → ЗАКРЫТЫЙ замок 🔒
             Wrap(
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
@@ -4528,10 +4869,65 @@ class ChatMessageBubble extends StatelessWidget {
                   child: Icon(
                     Icons.lock,
                     size: 14,
+                    color: Colors.red.withValues(alpha: 0.8),
+                  ),
+                ),
+                const Flexible(
+                  child: Text(
+                    'это зашифрованное сообщение, для его отображения поставьте пароль шифрования на чат.',
+                    style: TextStyle(
+                      color: Colors.red,
+                      fontStyle: FontStyle.italic,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              ],
+            )
+          else if (ChatEncryptionService.isEncryptedMessage(message.text) &&
+              message.text.length > 1 &&
+              isEncryptionPasswordSet &&
+              decryptedText == null)
+            // Зашифрованное, расшифровать не удалось (старый ключ /
+            // ключ был сброшен / ключ собеседника другой) → ЗАКРЫТЫЙ замок 🔒
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(right: 6.0, top: 2.0),
+                  child: Icon(
+                    Icons.lock,
+                    size: 14,
+                    color: Colors.red.withValues(alpha: 0.8),
+                  ),
+                ),
+                const Flexible(
+                  child: Text(
+                    'некорректный ключ расшифровки, пароль точно верен?',
+                    style: TextStyle(
+                      color: Colors.red,
+                      fontStyle: FontStyle.italic,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+              ],
+            )
+          else if (decryptedText != null)
+            // Зашифрованное и УСПЕШНО расшифрованное → ОТКРЫТЫЙ замок 🔓
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.only(right: 6.0, top: 2.0),
+                  child: Icon(
+                    Icons.lock_open,
+                    size: 14,
                     color: textColor.withValues(alpha: 0.7),
                   ),
                 ),
                 _buildMixedMessageContent(
+                  context,
                   decryptedText!,
                   defaultTextStyle,
                   linkStyle,
@@ -4548,16 +4944,13 @@ class ChatMessageBubble extends StatelessWidget {
               linkStyle: linkStyle,
               onOpen: onOpenLink,
               options: const LinkifyOptions(humanize: false),
-              linkifiers: const [
-                UrlLinkifier(),
-                EmailLinkifier(),
-                DomainLinkifier(),
-              ],
+              linkifiers: const [UrlLinkifier(), DomainLinkifier(), EmailLinkifier()],
               textAlign: TextAlign.left,
             )
           else if (message.text.contains("komet.cosmetic.") ||
               message.text.contains("komet.color_"))
             _buildMixedMessageContent(
+              context,
               message.text,
               defaultTextStyle,
               linkStyle,
@@ -4566,6 +4959,7 @@ class ChatMessageBubble extends StatelessWidget {
             )
           else
             _buildMixedMessageContent(
+              context,
               message.text,
               defaultTextStyle,
               linkStyle,
@@ -4715,7 +5109,13 @@ class ChatMessageBubble extends StatelessWidget {
       if (markerType == null) {
         if (index < text.length) {
           segments.add(
-            KometSegment(text.substring(index), KometSegmentType.normal),
+            KometSegment(
+              text.substring(index),
+              KometSegmentType.normal,
+              absStart: index,
+              absEnd: text.length,
+              contentStart: index,
+            ),
           );
         }
         break;
@@ -4726,6 +5126,9 @@ class ChatMessageBubble extends StatelessWidget {
           KometSegment(
             text.substring(index, nextMarker),
             KometSegmentType.normal,
+            absStart: index,
+            absEnd: nextMarker,
+            contentStart: index,
           ),
         );
       }
@@ -4741,10 +5144,18 @@ class ChatMessageBubble extends StatelessWidget {
           if (secondQuote != -1) {
             final segmentText = afterHash.substring(textStart, secondQuote);
             final color = _parseKometHexColor(hexStr, null);
+            final segmentAbsEnd = nextMarker + prefix.length + secondQuote + 1;
             segments.add(
-              KometSegment(segmentText, KometSegmentType.pulse, color: color),
+              KometSegment(
+                segmentText,
+                KometSegmentType.pulse,
+                color: color,
+                absStart: nextMarker,
+                absEnd: segmentAbsEnd,
+                contentStart: nextMarker + prefix.length + textStart,
+              ),
             );
-            index = nextMarker + prefix.length + secondQuote + 2;
+            index = segmentAbsEnd;
             continue;
           }
         }
@@ -4755,27 +5166,51 @@ class ChatMessageBubble extends StatelessWidget {
           KometSegment(
             text.substring(nextMarker, safeEnd),
             KometSegmentType.normal,
+            absStart: nextMarker,
+            absEnd: safeEnd,
+            contentStart: nextMarker,
           ),
         );
         index = safeEnd;
       } else if (markerType == "galaxy") {
-        const prefix = "komet.cosmetic.galaxy'";
+        final bool isDouble = text.startsWith(
+          "komet.cosmetic.galaxy''",
+          nextMarker,
+        );
+        final String prefix = isDouble
+            ? "komet.cosmetic.galaxy''"
+            : "komet.cosmetic.galaxy'";
+        final String delimiter = isDouble ? "''" : "'";
+
         final textStart = nextMarker + prefix.length;
-        final quoteIndex = text.indexOf("'", textStart);
+        final quoteIndex = text.indexOf(delimiter, textStart);
         if (quoteIndex != -1) {
           final segmentText = text.substring(textStart, quoteIndex);
-          segments.add(KometSegment(segmentText, KometSegmentType.galaxy));
-          index = quoteIndex + 1;
+          final segmentAbsEnd = quoteIndex + delimiter.length;
+          segments.add(
+            KometSegment(
+              segmentText,
+              KometSegmentType.galaxy,
+              absStart: nextMarker,
+              absEnd: segmentAbsEnd,
+              contentStart: textStart,
+            ),
+          );
+          index = segmentAbsEnd;
           continue;
         }
 
+        final safeEnd = (textStart + 10).clamp(0, text.length);
         segments.add(
           KometSegment(
-            text.substring(nextMarker, textStart + 10),
+            text.substring(nextMarker, safeEnd),
             KometSegmentType.normal,
+            absStart: nextMarker,
+            absEnd: safeEnd,
+            contentStart: nextMarker,
           ),
         );
-        index = textStart + 10;
+        index = safeEnd == nextMarker ? text.length : safeEnd;
       } else if (markerType == "color") {
         const marker = 'komet.color_';
         final colorStart = nextMarker + marker.length;
@@ -4787,21 +5222,33 @@ class ChatMessageBubble extends StatelessWidget {
           if (secondQuote != -1) {
             final segmentText = text.substring(textStart, secondQuote);
             final color = _parseKometHexColor(colorStr, null);
+            final segmentAbsEnd = secondQuote + 1;
             segments.add(
-              KometSegment(segmentText, KometSegmentType.colored, color: color),
+              KometSegment(
+                segmentText,
+                KometSegmentType.colored,
+                color: color,
+                absStart: nextMarker,
+                absEnd: segmentAbsEnd,
+                contentStart: textStart,
+              ),
             );
-            index = secondQuote + 1;
+            index = segmentAbsEnd;
             continue;
           }
         }
 
+        final safeEnd = (colorStart + 10).clamp(0, text.length);
         segments.add(
           KometSegment(
-            text.substring(nextMarker, colorStart + 10),
+            text.substring(nextMarker, safeEnd),
             KometSegmentType.normal,
+            absStart: nextMarker,
+            absEnd: safeEnd,
+            contentStart: nextMarker,
           ),
         );
-        index = colorStart + 10;
+        index = safeEnd == nextMarker ? text.length : safeEnd;
       }
     }
 
@@ -4809,6 +5256,7 @@ class ChatMessageBubble extends StatelessWidget {
   }
 
   Widget _buildMixedMessageContent(
+    BuildContext context,
     String text,
     TextStyle baseStyle,
     TextStyle linkStyle,
@@ -4821,16 +5269,44 @@ class ChatMessageBubble extends StatelessWidget {
       print(
         '⚠️ Сообщение слишком большое (${text.length} символов), обрезаем до $maxTextLength',
       );
-      text = text.substring(0, maxTextLength) + '... (сообщение обрезано)';
+      text = '${text.substring(0, maxTextLength)}... (сообщение обрезано)';
     }
 
-    final segments = _parseMixedMessageSegments(text);
+    final segments = _segmentsCache[message] ??= _parseMixedMessageSegments(
+      text,
+    );
 
     return Wrap(
       crossAxisAlignment: WrapCrossAlignment.center,
       spacing: 2.0, // Add spacing between segments
       runSpacing: 2.0, // Add spacing between lines
       children: segments.map((seg) {
+        // Slicing elements for the current segment
+        final List<Map<String, dynamic>> slicedElements = [];
+        // Content boundaries for the current segment
+        final int contentStart = seg.contentStart;
+        final int contentEnd = contentStart + seg.text.length;
+
+        for (final el in elements) {
+          final from = (el['from'] as int?) ?? 0;
+          final length = (el['length'] as int?) ?? 0;
+          if (length <= 0) continue;
+
+          final end = from + length;
+
+          // Check for overlap between segment content [contentStart, contentEnd] and element [from, end]
+          final overlapStart = from < contentStart ? contentStart : from;
+          final overlapEnd = end > contentEnd ? contentEnd : end;
+
+          if (overlapEnd > overlapStart) {
+            final mapped = Map<String, dynamic>.from(el);
+            // Translate original from to segment-relative from
+            mapped['from'] = overlapStart - contentStart;
+            mapped['length'] = overlapEnd - overlapStart;
+            slicedElements.add(mapped);
+          }
+        }
+
         switch (seg.type) {
           case KometSegmentType.normal:
           case KometSegmentType.colored:
@@ -4838,7 +5314,7 @@ class ChatMessageBubble extends StatelessWidget {
                 ? baseStyle.copyWith(color: seg.color)
                 : baseStyle;
 
-            if (elements.isEmpty) {
+            if (slicedElements.isEmpty) {
               return Container(
                 constraints: const BoxConstraints(maxWidth: double.infinity),
                 child: Linkify(
@@ -4847,11 +5323,7 @@ class ChatMessageBubble extends StatelessWidget {
                   linkStyle: linkStyle,
                   onOpen: onOpenLink,
                   options: const LinkifyOptions(humanize: false),
-                  linkifiers: const [
-                    UrlLinkifier(),
-                    EmailLinkifier(),
-                    DomainLinkifier(),
-                  ],
+                  linkifiers: const [UrlLinkifier(), DomainLinkifier(), EmailLinkifier()],
                   textAlign: TextAlign.left,
                   overflow: TextOverflow.visible,
                   softWrap: true,
@@ -4860,13 +5332,21 @@ class ChatMessageBubble extends StatelessWidget {
             } else {
               return Container(
                 constraints: const BoxConstraints(maxWidth: double.infinity),
-                child: _buildFormattedRichText(seg.text, baseForSeg, elements),
+                child: _buildFormattedRichText(
+                  context,
+                  seg.text,
+                  baseForSeg,
+                  slicedElements,
+                  bubbleLinkStyle: linkStyle,
+                ),
               );
             }
           case KometSegmentType.galaxy:
-            return Container(
-              constraints: const BoxConstraints(maxWidth: double.infinity),
-              child: GalaxyAnimatedText(text: seg.text),
+            return RepaintBoundary(
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: double.infinity),
+                child: GalaxyAnimatedText(text: seg.text),
+              ),
             );
           case KometSegmentType.pulse:
             final hexStr = seg.color!
@@ -4875,10 +5355,12 @@ class ChatMessageBubble extends StatelessWidget {
                 .padLeft(8, '0')
                 .substring(2)
                 .toUpperCase();
-            return Container(
-              constraints: const BoxConstraints(maxWidth: double.infinity),
-              child: PulseAnimatedText(
-                text: "komet.cosmetic.pulse#$hexStr'${seg.text}'",
+            return RepaintBoundary(
+              child: Container(
+                constraints: const BoxConstraints(maxWidth: double.infinity),
+                child: PulseAnimatedText(
+                  text: "komet.cosmetic.pulse#$hexStr'${seg.text}'",
+                ),
               ),
             );
         }
@@ -4887,10 +5369,12 @@ class ChatMessageBubble extends StatelessWidget {
   }
 
   Widget _buildFormattedRichText(
+    BuildContext context,
     String text,
     TextStyle baseStyle,
-    List<Map<String, dynamic>> elements,
-  ) {
+    List<Map<String, dynamic>> elements, {
+    TextStyle? bubbleLinkStyle,
+  }) {
     if (text.isEmpty || elements.isEmpty) {
       return Text(
         text,
@@ -4901,15 +5385,132 @@ class ChatMessageBubble extends StatelessWidget {
       );
     }
 
+    List<Map<String, int>> buildQuoteRanges() {
+      final ranges = <Map<String, int>>[];
+      for (final el in elements) {
+        final type = el['type'] as String?;
+        if (type != 'QUOTE') continue;
+        final from = (el['from'] as int?) ?? 0;
+        final length = (el['length'] as int?) ?? 0;
+        if (length <= 0) continue;
+        final start = from.clamp(0, text.length);
+        final end = (from + length).clamp(0, text.length);
+        if (end <= start) continue;
+        ranges.add({'from': start, 'to': end});
+      }
+      if (ranges.isEmpty) return ranges;
+
+      ranges.sort((a, b) => a['from']!.compareTo(b['from']!));
+      final merged = <Map<String, int>>[];
+      Map<String, int> current = Map<String, int>.from(ranges.first);
+      for (int i = 1; i < ranges.length; i++) {
+        final r = ranges[i];
+        final rFrom = r['from']!;
+        final rTo = r['to']!;
+        final cTo = current['to']!;
+        if (rFrom <= cTo) {
+          if (rTo > cTo) {
+            current['to'] = rTo;
+          }
+        } else {
+          merged.add(current);
+          current = Map<String, int>.from(r);
+        }
+      }
+      merged.add(current);
+      return merged;
+    }
+
+    final quoteRanges = buildQuoteRanges();
+    if (quoteRanges.isNotEmpty) {
+      List<Map<String, dynamic>> sliceElements(int segFrom, int segTo) {
+        final sliced = <Map<String, dynamic>>[];
+        for (final el in elements) {
+          final type = el['type'] as String?;
+          if (type == null || type == 'QUOTE') continue;
+          final from = (el['from'] as int?) ?? 0;
+          final length = (el['length'] as int?) ?? 0;
+          if (length <= 0) continue;
+
+          final start = from.clamp(0, text.length);
+          final end = (from + length).clamp(0, text.length);
+          if (end <= start) continue;
+
+          final overlapStart = start < segFrom ? segFrom : start;
+          final overlapEnd = end > segTo ? segTo : end;
+          if (overlapEnd <= overlapStart) continue;
+
+          final mapped = Map<String, dynamic>.from(el);
+          mapped['from'] = overlapStart - segFrom;
+          mapped['length'] = overlapEnd - overlapStart;
+          sliced.add(mapped);
+        }
+        return sliced;
+      }
+
+      Widget buildSegment(int segFrom, int segTo, {required bool isQuote}) {
+        final segText = text.substring(segFrom, segTo);
+        final segElements = sliceElements(segFrom, segTo);
+        final segmentWidget = _buildFormattedRichText(
+          context,
+          segText,
+          baseStyle,
+          segElements,
+          bubbleLinkStyle: bubbleLinkStyle,
+        );
+
+        if (!isQuote) return segmentWidget;
+
+        final theme = Theme.of(context);
+        final bg = theme.colorScheme.surfaceVariant.withValues(alpha: 0.55);
+        final border = theme.dividerColor.withValues(alpha: 0.9);
+
+        return Container(
+          decoration: BoxDecoration(
+            color: bg,
+            border: Border(left: BorderSide(color: border, width: 3)),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: segmentWidget,
+        );
+      }
+
+      final children = <Widget>[];
+      int cursor = 0;
+      for (final r in quoteRanges) {
+        final rFrom = r['from']!;
+        final rTo = r['to']!;
+
+        if (cursor < rFrom) {
+          children.add(buildSegment(cursor, rFrom, isQuote: false));
+        }
+        children.add(buildSegment(rFrom, rTo, isQuote: true));
+        cursor = rTo;
+      }
+      if (cursor < text.length) {
+        children.add(buildSegment(cursor, text.length, isQuote: false));
+      }
+
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: children.where((w) => w is! SizedBox).toList(),
+      );
+    }
+
     final bold = List<bool>.filled(text.length, false);
     final italic = List<bool>.filled(text.length, false);
     final underline = List<bool>.filled(text.length, false);
     final strike = List<bool>.filled(text.length, false);
+    final mentionEntityIds = List<int?>.filled(text.length, null);
+    final linkUrls = List<String?>.filled(text.length, null);
 
     for (final el in elements) {
       final type = el['type'] as String?;
       final from = (el['from'] as int?) ?? 0;
       final length = (el['length'] as int?) ?? 0;
+      final entityId = el['entityId'] as int?;
       if (type == null || length <= 0) continue;
       final start = from.clamp(0, text.length);
       final end = (from + length).clamp(0, text.length);
@@ -4926,6 +5527,19 @@ class ChatMessageBubble extends StatelessWidget {
             break;
           case 'STRIKETHROUGH':
             strike[i] = true;
+            break;
+          case 'USER_MENTION':
+            underline[i] = true;
+            if (entityId != null) {
+              mentionEntityIds[i] = entityId;
+            }
+            break;
+          case 'LINK':
+            final attrs = el['attributes'] as Map?;
+            final url = attrs?['url'] as String?;
+            if (url != null && url.isNotEmpty) {
+              linkUrls[i] = url;
+            }
             break;
         }
       }
@@ -4947,13 +5561,206 @@ class ChatMessageBubble extends StatelessWidget {
       return s;
     }
 
+    int? getEntityIdForIndex(int i) {
+      return mentionEntityIds[i];
+    }
+
+    String? getLinkUrlForIndex(int i) {
+      return linkUrls[i];
+    }
+
+    // Regex для детекции URL в форматированном тексте (такой же как в DomainLinkifier)
+    const _frtValidTlds =
+        r'рф|онлайн|сайт|ру|su|com|net|org|mil|edu|arpa|gov|biz|info|aero|inc|name|app|dev|io|co|shop|club|guru|ninja|xyz|top|store|tech|space|world|today|news|ua|by|kz|uz|ge|az|am|md|tj|tm|kg|lv|lt|ee|pl|cz|sk|hu|ro|bg|rs|hr|si|al|ba|mk|me|cn|jp|kr|tw|hk|sg|my|id|th|vn|ph|in|pk|bd|lk|np|au|nz|ca|us|uk|de|fr|it|es|pt|nl|be|ch|at|se|no|dk|fi|is|ie|eu|mobi|travel|museum|coop|jobs|дети|москва|бел';
+    final _frtUrlRegex = RegExp(
+      r'(?:(?:https?|ftp)://(?:[а-яёa-z0-9-]{1,128}\.)+(?:' +
+          _frtValidTlds +
+          r')(?::[0-9]{1,5})?(?:/[а-яёa-z0-9.,_@%&?+=~/#-]*)?)'
+          r'|'
+          r'(?:(?<![а-яёa-z0-9._-])(?:[а-яёa-z0-9](?:[а-яёa-z0-9-]{0,61}[а-яёa-z0-9])?\.)+(?:' +
+          _frtValidTlds +
+          r')(?::[0-9]{1,5})?(?:/[а-яёa-z0-9.,_@%&?+=~/#-]*)?(?![а-яёa-z0-9]))',
+      caseSensitive: false,
+      unicode: true,
+    );
+
+    final _mentionRegex = RegExp(r'@([a-zA-Z0-9_]{3,})', unicode: false);
+
+    void addSpansForSegment(String spanText, TextStyle style) {
+      // Сначала ищем упоминания @username
+      final mentionMatches = _mentionRegex.allMatches(spanText).toList();
+      // Потом URL
+      final urlMatches = _frtUrlRegex.allMatches(spanText).toList();
+
+      // Объединяем все совпадения и сортируем по позиции
+      final allSegments = <(int, int, String, bool)>[];  // (start, end, text, isMention)
+      for (final m in mentionMatches) {
+        allSegments.add((m.start, m.end, spanText.substring(m.start, m.end), true));
+      }
+      for (final m in urlMatches) {
+        // Не добавляем URL если он перекрывается с упоминанием ИЛИ начинается с @
+        final rawMatch = spanText.substring(m.start, m.end);
+        if (rawMatch.startsWith('@')) continue;
+        final overlaps = mentionMatches.any((mm) => m.start < mm.end && m.end > mm.start);
+        if (!overlaps) {
+          allSegments.add((m.start, m.end, rawMatch, false));
+        }
+      }
+      allSegments.sort((a, b) => a.$1.compareTo(b.$1));
+
+      if (allSegments.isEmpty) {
+        spans.add(TextSpan(text: spanText, style: style));
+        return;
+      }
+
+      int pos = 0;
+      for (final seg in allSegments) {
+        if (seg.$1 > pos) {
+          spans.add(TextSpan(text: spanText.substring(pos, seg.$1), style: style));
+        }
+        if (seg.$4) {
+          // Это @mention
+          final mentionText = seg.$3;
+          final username = mentionText.startsWith('@') ? mentionText.substring(1) : mentionText;
+          final mentionStyle = bubbleLinkStyle ?? style.copyWith(
+            color: Colors.blue,
+            decoration: TextDecoration.underline,
+            decorationColor: Colors.blue,
+          );
+          final recognizer = TapGestureRecognizer()
+            ..onTap = () async {
+              // Ищем контакт/бота по ссылке через opcode 89
+              try {
+                final chatInfo = await ApiService.instance.getChatInfoByLink(username);
+                if (!context.mounted) return;
+                // Ответ может быть либо {id: ...} (чат), либо {contact: {...}, summary: ...} (юзер/бот)
+                final Map<String, dynamic> contactData = chatInfo.containsKey('contact')
+                    ? (chatInfo['contact'] as Map<String, dynamic>)
+                    : chatInfo;
+                final int? contactId = contactData['id'] as int?;
+                if (contactId == null) return;
+                final myId = ApiService.instance.myUserId;
+                if (myId == null) return;
+                final chatId = myId ^ contactId;
+                final nameData = (contactData['names'] as List?)?.firstOrNull as Map?;
+                final resolvedName = nameData?['name']?.toString()
+                    ?? contactData['name']?.toString()
+                    ?? contactData['title']?.toString()
+                    ?? mentionText;
+                final contact = ApiService.instance.getCachedContact(contactId) ??
+                    Contact(
+                      id: contactId,
+                      name: resolvedName,
+                      firstName: nameData?['firstName']?.toString() ?? resolvedName,
+                      lastName: nameData?['lastName']?.toString() ?? '',
+                      photoBaseUrl: contactData['baseUrl']?.toString(),
+                    );
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (ctx) => ChatScreen(
+                      chatId: chatId,
+                      contact: contact,
+                      myId: myId,
+                      isGroupChat: false,
+                      isChannel: false,
+                    ),
+                  ),
+                );
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Не удалось найти пользователя $mentionText'),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              }
+            };
+          spans.add(TextSpan(text: mentionText, style: mentionStyle, recognizer: recognizer));
+        } else {
+          // Это URL
+          final rawUrl = seg.$3;
+          final fullUrl = rawUrl.startsWith('http://') || rawUrl.startsWith('https://') || rawUrl.startsWith('ftp://')
+              ? rawUrl
+              : 'https://$rawUrl';
+          final urlStyle = bubbleLinkStyle ?? style.copyWith(
+            color: Colors.blue,
+            decoration: TextDecoration.underline,
+            decorationColor: Colors.blue,
+          );
+          final recognizer = TapGestureRecognizer()
+            ..onTap = () async {
+              final uri = Uri.tryParse(fullUrl);
+              if (uri != null) await launchUrl(uri, mode: LaunchMode.externalApplication);
+            };
+          spans.add(TextSpan(text: rawUrl, style: urlStyle, recognizer: recognizer));
+        }
+        pos = seg.$2;
+      }
+      if (pos < spanText.length) {
+        spans.add(TextSpan(text: spanText.substring(pos), style: style));
+      }
+    }
+
+    void addSpansForText(String spanText, TextStyle style) {
+      addSpansForSegment(spanText, style);
+    }
+
     while (start < text.length) {
       int end = start + 1;
       final style = styleForIndex(start);
-      while (end < text.length && styleForIndex(end) == style) {
+      final entityId = getEntityIdForIndex(start);
+      final linkUrl = getLinkUrlForIndex(start);
+      while (end < text.length &&
+          styleForIndex(end) == style &&
+          getEntityIdForIndex(end) == entityId &&
+          getLinkUrlForIndex(end) == linkUrl) {
         end++;
       }
-      spans.add(TextSpan(text: text.substring(start, end), style: style));
+
+      final spanText = text.substring(start, end);
+      final spanEntityId = getEntityIdForIndex(start);
+      final spanLinkUrl = getLinkUrlForIndex(start);
+
+      if (spanLinkUrl != null) {
+        final rawUrl = spanLinkUrl;
+        final fullUrl = rawUrl.startsWith('http://') ||
+                rawUrl.startsWith('https://') ||
+                rawUrl.startsWith('ftp://')
+            ? rawUrl
+            : 'https://$rawUrl';
+        final urlStyle = bubbleLinkStyle ??
+            style.copyWith(
+              color: Colors.blue,
+              decoration: TextDecoration.underline,
+              decorationColor: Colors.blue,
+            );
+        final recognizer = TapGestureRecognizer()
+          ..onTap = () async {
+            final uri = Uri.tryParse(fullUrl);
+            if (uri != null) {
+              await launchUrl(uri, mode: LaunchMode.externalApplication);
+            }
+          };
+        spans.add(
+          TextSpan(text: spanText, style: urlStyle, recognizer: recognizer),
+        );
+      } else if (spanEntityId != null) {
+        final recognizer = TapGestureRecognizer()
+          ..onTap = () {
+            openUserProfileById(context, spanEntityId);
+          };
+        spans.add(
+          TextSpan(
+            text: spanText,
+            style: style.copyWith(color: baseStyle.color),
+            recognizer: recognizer,
+          ),
+        );
+      } else {
+        addSpansForText(spanText, style);
+      }
       start = end;
     }
 
@@ -5045,14 +5852,20 @@ class ChatMessageBubble extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4.5),
       margin: _getMessageMargin(context),
       decoration: decoration,
-      child: SelectionArea(
-        contextMenuBuilder: (context, selectableRegionState) {
-          return AdaptiveTextSelectionToolbar.buttonItems(
-            anchors: selectableRegionState.contextMenuAnchors,
-            buttonItems: [],
-          );
-        },
-        child: content,
+      child: RepaintBoundary(
+        child: Builder(
+          builder: (context) {
+            return SelectionArea(
+              contextMenuBuilder: (context, selectableRegionState) {
+                return AdaptiveTextSelectionToolbar.buttonItems(
+                  anchors: selectableRegionState.contextMenuAnchors,
+                  buttonItems: [],
+                );
+              },
+              child: content,
+            );
+          },
+        ),
       ),
     );
   }
@@ -5062,7 +5875,8 @@ class ChatMessageBubble extends StatelessWidget {
       ThemeData.estimateBrightnessForColor(bubbleColor),
     ).isDark;
     if (isMe) {
-      return isDark ? Colors.white : Colors.blue[700]!;
+      // На тёмном пузырьке — светло-голубой, на светлом — стандартный синий
+      return isDark ? const Color(0xFF90CAF9) : Colors.blue[700]!;
     }
     return Colors.blue[700]!;
   }
@@ -5078,6 +5892,7 @@ class ChatMessageBubble extends StatelessWidget {
         builder: (context) => MouseRegion(
           cursor: SystemMouseCursors.click,
           child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
             onTap: () => openUserProfileById(context, message.senderId),
             child: AvatarCacheService().getAvatarWidget(
               avatarUrl,
@@ -5331,61 +6146,64 @@ class _VideoPreviewWidgetState extends State<_VideoPreviewWidget>
       ),
       child: GestureDetector(
         onTap: widget.onTap,
-        child: AspectRatio(
-          aspectRatio: 16 / 9,
-          child: ClipRRect(
-            borderRadius: widget.showNameHeader
-                ? const BorderRadius.only(
-                    bottomLeft: Radius.circular(12),
-                    bottomRight: Radius.circular(12),
-                  )
-                : BorderRadius.circular(12),
-            child: Stack(
-              alignment: Alignment.center,
-              fit: StackFit.expand,
-              children: [
-                (widget.highQualityUrl != null &&
-                            widget.highQualityUrl!.isNotEmpty) ||
-                        (widget.lowQualityBytes != null)
-                    ? _ProgressiveNetworkImage(
-                        key: ValueKey(
-                          'video_preview_image_${widget.messageId}_${widget.videoId}',
-                        ),
-                        url: widget.highQualityUrl ?? '',
-                        previewBytes: widget.lowQualityBytes,
-                        width: 220,
-                        height: 160,
-                        fit: BoxFit.cover,
-                        keepAlive: true,
-                      )
-                    : Container(
-                        color: Colors.black26,
-                        child: const Center(
-                          child: Icon(
-                            Icons.video_library_outlined,
-                            color: Colors.white,
-                            size: 40,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 300, maxWidth: 400),
+          child: AspectRatio(
+            aspectRatio: 16 / 9,
+            child: ClipRRect(
+              borderRadius: widget.showNameHeader
+                  ? const BorderRadius.only(
+                      bottomLeft: Radius.circular(12),
+                      bottomRight: Radius.circular(12),
+                    )
+                  : BorderRadius.circular(12),
+              child: Stack(
+                alignment: Alignment.center,
+                fit: StackFit.expand,
+                children: [
+                  (widget.highQualityUrl != null &&
+                              widget.highQualityUrl!.isNotEmpty) ||
+                          (widget.lowQualityBytes != null)
+                      ? _ProgressiveNetworkImage(
+                          key: ValueKey(
+                            'video_preview_image_${widget.messageId}_${widget.videoId}',
+                          ),
+                          url: widget.highQualityUrl ?? '',
+                          previewBytes: widget.lowQualityBytes,
+                          width: 220,
+                          height: 160,
+                          fit: BoxFit.cover,
+                          keepAlive: true,
+                        )
+                      : Container(
+                          color: Colors.black26,
+                          child: const Center(
+                            child: Icon(
+                              Icons.video_library_outlined,
+                              color: Colors.white,
+                              size: 40,
+                            ),
                           ),
                         ),
-                      ),
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.15),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.15),
+                    ),
+                    child: Icon(
+                      Icons.play_circle_filled_outlined,
+                      color: Colors.white.withValues(alpha: 0.95),
+                      size: 50,
+                      shadows: const [
+                        Shadow(
+                          color: Colors.black38,
+                          blurRadius: 4,
+                          offset: Offset(0, 2),
+                        ),
+                      ],
+                    ),
                   ),
-                  child: Icon(
-                    Icons.play_circle_filled_outlined,
-                    color: Colors.white.withValues(alpha: 0.95),
-                    size: 50,
-                    shadows: const [
-                      Shadow(
-                        color: Colors.black38,
-                        blurRadius: 4,
-                        offset: Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -5475,7 +6293,9 @@ class _ProgressiveNetworkImageState extends State<_ProgressiveNetworkImage>
         }
         return;
       }
-    } catch (_) {}
+    } catch (e) {
+      print('⚠️ Ошибка загрузки изображения из памяти: $e');
+    }
     if (_fullBytes == null) {
       await _download();
     }
@@ -5517,7 +6337,9 @@ class _ProgressiveNetworkImageState extends State<_ProgressiveNetworkImage>
           final f = io.File(path);
           await f.writeAsBytes(data, flush: true);
         }
-      } catch (_) {}
+      } catch (e) {
+        print('⚠️ Ошибка сохранения изображения на диск: $e');
+      }
       if (mounted && _fullBytes == null) {
         setState(() => _fullBytes = data);
       }
@@ -6180,8 +7002,9 @@ class _MessageContextMenuState extends State<_MessageContextMenu>
 
     if (left + menuWidth > _safeRight) left = _safeRight - menuWidth;
     if (left < _safeLeft) left = _safeLeft;
-    if (top + menuHeightForPosition > _safeBottom)
+    if (top + menuHeightForPosition > _safeBottom) {
       top = _safeBottom - menuHeightForPosition;
+    }
     if (top < _safeTop) top = _safeTop;
 
     if (_overrideLeft != null) left = _overrideLeft!;
@@ -6705,23 +7528,41 @@ class _FullScreenPhotoViewerState extends State<FullScreenPhotoViewer> {
   }
 
   Widget _buildPhotoWidget(Map<String, dynamic> photo) {
-    final url = photo['url'] ?? photo['baseUrl'];
-    if (url == null) return const SizedBox();
+    final url = (photo['url'] ?? photo['baseUrl'])?.toString();
+    if (url == null || url.isEmpty) return const SizedBox();
 
-    return Image.network(
-      url,
-      fit: BoxFit.contain,
-      loadingBuilder: (context, child, loadingProgress) {
-        if (loadingProgress == null) return child;
-        return const Center(
-          child: CircularProgressIndicator(color: Colors.white),
-        );
-      },
-      errorBuilder: (context, error, stackTrace) {
-        return const Center(
-          child: Icon(Icons.error, color: Colors.white, size: 48),
-        );
-      },
+    final baseUrl = url.split('?').first;
+    final previewUrl = url.contains('?')
+        ? '$baseUrl?size=medium&quality=high&format=jpeg'
+        : '$url?size=medium&quality=high&format=jpeg';
+    final fullUrl = url.contains('?')
+        ? '$baseUrl?size=original&quality=high&format=original'
+        : '$url?size=original&quality=high&format=original';
+
+    return Stack(
+      alignment: Alignment.center,
+      children: [
+        // Превью — уже в кэше Flutter, показывается мгновенно
+        Image.network(
+          previewUrl,
+          fit: BoxFit.contain,
+          errorBuilder: (_, __, ___) => const SizedBox(),
+        ),
+        // Оригинал грузится поверх и плавно появляется
+        Image.network(
+          fullUrl,
+          fit: BoxFit.contain,
+          frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+            if (wasSynchronouslyLoaded || frame != null) return child;
+            return const SizedBox();
+          },
+          errorBuilder: (context, error, stackTrace) {
+            return const Center(
+              child: Icon(Icons.error, color: Colors.white, size: 48),
+            );
+          },
+        ),
+      ],
     );
   }
 
@@ -6739,6 +7580,7 @@ class _FullScreenPhotoViewerState extends State<FullScreenPhotoViewer> {
               itemBuilder: (context, index) {
                 final photo = widget.allPhotos![index];
                 final controller = _transformationControllers[index];
+                Offset? _doubleTapLocalPosition;
 
                 return GestureDetector(
                   onTap: () {
@@ -6747,12 +7589,42 @@ class _FullScreenPhotoViewerState extends State<FullScreenPhotoViewer> {
                       Navigator.of(context).pop();
                     }
                   },
+                  onDoubleTapDown: (details) {
+                    _doubleTapLocalPosition = details.localPosition;
+                  },
+                  onDoubleTap: () {
+                    if (controller == null) return;
+                    final scale = controller.value.getMaxScaleOnAxis();
+                    if (scale > 1.1) {
+                      // Анзум — возвращаем к 1x
+                      controller.value = Matrix4.identity();
+                      setState(() => _isPanEnabled[index] = false);
+                    } else {
+                      // Зум в точку касания — 3x как в TG
+                      const zoomScale = 3.0;
+                      final pos = _doubleTapLocalPosition ?? Offset(
+                        MediaQuery.of(context).size.width / 2,
+                        MediaQuery.of(context).size.height / 2,
+                      );
+                      final x = -pos.dx * (zoomScale - 1);
+                      final y = -pos.dy * (zoomScale - 1);
+                      final zoomed = Matrix4.identity()
+                        ..translate(x, y)
+                        ..scale(zoomScale);
+                      controller.value = zoomed;
+                      setState(() => _isPanEnabled[index] = true);
+                    }
+                  },
                   child: InteractiveViewer(
                     transformationController: controller,
                     panEnabled: _isPanEnabled[index] ?? false,
                     boundaryMargin: const EdgeInsets.all(double.infinity),
                     minScale: 1.0,
                     maxScale: 5.0,
+                    onInteractionEnd: (details) {
+                      final scale = controller?.value.getMaxScaleOnAxis() ?? 1.0;
+                      setState(() => _isPanEnabled[index] = scale > 1.1);
+                    },
                     child: Center(child: _buildPhotoWidget(photo)),
                   ),
                 );
@@ -6976,7 +7848,9 @@ class _FullScreenPhotoViewerState extends State<FullScreenPhotoViewer> {
         try {
           final bytes = base64Decode(b64);
           return Image.memory(bytes, fit: BoxFit.cover);
-        } catch (_) {}
+        } catch (e) {
+          print('⚠️ Ошибка декодирования base64 превью фото: $e');
+        }
       }
     }
     return Container(
@@ -8154,12 +9028,16 @@ class _VideoCirclePlayerState extends State<_VideoCirclePlayer> {
 
       if (!mounted) return;
 
+      final videoHeaders = <String, String>{
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      };
+      final token = ApiService.instance.authToken;
+      if (token != null && token.isNotEmpty) {
+        videoHeaders['Authorization'] = 'Bearer $token';
+      }
       _controller = VideoPlayerController.networkUrl(
         Uri.parse(videoUrl),
-        httpHeaders: const {
-          'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        },
+        httpHeaders: videoHeaders,
       );
 
       await _controller!.initialize();
@@ -8287,7 +9165,14 @@ class _VideoCirclePlayerState extends State<_VideoCirclePlayer> {
                         ),
                       )
               else
-                VideoPlayer(_controller!),
+                FittedBox(
+                  fit: BoxFit.cover,
+                  child: SizedBox(
+                    width: _controller!.value.size.width,
+                    height: _controller!.value.size.height,
+                    child: VideoPlayer(_controller!),
+                  ),
+                ),
 
               if (_isLoading)
                 Container(
@@ -8452,7 +9337,9 @@ class _SinglePhotoWidgetState extends State<_SinglePhotoWidget> {
         final b64 = preview.substring(idx + 7);
         try {
           previewBytes = base64Decode(b64);
-        } catch (_) {}
+        } catch (e) {
+          print('⚠️ Ошибка декодирования base64 превью: $e');
+        }
       }
     }
 

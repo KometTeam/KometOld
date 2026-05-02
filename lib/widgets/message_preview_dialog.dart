@@ -241,23 +241,6 @@ class ControlMessageChip extends StatelessWidget {
 }
 
 class MessagePreviewDialog {
-  static String _formatTimestamp(int timestamp) {
-    final dt = DateTime.fromMillisecondsSinceEpoch(timestamp);
-    final now = DateTime.now();
-    if (now.day == dt.day && now.month == dt.month && now.year == dt.year) {
-      return DateFormat('HH:mm', 'ru').format(dt);
-    } else {
-      final yesterday = now.subtract(const Duration(days: 1));
-      if (dt.day == yesterday.day &&
-          dt.month == yesterday.month &&
-          dt.year == yesterday.year) {
-        return 'Вчера';
-      } else {
-        return DateFormat('d MMM', 'ru').format(dt);
-      }
-    }
-  }
-
   static bool _isSavedMessages(Chat chat) {
     return chat.id == 0;
   }

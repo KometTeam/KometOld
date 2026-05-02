@@ -166,30 +166,30 @@ class _ReadSettingsDialogContentState extends State<ReadSettingsDialogContent> {
                       title: const Text('По умолчанию'),
                       subtitle: Text(_getDefaultDescription()),
                     ),
-                    RadioListTile<String>(
+                    const RadioListTile<String>(
                       value: 'disabled',
-                      title: const Text('Отключить чтение'),
+                      title: Text('Отключить чтение'),
                       subtitle: const Text(
                         'Сообщения не будут отмечаться как прочитанные',
                       ),
                     ),
-                    RadioListTile<String>(
+                    const RadioListTile<String>(
                       value: 'action',
-                      title: const Text('Чтение при действиях'),
+                      title: Text('Чтение при действиях'),
                       subtitle: const Text(
                         'Отмечать прочитанным при отправке сообщения',
                       ),
                     ),
-                    RadioListTile<String>(
+                    const RadioListTile<String>(
                       value: 'enter',
-                      title: const Text('Чтение при входе в чат'),
+                      title: Text('Чтение при входе в чат'),
                       subtitle: const Text(
                         'Отмечать прочитанным при открытии чата',
                       ),
                     ),
-                    RadioListTile<String>(
+                    const RadioListTile<String>(
                       value: 'both',
-                      title: const Text('Чтение при действиях и при входе'),
+                      title: Text('Чтение при действиях и при входе'),
                       subtitle: const Text(
                         'Отмечать прочитанным при отправке и при открытии',
                       ),

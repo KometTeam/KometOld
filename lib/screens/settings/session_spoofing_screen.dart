@@ -19,6 +19,7 @@ class SessionSpoofingScreen extends StatefulWidget {
 }
 
 class _SessionSpoofingScreenState extends State<SessionSpoofingScreen> {
+  static const String _hardcodedVersion = '26.3.0';
   final _random = Random();
   final _deviceNameController = TextEditingController();
   final _osVersionController = TextEditingController();
@@ -60,7 +61,7 @@ class _SessionSpoofingScreenState extends State<SessionSpoofingScreen> {
       _localeController.text = prefs.getString('spoof_locale') ?? '';
       _deviceIdController.text = prefs.getString('spoof_deviceid') ?? '';
       _appVersionController.text =
-          prefs.getString('spoof_appversion') ?? '25.21.3';
+          prefs.getString('spoof_appversion') ?? _hardcodedVersion;
       _selectedArch = prefs.getString('spoof_arch') ?? 'arm64-v8a';
       _buildNumberController.text =
           prefs.getInt('spoof_buildnumber')?.toString() ?? '6498';
@@ -84,7 +85,7 @@ class _SessionSpoofingScreenState extends State<SessionSpoofingScreen> {
     final pixelRatio = View.of(context).devicePixelRatio;
     final size = View.of(context).physicalSize;
 
-    _appVersionController.text = '25.21.3';
+    _appVersionController.text = _hardcodedVersion;
     _localeController.text = Platform.localeName.split('_').first;
 
     // Generate screen in Android format: "xxhdpi 420dpi 1080x2400"
@@ -149,15 +150,6 @@ class _SessionSpoofingScreenState extends State<SessionSpoofingScreen> {
         .toList();
 
     if (filteredPresets.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Нет доступных пресетов для типа устройства $_selectedDeviceType.',
-            ),
-          ),
-        );
-      }
       return;
     }
 
@@ -170,7 +162,7 @@ class _SessionSpoofingScreenState extends State<SessionSpoofingScreen> {
       _deviceNameController.text = preset.deviceName;
       _osVersionController.text = preset.osVersion;
       _screenController.text = preset.screen;
-      _appVersionController.text = '25.21.3';
+      _appVersionController.text = _hardcodedVersion;
       _deviceIdController.text = _generateDeviceId();
 
       _selectedDeviceType = preset.deviceType;
@@ -239,7 +231,8 @@ class _SessionSpoofingScreenState extends State<SessionSpoofingScreen> {
       'build_number': _buildNumberController.text,
     };
 
-    final oldAppVersion = prefs.getString('spoof_appversion') ?? '25.21.3';
+    final oldAppVersion =
+        prefs.getString('spoof_appversion') ?? _hardcodedVersion;
     final newAppVersion = _appVersionController.text;
 
     bool otherDataChanged = false;
@@ -251,20 +244,37 @@ class _SessionSpoofingScreenState extends State<SessionSpoofingScreen> {
     }
 
     final appVersionChanged = oldAppVersion != newAppVersion;
+    final isChangingAwayFromHardcoded = newAppVersion != _hardcodedVersion;
+
+    if (appVersionChanged && isChangingAwayFromHardcoded) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Ты уверен?'),
+          content: const Text(
+            'Приложение может начать работать нестабильно из-за несовместимости API',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Отмена'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Да'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) {
+        return;
+      }
+    }
 
     if (appVersionChanged && !otherDataChanged) {
       await _saveAllData(prefs);
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Перезайди!'),
-            duration: Duration(seconds: 3),
-          ),
-        );
-
-        Navigator.of(context).pop();
-      }
+      Navigator.of(context).pop();
     } else {
       final confirmed = await showDialog<bool>(
         context: context,
@@ -291,16 +301,7 @@ class _SessionSpoofingScreenState extends State<SessionSpoofingScreen> {
       try {
         await ApiService.instance.performFullReconnection();
 
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Настройки применены. Перезайдите в приложение.'),
-              backgroundColor: Colors.green,
-            ),
-          );
-
-          Navigator.of(context).pop();
-        }
+        Navigator.of(context).pop();
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -335,26 +336,8 @@ class _SessionSpoofingScreenState extends State<SessionSpoofingScreen> {
     if (_isCheckingVersion) return;
     setState(() => _isCheckingVersion = true);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Проверяю последнюю версию...')),
-    );
-
     try {
       final info = await VersionChecker.getLatestVersionInfo();
-      if (mounted) {
-        setState(() {
-          _appVersionController.text = info['versionName'];
-          _buildNumberController.text = info['versionCode'].toString();
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Обновлено: ${info['versionName']} (Build ${info['versionCode']})',
-            ),
-            backgroundColor: Colors.green.shade700,
-          ),
-        );
-      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -369,6 +352,12 @@ class _SessionSpoofingScreenState extends State<SessionSpoofingScreen> {
         setState(() => _isCheckingVersion = false);
       }
     }
+  }
+
+  void _restoreHardcodedVersion() {
+    setState(() {
+      _appVersionController.text = _hardcodedVersion;
+    });
   }
 
   void _generateNewDeviceId() {
@@ -796,6 +785,21 @@ class _SessionSpoofingScreenState extends State<SessionSpoofingScreen> {
                 shape: const StadiumBorder(),
               ),
               child: const Text('Сгенерировать'),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 2,
+            child: FilledButton.tonal(
+              onPressed: _restoreHardcodedVersion,
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  vertical: 16,
+                  horizontal: 16,
+                ),
+                shape: const StadiumBorder(),
+              ),
+              child: const Text('R.S.V'),
             ),
           ),
           const SizedBox(width: 12),

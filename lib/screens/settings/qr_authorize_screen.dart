@@ -306,10 +306,6 @@ class _QrAuthorizeScreenState extends State<QrAuthorizeScreen>
       await api.sendRawRequest(1, {"interactive": true});
       await api.sendRawRequest(96, {});
       await api.sendRawRequest(290, {"qrLink": qrLink});
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Запрос авторизации отправлен')),
-      );
       return true;
     } catch (e) {
       if (mounted) {
@@ -371,9 +367,9 @@ class _QrAuthorizeScreenState extends State<QrAuthorizeScreen>
                     color: Colors.white.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Row(
+                  child: const Row(
                     mainAxisSize: MainAxisSize.min,
-                    children: const [
+                    children: [
                       Icon(Icons.info_outline, color: Colors.white70, size: 18),
                       SizedBox(width: 8),
                       Text(
@@ -456,13 +452,13 @@ class _CornerPainter extends CustomPainter {
 
     // Top-left
     canvas.drawLine(
-      Offset(0, strokeWidth / 2),
-      Offset(cornerLength, strokeWidth / 2),
+      const Offset(0, strokeWidth / 2),
+      const Offset(cornerLength, strokeWidth / 2),
       paint,
     );
     canvas.drawLine(
-      Offset(strokeWidth / 2, 0),
-      Offset(strokeWidth / 2, cornerLength),
+      const Offset(strokeWidth / 2, 0),
+      const Offset(strokeWidth / 2, cornerLength),
       paint,
     );
 

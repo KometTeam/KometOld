@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:gwid/services/contact_local_names_service.dart';
 
@@ -64,7 +65,7 @@ class _ContactAvatarWidgetState extends State<ContactAvatarWidget> {
       }
     }
 
-    if (mounted) {
+    if (mounted && _localAvatarPath != null) {
       setState(() {
         _localAvatarPath = null;
       });
@@ -79,7 +80,7 @@ class _ContactAvatarWidgetState extends State<ContactAvatarWidget> {
         final path = widget.originalAvatarUrl!.replaceFirst('file://', '');
         return FileImage(File(path));
       }
-      return NetworkImage(widget.originalAvatarUrl!);
+      return CachedNetworkImageProvider(widget.originalAvatarUrl!);
     }
     return null;
   }
@@ -96,7 +97,9 @@ class _ContactAvatarWidgetState extends State<ContactAvatarWidget> {
       backgroundImage: avatarImage,
       child: avatarImage == null
           ? Text(
-              widget.fallbackText ?? '?',
+              widget.fallbackText != null && widget.fallbackText!.isNotEmpty
+                  ? widget.fallbackText![0].toUpperCase()
+                  : '?',
               style: TextStyle(
                 color:
                     widget.textColor ?? theme.colorScheme.onSecondaryContainer,

@@ -12,37 +12,14 @@ class AuthSettingsScreen extends StatefulWidget {
   State<AuthSettingsScreen> createState() => _AuthSettingsScreenState();
 }
 
-class _AuthSettingsScreenState extends State<AuthSettingsScreen>
-    with SingleTickerProviderStateMixin {
+class _AuthSettingsScreenState extends State<AuthSettingsScreen> {
   bool _hasCustomAnonymity = false;
   bool _hasProxyConfigured = false;
-  late AnimationController _animationController;
-  late Animation<double> _fadeAnimation;
-  late Animation<Offset> _slideAnimation;
 
   @override
   void initState() {
     super.initState();
-    _animationController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 600),
-    );
-
-    _fadeAnimation = CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeOut,
-    );
-
-    _slideAnimation =
-        Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero).animate(
-          CurvedAnimation(
-            parent: _animationController,
-            curve: Curves.easeOutCubic,
-          ),
-        );
-
     _checkSettings();
-    _animationController.forward();
   }
 
   Future<void> _checkSettings() async {
@@ -68,23 +45,26 @@ class _AuthSettingsScreenState extends State<AuthSettingsScreen>
 
   Future<void> _navigateToAnonymitySettings() async {
     await Navigator.of(context).push(
-      MaterialPageRoute(builder: (context) => const SessionSpoofingScreen()),
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => const SessionSpoofingScreen(),
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+      ),
     );
     _checkAnonymitySettings();
   }
 
   Future<void> _navigateToProxySettings() async {
     await Navigator.of(context).push(
-      MaterialPageRoute(builder: (context) => const ProxySettingsScreen()),
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => const ProxySettingsScreen(),
+        transitionDuration: Duration.zero,
+        reverseTransitionDuration: Duration.zero,
+      ),
     );
     _checkProxySettings();
   }
 
-  @override
-  void dispose() {
-    _animationController.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -94,15 +74,7 @@ class _AuthSettingsScreenState extends State<AuthSettingsScreen>
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color.lerp(colors.surface, colors.primary, 0.05)!,
-              colors.surface,
-              Color.lerp(colors.surface, colors.tertiary, 0.05)!,
-            ],
-          ),
+          color: colors.surface,
         ),
         child: SafeArea(
           child: Column(
@@ -145,10 +117,6 @@ class _AuthSettingsScreenState extends State<AuthSettingsScreen>
               ),
 
               Expanded(
-                child: FadeTransition(
-                  opacity: _fadeAnimation,
-                  child: SlideTransition(
-                    position: _slideAnimation,
                     child: ListView(
                       padding: const EdgeInsets.all(24.0),
                       children: [
@@ -162,27 +130,11 @@ class _AuthSettingsScreenState extends State<AuthSettingsScreen>
                               : 'Настройте анонимность для скрытия данных устройства',
                           isConfigured: _hasCustomAnonymity,
                           onTap: _navigateToAnonymitySettings,
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: _hasCustomAnonymity
-                                ? [
-                                    Color.lerp(
-                                      colors.primaryContainer,
-                                      colors.primary,
-                                      0.2,
-                                    )!,
-                                    colors.primaryContainer,
-                                  ]
-                                : [
-                                    colors.surfaceContainerHighest,
-                                    colors.surfaceContainer,
-                                  ],
-                          ),
+                      color: _hasCustomAnonymity
+                          ? colors.primaryContainer
+                          : colors.surfaceContainer,
                         ),
-
                         const SizedBox(height: 16),
-
                         _SettingsCard(
                           icon: _hasProxyConfigured
                               ? Icons.vpn_key
@@ -193,27 +145,11 @@ class _AuthSettingsScreenState extends State<AuthSettingsScreen>
                               : 'Настройте прокси-сервер для безопасного подключения',
                           isConfigured: _hasProxyConfigured,
                           onTap: _navigateToProxySettings,
-                          gradient: LinearGradient(
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                            colors: _hasProxyConfigured
-                                ? [
-                                    Color.lerp(
-                                      colors.tertiaryContainer,
-                                      colors.tertiary,
-                                      0.2,
-                                    )!,
-                                    colors.tertiaryContainer,
-                                  ]
-                                : [
-                                    colors.surfaceContainerHighest,
-                                    colors.surfaceContainer,
-                                  ],
-                          ),
+                      color: _hasProxyConfigured
+                          ? colors.tertiaryContainer
+                          : colors.surfaceContainer,
                         ),
-
                         const SizedBox(height: 32),
-
                         Container(
                           padding: const EdgeInsets.all(20),
                           decoration: BoxDecoration(
@@ -247,8 +183,6 @@ class _AuthSettingsScreenState extends State<AuthSettingsScreen>
                           ),
                         ),
                       ],
-                    ),
-                  ),
                 ),
               ),
             ],
@@ -265,7 +199,7 @@ class _SettingsCard extends StatelessWidget {
   final String description;
   final bool isConfigured;
   final VoidCallback onTap;
-  final Gradient gradient;
+  final Color color;
 
   const _SettingsCard({
     required this.icon,
@@ -273,7 +207,7 @@ class _SettingsCard extends StatelessWidget {
     required this.description,
     required this.isConfigured,
     required this.onTap,
-    required this.gradient,
+    required this.color,
   });
 
   @override
@@ -285,10 +219,12 @@ class _SettingsCard extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
+        splashColor: Colors.transparent,
+        highlightColor: Colors.transparent,
         borderRadius: BorderRadius.circular(20),
         child: Container(
           decoration: BoxDecoration(
-            gradient: gradient,
+            color: color,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
               color: isConfigured

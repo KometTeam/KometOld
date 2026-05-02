@@ -2,9 +2,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:gwid/api/api_service.dart';
 import 'package:gwid/models/channel.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class SearchChannelsScreen extends StatefulWidget {
-  const SearchChannelsScreen({super.key});
+  final Set<int> existingChatIds;
+
+  const SearchChannelsScreen({super.key, this.existingChatIds = const {}});
 
   @override
   State<SearchChannelsScreen> createState() => _SearchChannelsScreenState();
@@ -48,18 +51,6 @@ class _SearchChannelsScreenState extends State<SearchChannelsScreen> {
               .map((channelJson) => Channel.fromJson(channelJson))
               .toList();
         }
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Найдено каналов: ${_foundChannels.length}'),
-            backgroundColor: Colors.green,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            behavior: SnackBarBehavior.floating,
-            margin: const EdgeInsets.all(10),
-          ),
-        );
       }
 
       if (message['type'] == 'channels_not_found') {
@@ -145,7 +136,7 @@ class _SearchChannelsScreenState extends State<SearchChannelsScreen> {
   void _viewChannel(Channel channel) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => ChannelDetailsScreen(channel: channel),
+        builder: (context) => ChannelDetailsScreen(channel: channel, existingChatIds: widget.existingChatIds),
       ),
     );
   }
@@ -323,7 +314,7 @@ class _SearchChannelsScreenState extends State<SearchChannelsScreen> {
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.warning, color: Colors.orange),
+                        const Icon(Icons.warning, color: Colors.orange),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
@@ -450,8 +441,9 @@ class _SearchChannelsScreenState extends State<SearchChannelsScreen> {
 
 class ChannelDetailsScreen extends StatefulWidget {
   final Channel channel;
+  final Set<int> existingChatIds;
 
-  const ChannelDetailsScreen({super.key, required this.channel});
+  const ChannelDetailsScreen({super.key, required this.channel, this.existingChatIds = const {}});
 
   @override
   State<ChannelDetailsScreen> createState() => _ChannelDetailsScreenState();
@@ -462,11 +454,27 @@ class _ChannelDetailsScreenState extends State<ChannelDetailsScreen> {
   bool _isLoading = false;
   String? _webAppUrl;
   String? _errorMessage;
+  bool _isSubscribed = false;
+
+  static String _prefsKey(int channelId) => 'channel_subscribed_$channelId';
 
   @override
   void initState() {
     super.initState();
     _listenToApiMessages();
+    _loadSubscribedStatus();
+  }
+
+  Future<void> _loadSubscribedStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    final subscribed = prefs.getBool(_prefsKey(widget.channel.id)) ?? false;
+    if (mounted) setState(() => _isSubscribed = subscribed);
+  }
+
+  Future<void> _saveSubscribedStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_prefsKey(widget.channel.id), true);
+    if (mounted) setState(() => _isSubscribed = true);
   }
 
   @override
@@ -487,36 +495,13 @@ class _ChannelDetailsScreenState extends State<ChannelDetailsScreen> {
 
         final payload = message['payload'];
         _webAppUrl = payload['url'] as String?;
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Канал открыт'),
-            backgroundColor: Colors.green,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            behavior: SnackBarBehavior.floating,
-            margin: const EdgeInsets.all(10),
-          ),
-        );
       }
 
       if (message['type'] == 'channel_subscribed') {
         setState(() {
           _isLoading = false;
         });
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Подписка на канал успешна!'),
-            backgroundColor: Colors.green,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            behavior: SnackBarBehavior.floating,
-            margin: const EdgeInsets.all(10),
-          ),
-        );
+        _saveSubscribedStatus();
       }
 
       if (message['type'] == 'channel_error') {
@@ -793,17 +778,36 @@ class _ChannelDetailsScreenState extends State<ChannelDetailsScreen> {
                     const SizedBox(height: 12),
                     SizedBox(
                       width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: _isLoading ? null : _subscribeToChannel,
-                        icon: const Icon(Icons.subscriptions),
-                        label: const Text('Подписаться на канал'),
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size(double.infinity, 50),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                      ),
+                      child: (widget.existingChatIds.contains(widget.channel.id) || _isSubscribed)
+                          ? Container(
+                              height: 50,
+                              decoration: BoxDecoration(
+                                color: colors.secondaryContainer,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.check_circle, color: colors.onSecondaryContainer),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Вы уже подписаны',
+                                    style: TextStyle(color: colors.onSecondaryContainer, fontWeight: FontWeight.w500),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : OutlinedButton.icon(
+                              onPressed: _isLoading ? null : _subscribeToChannel,
+                              icon: const Icon(Icons.subscriptions),
+                              label: const Text('Подписаться на канал'),
+                              style: OutlinedButton.styleFrom(
+                                minimumSize: const Size(double.infinity, 50),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
                     ),
                   ],
                 ),
@@ -844,21 +848,7 @@ class _ChannelDetailsScreenState extends State<ChannelDetailsScreen> {
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton.icon(
-                            onPressed: () {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: const Text(
-                                    'Открытие веб-приложения...',
-                                  ),
-                                  backgroundColor: Colors.blue,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  behavior: SnackBarBehavior.floating,
-                                  margin: const EdgeInsets.all(10),
-                                ),
-                              );
-                            },
+                            onPressed: () {},
                             icon: const Icon(Icons.open_in_browser),
                             label: const Text('Открыть веб-приложение'),
                             style: ElevatedButton.styleFrom(
@@ -888,7 +878,7 @@ class _ChannelDetailsScreenState extends State<ChannelDetailsScreen> {
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.error, color: Colors.red),
+                        const Icon(Icons.error, color: Colors.red),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(

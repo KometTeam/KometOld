@@ -2,12 +2,14 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:gwid/utils/theme_provider.dart';
+import 'package:gwid/theme/theme.dart';
 
 class ChatsScreenScaffold extends StatelessWidget {
   final Widget bodyContent;
   final PreferredSizeWidget Function(BuildContext) buildAppBar;
   final Widget Function(BuildContext) buildAppDrawer;
   final VoidCallback? onAddPressed;
+  final bool showFab;
 
   const ChatsScreenScaffold({
     super.key,
@@ -15,6 +17,7 @@ class ChatsScreenScaffold extends StatelessWidget {
     required this.buildAppBar,
     required this.buildAppDrawer,
     this.onAddPressed,
+    this.showFab = true,
   });
 
   @override
@@ -54,7 +57,7 @@ class ChatsScreenScaffold extends StatelessWidget {
                   child: Row(children: [Expanded(child: bodyContent)]),
                 )
               : Row(children: [Expanded(child: bodyContent)]),
-          floatingActionButton: onAddPressed != null
+          floatingActionButton: onAddPressed != null && showFab
               ? FloatingActionButton(
                   onPressed: onAddPressed,
                   tooltip: 'Создать',

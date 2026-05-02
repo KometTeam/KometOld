@@ -57,15 +57,6 @@ class _ProxySettingsScreenState extends State<ProxySettingsScreen> {
 
     try {
       await ProxyService.instance.checkProxy(settingsToTest);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Прокси доступен и работает'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -102,14 +93,6 @@ class _ProxySettingsScreenState extends State<ProxySettingsScreen> {
       await ProxyService.instance.saveProxySettings(newSettings);
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Настройки прокси сохранены. Перезайдите, чтобы применить.',
-            ),
-            backgroundColor: Colors.green,
-          ),
-        );
         Navigator.of(context).pop();
       }
     }
