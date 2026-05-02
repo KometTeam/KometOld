@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:gwid/services/cache_service.dart';
+import 'package:gwid/services/cache_settings_service.dart';
 import 'package:gwid/models/profile.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -9,16 +10,20 @@ class ProfileCacheService {
   ProfileCacheService._internal();
 
   final CacheService _cacheService = CacheService();
+  final CacheSettingsService _settingsService = CacheSettingsService();
 
   static const String _profileKey = 'my_profile_data';
   static const String _profileAvatarKey = 'my_profile_avatar';
-  static const Duration _profileTTL = Duration(days: 30);
+
+  // TTL берется из настроек
+  Duration get _profileTTL => _settingsService.currentSettings.profileTTL;
 
   bool _initialized = false;
 
   Future<void> initialize() async {
     if (_initialized) return;
     await _cacheService.initialize();
+    await _settingsService.initialize();
     _initialized = true;
     print('✅ ProfileCacheService инициализирован');
   }

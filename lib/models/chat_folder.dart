@@ -6,7 +6,7 @@ class ChatFolder {
   final List<dynamic> filters;
   final bool hideEmpty;
   final List<ChatFolderWidget> widgets;
-  final List<String>? favorites;
+  final List<int>? favorites;
   final Map<String, dynamic>? filterSubjects;
   final List<int>? options;
 
@@ -18,31 +18,60 @@ class ChatFolder {
     required this.filters,
     required this.hideEmpty,
     required this.widgets,
-    this.favorites,
+    this.favorites,  // ← Теперь List<int>?
     this.filterSubjects,
     this.options,
   });
 
   factory ChatFolder.fromJson(Map<String, dynamic> json) {
     return ChatFolder(
-      id: json['id'],
-      title: json['title'],
-      emoji: json['emoji'],
-      include: json['include'] != null ? List<int>.from(json['include']) : null,
-      filters: json['filters'] != null
-          ? List<dynamic>.from(json['filters'])
-          : [],
+      id: json['id'].toString(),
+      title: json['title']?.toString() ?? 'Без названия',
+      emoji: json['emoji']?.toString(),
+
+      //  Безопасный парсинг include
+      include: (json['include'] as List<dynamic>?)
+          ?.map((e) {
+            if (e is int) return e;
+            if (e is String) return int.tryParse(e) ?? 0;
+            return 0;
+          })
+          .toList(),
+
+      //  Безопасный парсинг filters
+      filters: (json['filters'] as List<dynamic>?)
+          ?.map((e) {
+            if (e is int) return e;
+            if (e is String) return int.tryParse(e) ?? 0;
+            return 0;
+          })
+          .toList() ?? [],
+
       hideEmpty: json['hideEmpty'] ?? false,
-      widgets:
-          (json['widgets'] as List<dynamic>?)
-              ?.map((widget) => ChatFolderWidget.fromJson(widget))
-              .toList() ??
+      widgets: (json['widgets'] as List<dynamic>?)
+          ?.map((widget) => ChatFolderWidget.fromJson(widget))
+          .toList() ??
           [],
-      favorites: json['favorites'] != null
-          ? List<String>.from(json['favorites'])
-          : null,
+
+      //  Безопасный парсинг favorites
+      favorites: (json['favorites'] as List<dynamic>?)
+          ?.map((e) {
+            if (e is int) return e;
+            if (e is String) return int.tryParse(e) ?? 0;
+            return 0;
+          })
+          .toList(),
+
       filterSubjects: json['filterSubjects'],
-      options: json['options'] != null ? List<int>.from(json['options']) : null,
+
+      // Безопасный парсинг options
+      options: (json['options'] as List<dynamic>?)
+          ?.map((e) {
+            if (e is int) return e;
+            if (e is String) return int.tryParse(e) ?? 0;
+            return 0;
+          })
+          .toList(),
     );
   }
 }

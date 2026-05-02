@@ -290,7 +290,7 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen>
             controller: controller,
             keyboardType: TextInputType.phone,
             autofocus: true,
-            decoration: InputDecoration(
+            decoration: const InputDecoration(
               hintText: '+123',
               prefixText: '+',
               border: const OutlineInputBorder(),

@@ -6,6 +6,7 @@ import 'package:gwid/screens/phone_entry_screen.dart';
 import 'package:provider/provider.dart';
 import 'package:gwid/utils/theme_provider.dart';
 import 'package:gwid/api/api_service.dart';
+import 'package:gwid/theme/theme.dart';
 
 class ProfileMenuDialog extends StatefulWidget {
   final Profile? myProfile;
@@ -81,7 +82,7 @@ class _ProfileMenuDialogState extends State<ProfileMenuDialog> {
                     const SizedBox(height: 8),
                     Container(
                       decoration: BoxDecoration(
-                        color: Color(0x0ff33333),
+                        color: const Color(0x0ff33333),
                         borderRadius: BorderRadius.circular(24),
                       ),
                       padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),

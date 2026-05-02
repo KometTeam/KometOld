@@ -67,32 +67,32 @@ class RetryStrategy {
   static final Map<ErrorType, RetryConfig> _defaultErrorConfigs = {
     ErrorType.network: RetryConfig(
       maxAttempts: 15,
-      baseDelay: Duration(seconds: 2),
-      maxDelay: Duration(minutes: 10),
+      baseDelay: const Duration(seconds: 2),
+      maxDelay: const Duration(minutes: 10),
       backoffMultiplier: 1.5,
     ),
     ErrorType.server: RetryConfig(
       maxAttempts: 8,
-      baseDelay: Duration(seconds: 5),
-      maxDelay: Duration(minutes: 3),
+      baseDelay: const Duration(seconds: 5),
+      maxDelay: const Duration(minutes: 3),
       backoffMultiplier: 2.0,
     ),
     ErrorType.authentication: RetryConfig(
       maxAttempts: 3,
-      baseDelay: Duration(seconds: 1),
-      maxDelay: Duration(seconds: 10),
+      baseDelay: const Duration(seconds: 1),
+      maxDelay: const Duration(seconds: 10),
       backoffMultiplier: 1.0,
     ),
     ErrorType.protocol: RetryConfig(
       maxAttempts: 5,
-      baseDelay: Duration(seconds: 2),
-      maxDelay: Duration(minutes: 2),
+      baseDelay: const Duration(seconds: 2),
+      maxDelay: const Duration(minutes: 2),
       backoffMultiplier: 1.5,
     ),
     ErrorType.unknown: RetryConfig(
       maxAttempts: 5,
-      baseDelay: Duration(seconds: 3),
-      maxDelay: Duration(minutes: 5),
+      baseDelay: const Duration(seconds: 3),
+      maxDelay: const Duration(minutes: 5),
       backoffMultiplier: 2.0,
     ),
   };

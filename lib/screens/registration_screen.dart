@@ -173,19 +173,7 @@ class _RegistrationScreenState extends State<RegistrationScreen>
 
               if (mounted) {
                 setState(() => _isLoading = false);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text(
-                      'Регистрация завершена! Добро пожаловать!',
-                    ),
-                    backgroundColor: Colors.green,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    behavior: SnackBarBehavior.floating,
-                    margin: const EdgeInsets.all(10),
-                  ),
-                );
+                // Просто переходим на главный экран без снекбара
                 Navigator.of(context).pushAndRemoveUntil(
                   MaterialPageRoute(builder: (context) => const HomeScreen()),
                   (route) => false,
@@ -254,20 +242,7 @@ class _RegistrationScreenState extends State<RegistrationScreen>
     final firstName = _firstNameController.text.trim();
     final lastName = _lastNameController.text.trim();
 
-    if (firstName.isEmpty || lastName.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Пожалуйста, заполните все поля'),
-          backgroundColor: Theme.of(context).colorScheme.error,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          behavior: SnackBarBehavior.floating,
-          margin: const EdgeInsets.all(10),
-        ),
-      );
-      return;
-    }
+    return;
 
     setState(() => _isLoading = true);
 

@@ -32,11 +32,13 @@ class _ContactSelectionScreenState extends State<ContactSelectionScreen> {
 
   Future<void> _loadContacts() async {
     try {
-      final data = await ApiService.instance.getChatsAndContacts();
+      final data = await ApiService.instance.getChatsAndContacts(force: true);
       final contactsJson = data['contacts'] as List<dynamic>;
+      final myId = int.tryParse(ApiService.instance.userId ?? '');
 
       final contacts = contactsJson
           .map((json) => Contact.fromJson(json as Map<String, dynamic>))
+          .where((k) => k.id != 0 && k.id != myId)
           .toList();
 
       // Remove duplicates by contact ID
@@ -45,6 +47,11 @@ class _ContactSelectionScreenState extends State<ContactSelectionScreen> {
         uniqueContacts[contact.id] = contact;
       }
       final deduplicatedContacts = uniqueContacts.values.toList();
+
+      // Sort alphabetically
+      deduplicatedContacts.sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
 
       setState(() {
         _contacts = deduplicatedContacts;

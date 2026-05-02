@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:gwid/consts.dart';
@@ -7,6 +9,7 @@ import 'package:gwid/screens/manage_account_screen.dart';
 import 'package:gwid/screens/settings/appearance_settings_screen.dart';
 import 'package:gwid/screens/settings/notification_settings_screen.dart';
 import 'package:gwid/screens/settings/privacy_security_screen.dart';
+import 'package:gwid/screens/encryption_settings_screen.dart';
 import 'package:gwid/screens/settings/storage_screen.dart';
 import 'package:gwid/screens/settings/network_settings_screen.dart';
 import 'package:gwid/screens/settings/bypass_screen.dart';
@@ -15,7 +18,7 @@ import 'package:gwid/screens/debug_screen.dart';
 import 'package:gwid/screens/settings/komet_misc_screen.dart';
 import 'package:gwid/screens/settings/special_settings_screen.dart';
 import 'package:gwid/screens/settings/optimization_screen.dart';
-// import 'package:gwid/screens/settings/plugins_screen.dart';
+import 'package:gwid/screens/settings/chat_settings_screen.dart';
 import 'package:gwid/screens/settings/plugin_section_screen.dart';
 import 'package:gwid/plugins/plugin_service.dart';
 import 'package:gwid/utils/theme_provider.dart';
@@ -45,15 +48,16 @@ class _SettingsScreenState extends State<SettingsScreen>
   bool _isProfileLoading = true;
   int _versionTapCount = 0;
   DateTime? _lastTapTime;
+  bool _showFullPhoneNumber = false;
 
   String _currentModalScreen = 'main';
 
   late AnimationController _animationController;
-  late Animation<double> _fadeAnimation;
-  late Animation<Offset> _slideAnimation;
 
   final ScrollController _scrollController = ScrollController();
   double _overscrollOffset = 0.0;
+
+  StreamSubscription<Map<String, dynamic>>? _profileUpdateSubscription;
 
   @override
   void initState() {
@@ -61,21 +65,9 @@ class _SettingsScreenState extends State<SettingsScreen>
 
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 600),
+      duration: const Duration(milliseconds: 300),
     );
 
-    _fadeAnimation = CurvedAnimation(
-      parent: _animationController,
-      curve: Curves.easeOut,
-    );
-
-    _slideAnimation =
-        Tween<Offset>(begin: const Offset(0, 0.1), end: Offset.zero).animate(
-          CurvedAnimation(
-            parent: _animationController,
-            curve: Curves.easeOutCubic,
-          ),
-        );
 
     if (widget.myProfile != null) {
       _myProfile = widget.myProfile;
@@ -83,6 +75,18 @@ class _SettingsScreenState extends State<SettingsScreen>
     } else {
       _loadMyProfile();
     }
+
+    _profileUpdateSubscription = ApiService.instance.messages.listen((message) {
+      if (message['opcode'] == 159 && mounted) {
+        final payload = message['payload'] as Map<String, dynamic>?;
+        final profileData = payload?['profile'] as Map<String, dynamic>?;
+        if (profileData != null) {
+          setState(() {
+            _myProfile = Profile.fromJson(profileData);
+          });
+        }
+      }
+    });
 
     _animationController.forward();
   }
@@ -111,6 +115,7 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   @override
   void dispose() {
+    _profileUpdateSubscription?.cancel();
     _animationController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -162,9 +167,13 @@ class _SettingsScreenState extends State<SettingsScreen>
 
     if (_versionTapCount >= 7) {
       _versionTapCount = 0;
-      Navigator.of(
-        context,
-      ).push(MaterialPageRoute(builder: (context) => const DebugScreen()));
+      Navigator.of(context).push(
+        PageRouteBuilder(
+          pageBuilder: (context, animation, secondaryAnimation) => const DebugScreen(),
+          transitionDuration: Duration.zero,
+          reverseTransitionDuration: Duration.zero,
+        ),
+      );
     }
   }
 
@@ -182,15 +191,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color.lerp(colors.surface, colors.primary, 0.05)!,
-              colors.surface,
-              Color.lerp(colors.surface, colors.tertiary, 0.05)!,
-            ],
-          ),
+          color: colors.surface,
         ),
         child: SafeArea(
           child: Column(
@@ -233,13 +234,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                 ),
               ),
               Expanded(
-                child: FadeTransition(
-                  opacity: _fadeAnimation,
-                  child: SlideTransition(
-                    position: _slideAnimation,
-                    child: _buildSettingsContent(),
-                  ),
-                ),
+                child: _buildSettingsContent(),
               ),
             ],
           ),
@@ -403,6 +398,8 @@ class _SettingsScreenState extends State<SettingsScreen>
         return 'Особые настройки';
       case 'optimization':
         return 'Оптимизация';
+      case 'encryption':
+        return 'Шифрование';
       default:
         return 'Настройки';
     }
@@ -476,10 +473,24 @@ class _SettingsScreenState extends State<SettingsScreen>
       ),
       _SettingsItem(
         type: _SettingsItemType.category,
+        icon: Icons.shield_outlined,
+        title: "Шифрование",
+        subtitle: "Мастер-пароль, биометрия, ключи чатов",
+        screen: const EncryptionSettingsScreen(),
+      ),
+      _SettingsItem(
+        type: _SettingsItemType.category,
         icon: Icons.storage_outlined,
         title: "Данные и хранилище",
         subtitle: "Использование хранилища, очистка кэша",
         screen: StorageScreen(isModal: widget.isModal),
+      ),
+      _SettingsItem(
+        type: _SettingsItemType.category,
+        icon: Icons.chat_bubble_outline,
+        title: "Настройки чатов",
+        subtitle: "Шрифт, автозагрузка, отправка",
+        screen: ChatSettingsScreen(isModal: widget.isModal),
       ),
       _SettingsItem(
         type: _SettingsItemType.category,
@@ -509,13 +520,6 @@ class _SettingsScreenState extends State<SettingsScreen>
         subtitle: "Команда, соглашение",
         screen: const AboutScreen(),
       ),
-      // _SettingsItem(
-      //   type: _SettingsItemType.category,
-      //   icon: Icons.extension,
-      //   title: "Plugins(WIP)",
-      //   subtitle: "Плагины(WIP)",
-      //   screen: const PluginsScreen(),
-      // ),
     ];
 
     final pluginSections = PluginService().getAllPluginSections();
@@ -543,7 +547,7 @@ class _SettingsScreenState extends State<SettingsScreen>
         physics: const BouncingScrollPhysics(
           parent: AlwaysScrollableScrollPhysics(),
         ),
-        padding: const EdgeInsets.all(24.0),
+        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
         itemCount: items.length,
         itemBuilder: (context, index) {
           final item = items[index];
@@ -649,6 +653,8 @@ class _SettingsScreenState extends State<SettingsScreen>
           color: Colors.transparent,
           child: InkWell(
             onTap: _loadMyProfile,
+            splashColor: Colors.transparent,
+            highlightColor: Colors.transparent,
             borderRadius: BorderRadius.circular(20),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -754,13 +760,33 @@ class _SettingsScreenState extends State<SettingsScreen>
               overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 12),
-            Text(
-              _myProfile!.formattedPhone,
-              style: GoogleFonts.manrope(
-                textStyle: textTheme.bodyLarge,
-                color: colors.onSurfaceVariant,
-              ),
-              textAlign: TextAlign.center,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  _showFullPhoneNumber
+                      ? _myProfile!.formattedPhone
+                      : '${_myProfile!.formattedPhone.substring(0, 2)}**********',
+                  style: GoogleFonts.manrope(
+                    textStyle: textTheme.bodyLarge,
+                    color: colors.onSurfaceVariant,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _showFullPhoneNumber = !_showFullPhoneNumber;
+                    });
+                  },
+                  child: Icon(
+                    _showFullPhoneNumber ? Icons.visibility_off : Icons.visibility,
+                    color: colors.onSurfaceVariant,
+                    size: 20,
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 8),
             Text(
@@ -776,9 +802,11 @@ class _SettingsScreenState extends State<SettingsScreen>
               onTap: () async {
                 final updatedProfile = await Navigator.of(context)
                     .push<Profile?>(
-                      MaterialPageRoute(
-                        builder: (context) =>
+                      PageRouteBuilder(
+                        pageBuilder: (context, animation, secondaryAnimation) =>
                             ManageAccountScreen(myProfile: _myProfile!),
+                        transitionDuration: Duration.zero,
+                        reverseTransitionDuration: Duration.zero,
                       ),
                     );
                 if (updatedProfile != null && mounted) {
@@ -789,22 +817,15 @@ class _SettingsScreenState extends State<SettingsScreen>
               },
               child: Container(
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      Color.lerp(colors.primaryContainer, colors.primary, 0.1)!,
-                      colors.primaryContainer,
-                    ],
-                  ),
+                  color: colors.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
-                    color: colors.primary.withValues(alpha: 0.3),
+                    color: colors.outline.withValues(alpha: 0.2),
                     width: 2,
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: colors.primary.withValues(alpha: 0.1),
+                      color: colors.shadow.withValues(alpha: 0.1),
                       blurRadius: 20,
                       offset: const Offset(0, 4),
                     ),
@@ -817,14 +838,14 @@ class _SettingsScreenState extends State<SettingsScreen>
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.edit_outlined, color: colors.primary, size: 20),
+                    Icon(Icons.edit_outlined, color: colors.onSurfaceVariant, size: 20),
                     const SizedBox(width: 8),
                     Text(
                       'Редактировать профиль',
                       style: GoogleFonts.manrope(
                         textStyle: textTheme.labelLarge,
                         fontWeight: FontWeight.w600,
-                        color: colors.primary,
+                        color: colors.onSurfaceVariant,
                       ),
                     ),
                   ],
@@ -847,109 +868,62 @@ class _SettingsScreenState extends State<SettingsScreen>
     final colors = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: () {
-            if (widget.isModal) {
-              String screenKey = '';
-              if (screen is NotificationSettingsScreen) {
-                screenKey = 'notifications';
-              } else if (screen is AppearanceSettingsScreen)
-                screenKey = 'appearance';
-              else if (screen is PrivacySecurityScreen)
-                screenKey = 'privacy';
-              else if (screen is StorageScreen)
-                screenKey = 'storage';
-              else if (screen is NetworkSettingsScreen)
-                screenKey = 'network';
-              else if (screen is BypassScreen)
-                screenKey = 'bypass';
-              else if (screen is AboutScreen)
-                screenKey = 'about';
-              else if (screen is KometMiscScreen)
-                screenKey = 'komet';
-              else if (screen is SpecialSettingsScreen)
-                screenKey = 'special';
-              else if (screen is OptimizationScreen)
-                screenKey = 'optimization';
-
-              setState(() {
-                _currentModalScreen = screenKey;
-              });
-            } else {
-              Navigator.of(
-                context,
-              ).push(MaterialPageRoute(builder: (context) => screen));
-            }
-          },
-          borderRadius: BorderRadius.circular(20),
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  colors.surfaceContainerHighest,
-                  colors.surfaceContainer,
-                ],
-              ),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: colors.outline.withValues(alpha: 0.2),
-                width: 1,
-              ),
-            ),
-            padding: const EdgeInsets.all(20),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: colors.primaryContainer.withValues(alpha: 0.5),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(icon, color: colors.primary, size: 24),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: GoogleFonts.manrope(
-                          textStyle: textTheme.titleMedium,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        subtitle,
-                        style: GoogleFonts.manrope(
-                          textStyle: textTheme.bodySmall,
-                          color: colors.onSurfaceVariant,
-                          height: 1.3,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Icon(
-                  Icons.arrow_forward,
-                  color: colors.onSurfaceVariant,
-                  size: 20,
-                ),
-              ],
-            ),
-          ),
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+      leading: Icon(icon, color: colors.onSurface),
+      title: Text(
+        title,
+        style: GoogleFonts.manrope(
+          textStyle: textTheme.bodyLarge,
         ),
       ),
+      trailing: Icon(Icons.chevron_right, color: colors.onSurfaceVariant),
+      onTap: () {
+        if (widget.isModal) {
+          String screenKey = '';
+          if (screen is NotificationSettingsScreen) {
+            screenKey = 'notifications';
+          } else if (screen is AppearanceSettingsScreen)
+            screenKey = 'appearance';
+          else if (screen is PrivacySecurityScreen)
+            screenKey = 'privacy';
+          else if (screen is StorageScreen)
+            screenKey = 'storage';
+          else if (screen is NetworkSettingsScreen)
+            screenKey = 'network';
+          else if (screen is BypassScreen)
+            screenKey = 'bypass';
+          else if (screen is AboutScreen)
+            screenKey = 'about';
+          else if (screen is KometMiscScreen)
+            screenKey = 'komet';
+          else if (screen is SpecialSettingsScreen)
+            screenKey = 'special';
+          else if (screen is OptimizationScreen)
+            screenKey = 'optimization';
+          else if (screen is EncryptionSettingsScreen)
+            screenKey = 'encryption';
+
+          setState(() {
+            _currentModalScreen = screenKey;
+          });
+        } else {
+          Navigator.of(context).push(
+            PageRouteBuilder(
+              pageBuilder: (context, animation, secondaryAnimation) =>
+                  ScaleTransition(
+                scale: Tween<double>(begin: 0.9, end: 1.0).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
+                child: FadeTransition(
+                  opacity: Tween<double>(begin: 0.0, end: 1.0).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
+                  child: screen,
+                ),
+              ),
+              transitionDuration: const Duration(milliseconds: 150),
+              reverseTransitionDuration: const Duration(milliseconds: 150),
+            ),
+          );
+        }
+      },
     );
   }
 }

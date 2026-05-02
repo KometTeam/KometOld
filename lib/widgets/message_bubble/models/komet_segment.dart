@@ -13,6 +13,16 @@ class KometSegment {
   final String text;
   final KometSegmentType type;
   final Color? color;
+  final int absStart;
+  final int absEnd;
+  final int contentStart;
 
-  KometSegment(this.text, this.type, {this.color});
+  KometSegment(
+    this.text,
+    this.type, {
+    this.color,
+    required this.absStart,
+    required this.absEnd,
+    required this.contentStart,
+  });
 }
