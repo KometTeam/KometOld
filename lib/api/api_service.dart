@@ -10,6 +10,7 @@ import 'package:gwid/consts.dart';
 import 'package:gwid/connection/connection_logger.dart';
 import 'package:gwid/connection/connection_state.dart' as conn_state;
 import 'package:gwid/connection/health_monitor.dart';
+import 'package:gwid/core/server_config.dart';
 import 'package:gwid/utils/image_cache_service.dart';
 import 'package:gwid/models/call_request.dart';
 import 'package:gwid/models/call_response.dart';

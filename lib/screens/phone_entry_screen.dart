@@ -13,6 +13,7 @@ import 'package:mask_text_input_formatter/mask_text_input_formatter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:gwid/app_urls.dart';
+import 'package:gwid/widgets/server_settings_sheet.dart';
 
 class Country {
   final String name;
@@ -523,6 +524,17 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen>
                     ),
                   ),
                 ],
+              ),
+              Positioned(
+                top: 8,
+                right: 8,
+                child: IconButton(
+                  tooltip: 'Сменить сервер',
+                  icon: Icon(Icons.dns_outlined, color: colors.onSurfaceVariant),
+                  onPressed: _isLoading
+                      ? null
+                      : () => showServerSettingsSheet(context),
+                ),
               ),
               if (_isLoading)
                 Container(

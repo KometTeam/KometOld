@@ -7,6 +7,7 @@ import 'package:ffi/ffi.dart';
 import 'package:msgpack_dart/msgpack_dart.dart' as msgpack;
 import 'package:uuid/uuid.dart';
 import 'package:gwid/utils/log_utils.dart';
+import 'package:gwid/core/server_config.dart';
 
 typedef Lz4DecompressFunction =
     Int32 Function(
@@ -73,19 +74,20 @@ class RegistrationService {
     _initLz4BlockDecompress();
 
     try {
-      print('🌐 Подключаемся к api.oneme.ru:443...');
+      final endpoint = await ServerConfig.loadEndpoint();
+      print('🌐 Подключаемся к ${endpoint.host}:${endpoint.port}...');
 
       final securityContext = SecurityContext.defaultContext;
 
       print('🔒 Создаем TCP соединение...');
-      final rawSocket = await Socket.connect('api.oneme.ru', 443);
+      final rawSocket = await Socket.connect(endpoint.host, endpoint.port);
       print('✅ TCP соединение установлено');
 
       print('🔒 Устанавливаем SSL соединение...');
       _socket = await SecureSocket.secure(
         rawSocket,
         context: securityContext,
-        host: 'api.oneme.ru',
+        host: endpoint.host,
         onBadCertificate: (certificate) {
           print('⚠️  Сертификат не прошел проверку, принимаем...');
           return true;
