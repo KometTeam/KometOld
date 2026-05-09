@@ -242,8 +242,6 @@ class _RegistrationScreenState extends State<RegistrationScreen>
     final firstName = _firstNameController.text.trim();
     final lastName = _lastNameController.text.trim();
 
-    return;
-
     setState(() => _isLoading = true);
 
     try {
