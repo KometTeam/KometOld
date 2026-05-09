@@ -115,39 +115,39 @@ class ProtocolHandler {
   static dynamic _unpackPayload(Uint8List payloadBytes, int flag) {
     if (payloadBytes.isEmpty) return null;
 
-    try {
-      Uint8List decompressedBytes;
+    Uint8List decompressedBytes;
 
-      if (flag == 0xFF) {
-        // Zstandard
-        try {
-          final decoded = zstd_codec.zstd.decode(payloadBytes);
-          decompressedBytes = decoded is Uint8List
-              ? decoded
-              : Uint8List.fromList(decoded);
-        } catch (e) {
-          throw StateError(
-            'Zstd decompress error: $e (вероятно нет нативной libzstd на этой платформе)',
-          );
-        }
-      } else if (flag == 0 || flag == 2) {
-        // Plaintext
-        decompressedBytes = payloadBytes;
-      } else {
-        // LZ4 legacy
-        try {
-          decompressedBytes = _lz4DecompressBlockPure(
-            payloadBytes,
-            maxDecompressedSize,
-          );
-        } catch (_) {
-          decompressedBytes = payloadBytes;
-        }
+    if (flag == 0xFF) {
+      // Zstandard
+      try {
+        final decoded = zstd_codec.zstd.decode(payloadBytes);
+        decompressedBytes = decoded is Uint8List
+            ? decoded
+            : Uint8List.fromList(decoded);
+      } catch (e, stack) {
+        print('❌ Zstd decompress error (${payloadBytes.length} bytes): $e');
+        print(stack);
+        return null;
       }
+    } else if (flag == 0 || flag == 2) {
+      // Plaintext
+      decompressedBytes = payloadBytes;
+    } else {
+      // LZ4 legacy
+      try {
+        decompressedBytes = _lz4DecompressBlockPure(
+          payloadBytes,
+          maxDecompressedSize,
+        );
+      } catch (_) {
+        decompressedBytes = payloadBytes;
+      }
+    }
 
-      // MsgPack десериализация
+    try {
       return _deserializeMsgpack(decompressedBytes);
     } catch (e) {
+      print('❌ MsgPack deserialize error after decompress (flag=$flag): $e');
       return null;
     }
   }
