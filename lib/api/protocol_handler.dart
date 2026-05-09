@@ -1,6 +1,7 @@
 /// Изолированный обработчик бинарного протокола.
 
 import 'dart:typed_data';
+import 'package:es_compression/zstd.dart' as zstd_codec;
 import 'package:msgpack_dart/msgpack_dart.dart' as msgpack;
 
 /// Типы команд бинарного протокола.
@@ -90,7 +91,7 @@ class ProtocolHandler {
       final payloadBytes = packet.sublist(headerSize, headerSize + payloadLen);
 
       // Распаковываем payload
-      final payload = _unpackPayload(payloadBytes, compFlag != 0);
+      final payload = _unpackPayload(payloadBytes, compFlag);
 
       return ParsedPacket(
         version: ver,
@@ -104,22 +105,42 @@ class ProtocolHandler {
     }
   }
 
-  /// Распаковывает payload (LZ4 + MsgPack)
-  static dynamic _unpackPayload(Uint8List payloadBytes, bool isCompressed) {
+  /// Распаковывает payload в зависимости от флага сжатия в заголовке.
+  ///
+  /// flag интерпретируется так:
+  ///   - 0      — plaintext, msgpack как есть
+  ///   - 0xFF   — Zstandard (real-сервер сжимает крупные ответы zstd'ом, magic `28 b5 2f fd`)
+  ///   - 2      — legacy plaintext (некоторые версии real-сервера ставят 2 на uncompressed)
+  ///   - прочее — LZ4 (legacy эвристика, старые протоколы)
+  static dynamic _unpackPayload(Uint8List payloadBytes, int flag) {
     if (payloadBytes.isEmpty) return null;
 
     try {
-      Uint8List decompressedBytes = payloadBytes;
+      Uint8List decompressedBytes;
 
-      // Пробуем LZ4 декомпрессию
-      if (isCompressed || payloadBytes.length > 10) {
+      if (flag == 0xFF) {
+        // Zstandard
+        try {
+          final decoded = zstd_codec.zstd.decode(payloadBytes);
+          decompressedBytes = decoded is Uint8List
+              ? decoded
+              : Uint8List.fromList(decoded);
+        } catch (e) {
+          throw StateError(
+            'Zstd decompress error: $e (вероятно нет нативной libzstd на этой платформе)',
+          );
+        }
+      } else if (flag == 0 || flag == 2) {
+        // Plaintext
+        decompressedBytes = payloadBytes;
+      } else {
+        // LZ4 legacy
         try {
           decompressedBytes = _lz4DecompressBlockPure(
             payloadBytes,
             maxDecompressedSize,
           );
         } catch (_) {
-          // Если декомпрессия не удалась, используем оригинальные байты
           decompressedBytes = payloadBytes;
         }
       }
