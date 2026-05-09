@@ -762,8 +762,15 @@ class ApiService {
       // Отправляем в стрим
       _emitLocal(message);
 
-      // Передаем ВЕСЬ message (включая cmd), а не только payload
-      _pendingManager.complete(parsed.seq, message);
+      // Завершаем pending только для пакетов-ответов (cmd ∈ {256/0x100=ok, 512/0x200=notFound, 768/0x300=error}).
+      // Пуши от сервера приходят с cmd=0/request и могут случайно совпасть по seq c нашим pending,
+      // что и приводило к крешам типа `payload=40` — pending получал чужой push вместо ответа.
+      final cmd = parsed.cmd;
+      final isResponse = cmd == 256 || cmd == 512 || cmd == 768;
+      if (isResponse) {
+        // Передаем ВЕСЬ message (включая cmd), а не только payload
+        _pendingManager.complete(parsed.seq, message);
+      }
 
       try {
         handleSocketMessage(message);

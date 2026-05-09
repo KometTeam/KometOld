@@ -357,6 +357,15 @@ extension ApiServiceChats on ApiService {
         chatResponse = await sendRequest(opcode, payload);
       }
 
+      final rawPayload = chatResponse['payload'];
+      if (rawPayload is! Map) {
+        throw StateError(
+          'Сервер вернул некорректный ответ на opcode $opcode '
+          '(cmd=${chatResponse['cmd']}, payload type ${rawPayload.runtimeType}: $rawPayload). '
+          'Возможно, сессия устарела — попробуйте перезайти.',
+        );
+      }
+
       if (opcode == 19 &&
           (chatResponse['cmd'] == 0x100 || chatResponse['cmd'] == 256)) {
         print("✅ Авторизация (opcode 19) успешна. Сессия ГОТОВА.");
