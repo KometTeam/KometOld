@@ -3,6 +3,21 @@
 import 'dart:typed_data';
 import 'package:msgpack_dart/msgpack_dart.dart' as msgpack;
 
+/// Типы команд бинарного протокола.
+///
+/// Заголовок пакета (10 байт): ver(1) + cmd(1) + seq(2 BE) + opcode(2 BE) + packedLen(4 BE).
+///
+/// `request` отправляется клиентом, а push'ами от сервера — `push`. Ответы сервера
+/// используют `ok` / `notFound` / `error`. Push и ok имеют одинаковое значение (1) —
+/// различаются по контексту: если seq совпал с pending, это ответ.
+abstract class CmdType {
+  static const int request = 0;
+  static const int push = 1;
+  static const int ok = 1;
+  static const int notFound = 2;
+  static const int error = 3;
+}
+
 /// Структура распарсенного пакета
 class ParsedPacket {
   final int version;
@@ -56,14 +71,14 @@ class ProtocolHandler {
     if (packet.length < headerSize) return null;
 
     try {
-      // Парсим заголовок
-      final ver = packet[0];
-      final cmd = ByteData.view(packet.buffer).getUint16(1, Endian.big);
-      final seq = packet[3];
-      final opcode = ByteData.view(packet.buffer).getUint16(4, Endian.big);
+      // Парсим заголовок: ver(1) + cmd(1) + seq(2 BE) + opcode(2 BE) + packedLen(4 BE)
+      final bd = ByteData.view(packet.buffer, packet.offsetInBytes, packet.lengthInBytes);
+      final ver = bd.getUint8(0);
+      final cmd = bd.getUint8(1);
+      final seq = bd.getUint16(2, Endian.big);
+      final opcode = bd.getUint16(4, Endian.big);
 
-      final packedLen = ByteData.view(packet.buffer, 6, 4)
-          .getUint32(0, Endian.big);
+      final packedLen = bd.getUint32(6, Endian.big);
 
       final compFlag = packedLen >> 24;
       final payloadLen = packedLen & 0x00FFFFFF;

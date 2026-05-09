@@ -367,7 +367,7 @@ extension ApiServiceChats on ApiService {
       }
 
       if (opcode == 19 &&
-          (chatResponse['cmd'] == 0x100 || chatResponse['cmd'] == 256)) {
+          (chatResponse['cmd'] == 1)) {
         print("✅ Авторизация (opcode 19) успешна. Сессия ГОТОВА.");
 
         _isSessionReady = true;
@@ -1412,7 +1412,7 @@ extension ApiServiceChats on ApiService {
           return false;
         }
 
-        return response['cmd'] == 0x100 || response['cmd'] == 256;
+        return response['cmd'] == 1;
       } catch (e) {
         print('Ошибка при редактировании сообщения: $e');
         return false;
@@ -1534,7 +1534,7 @@ extension ApiServiceChats on ApiService {
           return false;
         }
 
-        return response['cmd'] == 0x100 || response['cmd'] == 256;
+        return response['cmd'] == 1;
       } catch (e) {
         print('Ошибка при удалении сообщения: $e');
         return false;
@@ -1651,7 +1651,7 @@ extension ApiServiceChats on ApiService {
 
       final resp64 = await sendRequest(64, payload);
       final cmd = resp64['cmd'] as int?;
-      if (cmd == 0x300 || cmd == 768) {
+      if (cmd == 3) {
         final err = resp64['payload'];
         if (err is Map && err['error'] == 'attachment.not.ready') {
           throw err;
@@ -1772,7 +1772,7 @@ extension ApiServiceChats on ApiService {
 
       final resp64 = await sendRequest(64, payload);
       final cmd = resp64['cmd'] as int?;
-      if (cmd == 0x300 || cmd == 768) {
+      if (cmd == 3) {
         final err = resp64['payload'];
         if (err is Map && err['error'] == 'attachment.not.ready') {
           throw err;
@@ -1897,7 +1897,7 @@ extension ApiServiceChats on ApiService {
 
       final resp64 = await sendRequest(64, payload);
       final cmd = resp64['cmd'] as int?;
-      if (cmd == 0x300 || cmd == 768) {
+      if (cmd == 3) {
         final err = resp64['payload'];
         if (err is Map && err['error'] == 'attachment.not.ready') {
           throw err;

@@ -857,7 +857,7 @@ extension on _ChatScreenState {
           (chatIdNormalized == null || chatIdNormalized != widget.chatId))
         return;
 
-      if (opcode == 64 && (cmd == 0x100 || cmd == 256)) {
+      if (opcode == 64 && (cmd == 1)) {
         // Обновляем данные чата если они пришли (включая список админов)
         if (payload['chat'] != null &&
             payload['chat'] is Map<String, dynamic>) {
@@ -972,7 +972,7 @@ extension on _ChatScreenState {
           });
         }
       } else if (opcode == 178) {
-        if (cmd == 0x100 || cmd == 256) {
+        if (cmd == 1) {
           final messageId = _pendingReactionSeqs[seq];
           if (messageId != null) {
             _pendingReactionSeqs.remove(seq);

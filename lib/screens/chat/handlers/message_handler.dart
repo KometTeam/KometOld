@@ -224,7 +224,7 @@ class MessageHandler {
       final cmd = message['cmd'];
       final payload = message['payload'];
 
-      if (opcode == 19 && (cmd == 0x100 || cmd == 256) && payload != null) {
+      if (opcode == 19 && (cmd == 1) && payload != null) {
         _handleProfileUpdate(payload);
         return;
       }
@@ -250,7 +250,7 @@ class MessageHandler {
 
       if (opcode == 129 && chatId != null) {
         setTypingForChat(chatId);
-      } else if (opcode == 64 && (cmd == 0x100 || cmd == 256)) {
+      } else if (opcode == 64 && (cmd == 1)) {
         // Успешная отправка сообщения с сервера - обновляем чат
         final messageData = payload['message'] as Map<String, dynamic>?;
         if (messageData != null) {
@@ -807,7 +807,7 @@ class MessageHandler {
   }
 
   void _handleJoinGroup(Map<String, dynamic> payload, int cmd) {
-    if (cmd != 0x100 && cmd != 256) return;
+    if (cmd != 1) return;
     final chatJson = payload['chat'] as Map<String, dynamic>?;
     if (chatJson != null) {
       final chatType = chatJson['type'] as String?;
@@ -834,7 +834,7 @@ class MessageHandler {
   }
 
   void _handleChatUpdate(Map<String, dynamic> payload, int cmd) {
-    if (cmd != 0x100 && cmd != 256) return;
+    if (cmd != 1) return;
     final chatJson = payload['chat'] as Map<String, dynamic>?;
     if (chatJson != null) {
       final updatedChat = Chat.tryFromJson(chatJson);
@@ -994,7 +994,7 @@ class MessageHandler {
   }
 
   void _handleFolderCreatedOrUpdated(Map<String, dynamic> payload, int cmd) {
-    if (cmd != 0x100 && cmd != 256) return;
+    if (cmd != 1) return;
     try {
       final folderJson = payload['folder'] as Map<String, dynamic>?;
       if (folderJson != null) {
@@ -1036,7 +1036,7 @@ class MessageHandler {
   }
 
   void _handleFolderDeleted(Map<String, dynamic> payload, int cmd) {
-    if (cmd != 0x100 && cmd != 256) return;
+    if (cmd != 1) return;
     try {
       final foldersOrder = payload['foldersOrder'] as List<dynamic>?;
       final context = getContext();

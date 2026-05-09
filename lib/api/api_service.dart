@@ -101,7 +101,8 @@ class ApiService {
   StreamSubscription? _socketSubscription;
   Timer? _pingTimer;
   Timer? _analyticsTimer;
-  int _seq = 0;
+  // Начинаем с 1, чтобы seq=0 (которым обычно приходят server pushes) никогда не совпал с pending request.
+  int _seq = 1;
 
   late final PendingRequestsManager _pendingManager;
   bool _socketConnected = false;
@@ -359,7 +360,7 @@ class ApiService {
       
       // Проверяем ответ
       final cmd = response['cmd'] as int?;
-      if (cmd != 0x100 && cmd != 256) {
+      if (cmd != 1) {
         return null;
       }
       
@@ -762,11 +763,13 @@ class ApiService {
       // Отправляем в стрим
       _emitLocal(message);
 
-      // Завершаем pending только для пакетов-ответов (cmd ∈ {256/0x100=ok, 512/0x200=notFound, 768/0x300=error}).
-      // Пуши от сервера приходят с cmd=0/request и могут случайно совпасть по seq c нашим pending,
-      // что и приводило к крешам типа `payload=40` — pending получал чужой push вместо ответа.
+      // Завершаем pending только для пакетов-ответов (ok/notFound/error).
+      // Push'и от сервера (cmd=push) имеют то же значение, что и ok, и тоже могут совпасть
+      // по seq с нашим pending. Их фильтрация делается на уровне seq: server pushes обычно
+      // приходят с seq=0 (мы свой counter стартуем с 1+) либо seq, не выданным нашим клиентом.
+      // Здесь же отсеиваем только request-пакеты (cmd=0), которых от сервера быть не должно.
       final cmd = parsed.cmd;
-      final isResponse = cmd == 256 || cmd == 512 || cmd == 768;
+      final isResponse = cmd == CmdType.ok || cmd == CmdType.notFound || cmd == CmdType.error;
       if (isResponse) {
         // Передаем ВЕСЬ message (включая cmd), а не только payload
         _pendingManager.complete(parsed.seq, message);
@@ -810,7 +813,7 @@ class ApiService {
       }
     }
 
-    final seq = _seq++ % 256;
+    final seq = _seq++ & 0xFFFF;
 
     final completer = _pendingManager.register(
       seq,
@@ -856,7 +859,7 @@ class ApiService {
       }
     }
 
-    final seq = _seq++ % 256;
+    final seq = _seq++ & 0xFFFF;
 
     final completer = _pendingManager.register(
       seq,
@@ -883,21 +886,18 @@ class ApiService {
       int opcode,
       Map<String, dynamic> payload,
       ) {
-    final verB = Uint8List(1)..[0] = ver;
-    final cmdB = Uint8List(2)
-      ..buffer.asByteData().setUint16(0, cmd, Endian.big);
-    final seqB = Uint8List(1)..[0] = seq;
-    final opcodeB = Uint8List(2)
-      ..buffer.asByteData().setUint16(0, opcode, Endian.big);
+    // Заголовок: ver(1) + cmd(1) + seq(2 BE) + opcode(2 BE) + packedLen(4 BE) = 10 байт
+    final header = ByteData(10);
+    header.setUint8(0, ver);
+    header.setUint8(1, cmd);
+    header.setUint16(2, seq & 0xFFFF, Endian.big);
+    header.setUint16(4, opcode, Endian.big);
 
     final payloadBytes = msgpack.serialize(payload);
     final payloadLen = payloadBytes.length & 0xFFFFFF;
-    final payloadLenB = Uint8List(4)
-      ..buffer.asByteData().setUint32(0, payloadLen, Endian.big);
+    header.setUint32(6, payloadLen, Endian.big);
 
-    return Uint8List.fromList(
-      verB + cmdB + seqB + opcodeB + payloadLenB + payloadBytes,
-    );
+    return Uint8List.fromList(header.buffer.asUint8List() + payloadBytes);
   }
 
   Future<int> _sendMessage(
@@ -937,7 +937,7 @@ class ApiService {
       }
     }
 
-    final seq = _seq++ % 256;
+    final seq = _seq++ & 0xFFFF;
 
     // Регистрируем pending request ДО отправки
     _pendingManager.register(
@@ -1087,7 +1087,7 @@ class ApiService {
 
       final resp64 = await messages.firstWhere((m) => m['seq'] == seq64);
       final cmd = resp64['cmd'] as int?;
-      if (cmd == 0x300 || cmd == 768) {
+      if (cmd == 3) {
         final err = resp64['payload'];
         if (err is Map && err['error'] == 'attachment.not.ready') {
           throw err;

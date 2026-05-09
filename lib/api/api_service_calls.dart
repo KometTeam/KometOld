@@ -134,7 +134,7 @@ extension ApiServiceCalls on ApiService {
       
       // Проверяем cmd ответа
       final cmd = response['cmd'] as int?;
-      if (cmd != 0x100 && cmd != 256) {
+      if (cmd != 1) {
         final error = response['payload']?['error'] ?? 'Неизвестная ошибка';
         throw Exception('Ошибка инициации звонка: $error');
       }
@@ -199,7 +199,7 @@ extension ApiServiceCalls on ApiService {
       
       // Проверяем cmd ответа
       final cmd = response['cmd'] as int?;
-      if (cmd != 0x100 && cmd != 256) {
+      if (cmd != 1) {
         final error = response['payload']?['error'] ?? 'Неизвестная ошибка';
         throw Exception('Ошибка начала группового звонка: $error');
       }
@@ -266,7 +266,7 @@ extension ApiServiceCalls on ApiService {
       
       // Проверяем cmd ответа
       final cmd = response['cmd'] as int?;
-      if (cmd != 0x100 && cmd != 256) {
+      if (cmd != 1) {
         final error = response['payload']?['error'] ?? 'Неизвестная ошибка';
         throw Exception('Ошибка присоединения к звонку: $error');
       }

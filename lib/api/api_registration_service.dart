@@ -26,7 +26,8 @@ typedef Lz4Decompress =
 
 class RegistrationService {
   Socket? _socket;
-  int _seq = 0;
+  // Начинаем с 1, чтобы seq=0 (server push) не совпал с pending.
+  int _seq = 1;
   final Map<int, Completer<dynamic>> _pending = {};
   bool _isConnected = false;
   final _random = Random();
@@ -160,15 +161,12 @@ class RegistrationService {
 
   void _processPacket(Uint8List packet) {
     try {
-      final ver = packet[0];
-      final cmd = ByteData.view(packet.buffer).getUint16(1, Endian.big);
-      final seq = packet[3];
-      final opcode = ByteData.view(packet.buffer).getUint16(4, Endian.big);
-      final packedLen = ByteData.view(
-        packet.buffer,
-        6,
-        4,
-      ).getUint32(0, Endian.big);
+      final bd = ByteData.view(packet.buffer, packet.offsetInBytes, packet.lengthInBytes);
+      final ver = bd.getUint8(0);
+      final cmd = bd.getUint8(1);
+      final seq = bd.getUint16(2, Endian.big);
+      final opcode = bd.getUint16(4, Endian.big);
+      final packedLen = bd.getUint32(6, Endian.big);
 
       final compFlag = packedLen >> 24;
       final payloadLen = packedLen & 0x00FFFFFF;
@@ -215,20 +213,19 @@ class RegistrationService {
     int opcode,
     Map<String, dynamic> payload,
   ) {
-    final verB = Uint8List(1)..[0] = ver;
-    final cmdB = Uint8List(2)
-      ..buffer.asByteData().setUint16(0, cmd, Endian.big);
-    final seqB = Uint8List(1)..[0] = seq;
-    final opcodeB = Uint8List(2)
-      ..buffer.asByteData().setUint16(0, opcode, Endian.big);
+    // Заголовок: ver(1) + cmd(1) + seq(2 BE) + opcode(2 BE) + packedLen(4 BE) = 10 байт
+    final header = ByteData(10);
+    header.setUint8(0, ver);
+    header.setUint8(1, cmd);
+    header.setUint16(2, seq & 0xFFFF, Endian.big);
+    header.setUint16(4, opcode, Endian.big);
 
     final payloadBytes = msgpack.serialize(payload);
     final payloadLen = payloadBytes.length & 0xFFFFFF;
-    final payloadLenB = Uint8List(4)
-      ..buffer.asByteData().setUint32(0, payloadLen, Endian.big);
+    header.setUint32(6, payloadLen, Endian.big);
 
     final packet = Uint8List.fromList(
-      verB + cmdB + seqB + opcodeB + payloadLenB + payloadBytes,
+      header.buffer.asUint8List() + payloadBytes,
     );
 
     print('═══════════════════════════════════════════════════════════');
@@ -585,7 +582,7 @@ class RegistrationService {
       throw Exception('Не подключено к серверу');
     }
 
-    _seq = (_seq + 1) % 256;
+    _seq = (_seq + 1) & 0xFFFF;
     final seq = _seq;
     final packet = _packPacket(10, 0, seq, opcode, payload);
 

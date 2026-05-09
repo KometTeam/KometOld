@@ -4512,7 +4512,7 @@ class _ChatsScreenState extends State<ChatsScreen>
 
       final cmd = response['cmd'];
       final folder = response['payload']?['folder'];
-      if (cmd != 256 || folder == null) {
+      if (cmd != 1 || folder == null) {
         // Откат при ошибке
         setState(() {
           final idx = _allChats.indexWhere((c) => c.id == chat.id);

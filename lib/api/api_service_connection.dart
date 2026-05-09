@@ -90,7 +90,7 @@ extension ApiServiceConnection on ApiService {
       _socketConnected = true;
 
       _packetBuffer.reset();
-      _seq = 0;
+      _seq = 1;
 
       _listen();
       await _sendHandshake();
@@ -433,9 +433,9 @@ extension ApiServiceConnection on ApiService {
         return;
       }
 
-      final cmdType = (cmd == 0x100 || cmd == 256)
+      final cmdType = (cmd == 1)
           ? 'OK'
-          : (cmd == 0x300 || cmd == 768)
+          : (cmd == 3)
           ? 'ERROR'
           : 'UNKNOWN($cmd)';
       _log(
@@ -473,13 +473,13 @@ extension ApiServiceConnection on ApiService {
         }
       }
 
-      if (cmd == 0x300 || cmd == 768) {
+      if (cmd == 3) {
         print('❌ ОШИБКА СЕРВЕРА: opcode=$opcode, seq=$seq');
         print('❌ Детали ошибки: ${truncatePayloadObjectForLog(payload)}');
       }
 
       if (decodedMessage['opcode'] == 97 &&
-          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256) &&
+          (decodedMessage['cmd'] == 1) &&
           decodedMessage['payload'] != null &&
           decodedMessage['payload']['token'] != null) {
         if (!_isTerminatingOtherSessions) {
@@ -489,7 +489,7 @@ extension ApiServiceConnection on ApiService {
       }
 
       if (decodedMessage['opcode'] == 6 &&
-          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+          (decodedMessage['cmd'] == 1)) {
         _isSessionOnline = true;
         _isSessionReady = false;
         _reconnectDelaySeconds = 2;
@@ -513,7 +513,7 @@ extension ApiServiceConnection on ApiService {
         }
       }
 
-      if (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768) {
+      if (decodedMessage['cmd'] == 3) {
         final error = decodedMessage['payload'];
         final errorMsg = error?['message'] ?? error?['error'] ?? 'server_error';
         print('← ERROR: $errorMsg');
@@ -589,7 +589,7 @@ extension ApiServiceConnection on ApiService {
       }
 
       if (decodedMessage['opcode'] == 18 &&
-          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256) &&
+          (decodedMessage['cmd'] == 1) &&
           decodedMessage['payload'] != null) {
         final payload = decodedMessage['payload'];
         if (payload['passwordChallenge'] != null) {
@@ -614,7 +614,7 @@ extension ApiServiceConnection on ApiService {
       }
 
       if (decodedMessage['opcode'] == 22 &&
-          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+          (decodedMessage['cmd'] == 1)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
           'type': 'privacy_settings_updated',
@@ -623,7 +623,7 @@ extension ApiServiceConnection on ApiService {
       }
 
       if (decodedMessage['opcode'] == 116 &&
-          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+          (decodedMessage['cmd'] == 1)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
           'type': 'password_set_success',
@@ -633,7 +633,7 @@ extension ApiServiceConnection on ApiService {
 
       // opcode 112: Начало установки/управления 2FA - получаем trackId
       if (decodedMessage['opcode'] == 112 &&
-          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+          (decodedMessage['cmd'] == 1)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
           'type': '2fa_setup_started',
@@ -644,7 +644,7 @@ extension ApiServiceConnection on ApiService {
 
       // opcode 104: Информация о текущей 2FA (email, hint, enabled)
       if (decodedMessage['opcode'] == 104 &&
-          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+          (decodedMessage['cmd'] == 1)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
           'type': '2fa_info',
@@ -657,7 +657,7 @@ extension ApiServiceConnection on ApiService {
 
       // opcode 113: Результат проверки пароля 2FA
       if (decodedMessage['opcode'] == 113 &&
-          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+          (decodedMessage['cmd'] == 1)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
           'type': '2fa_password_verified',
@@ -668,7 +668,7 @@ extension ApiServiceConnection on ApiService {
 
       // opcode 113 ERROR: Неверный пароль 2FA
       if (decodedMessage['opcode'] == 113 &&
-          (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
+          (decodedMessage['cmd'] == 3)) {
         _messageController.add({
           'type': '2fa_password_wrong',
           'payload': decodedMessage['payload'],
@@ -677,7 +677,7 @@ extension ApiServiceConnection on ApiService {
 
       // opcode 107: Пароль 2FA установлен
       if (decodedMessage['opcode'] == 107 &&
-          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+          (decodedMessage['cmd'] == 1)) {
         _messageController.add({
           'type': '2fa_password_set',
           'payload': decodedMessage['payload'],
@@ -686,7 +686,7 @@ extension ApiServiceConnection on ApiService {
 
       // opcode 108: Подсказка 2FA установлена
       if (decodedMessage['opcode'] == 108 &&
-          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+          (decodedMessage['cmd'] == 1)) {
         _messageController.add({
           'type': '2fa_hint_set',
           'payload': decodedMessage['payload'],
@@ -695,7 +695,7 @@ extension ApiServiceConnection on ApiService {
 
       // opcode 109: Email для 2FA установлен, получаем данные для ввода кода
       if (decodedMessage['opcode'] == 109 &&
-          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+          (decodedMessage['cmd'] == 1)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
           'type': '2fa_email_set',
@@ -708,7 +708,7 @@ extension ApiServiceConnection on ApiService {
 
       // opcode 110: Email подтверждён
       if (decodedMessage['opcode'] == 110 &&
-          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+          (decodedMessage['cmd'] == 1)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
           'type': '2fa_email_verified',
@@ -720,7 +720,7 @@ extension ApiServiceConnection on ApiService {
 
       // opcode 111: 2FA успешно установлен
       if (decodedMessage['opcode'] == 111 &&
-          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+          (decodedMessage['cmd'] == 1)) {
         // Сервер завершит все сессии кроме текущей — игнорируем opcode 97
         _isTerminatingOtherSessions = true;
         Future.delayed(const Duration(seconds: 5), () {
@@ -737,7 +737,7 @@ extension ApiServiceConnection on ApiService {
       }
 
       // 2FA Setup error handlers
-      if ((decodedMessage['cmd'] == 768 || decodedMessage['cmd'] == 0x300) &&
+      if ((decodedMessage['cmd'] == 3) &&
           [104, 107, 108, 109, 110, 111, 112, 113].contains(decodedMessage['opcode'])) {
         _messageController.add({
           'type': '2fa_error',
@@ -747,7 +747,7 @@ extension ApiServiceConnection on ApiService {
       }
 
       if (decodedMessage['opcode'] == 57 &&
-          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+          (decodedMessage['cmd'] == 1)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
           'type': 'group_join_success',
@@ -756,13 +756,13 @@ extension ApiServiceConnection on ApiService {
       }
 
       if (decodedMessage['opcode'] == 46 &&
-          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+          (decodedMessage['cmd'] == 1)) {
         final payload = decodedMessage['payload'];
         _messageController.add({'type': 'contact_found', 'payload': payload});
       }
 
       if (decodedMessage['opcode'] == 46 &&
-          (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
+          (decodedMessage['cmd'] == 3)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
           'type': 'contact_not_found',
@@ -771,13 +771,13 @@ extension ApiServiceConnection on ApiService {
       }
 
       if (decodedMessage['opcode'] == 32 &&
-          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+          (decodedMessage['cmd'] == 1)) {
         final payload = decodedMessage['payload'];
         _messageController.add({'type': 'channels_found', 'payload': payload});
       }
 
       if (decodedMessage['opcode'] == 32 &&
-          (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
+          (decodedMessage['cmd'] == 3)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
           'type': 'channels_not_found',
@@ -786,7 +786,7 @@ extension ApiServiceConnection on ApiService {
       }
 
       if ((decodedMessage['opcode'] == 68 || decodedMessage['opcode'] == 60) &&
-          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+          (decodedMessage['cmd'] == 1)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
           'type': 'global_search_result',
@@ -797,7 +797,7 @@ extension ApiServiceConnection on ApiService {
       }
 
       if ((decodedMessage['opcode'] == 68 || decodedMessage['opcode'] == 60) &&
-          (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
+          (decodedMessage['cmd'] == 3)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
           'type': 'global_search_error',
@@ -809,7 +809,7 @@ extension ApiServiceConnection on ApiService {
 
       // Обработка ответа на loadChat (opcode 49) - обновляем данные чата
       if (decodedMessage['opcode'] == 49 &&
-          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+          (decodedMessage['cmd'] == 1)) {
         final payload = decodedMessage['payload'];
         print('📥 [Connection] Ответ на opcode 49. Ключи payload: ${payload?.keys.toList()}');
         final chat = payload['chat'] as Map<String, dynamic>?;
@@ -827,7 +827,7 @@ extension ApiServiceConnection on ApiService {
       }
 
       if (decodedMessage['opcode'] == 89 &&
-          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+          (decodedMessage['cmd'] == 1)) {
         final payload = decodedMessage['payload'];
         final chat = payload['chat'] as Map<String, dynamic>?;
 
@@ -853,7 +853,7 @@ extension ApiServiceConnection on ApiService {
       }
 
       if (decodedMessage['opcode'] == 89 &&
-          (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
+          (decodedMessage['cmd'] == 3)) {
         final payload = decodedMessage['payload'];
         _messageController.add({'type': 'channel_error', 'payload': payload});
       }
@@ -869,7 +869,7 @@ extension ApiServiceConnection on ApiService {
       }
 
       if (decodedMessage['opcode'] == 57 &&
-          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+          (decodedMessage['cmd'] == 1)) {
         final payload = decodedMessage['payload'];
         _messageController.add({
           'type': 'channel_subscribed',
@@ -878,19 +878,19 @@ extension ApiServiceConnection on ApiService {
       }
 
       if (decodedMessage['opcode'] == 57 &&
-          (decodedMessage['cmd'] == 0x300 || decodedMessage['cmd'] == 768)) {
+          (decodedMessage['cmd'] == 3)) {
         final payload = decodedMessage['payload'];
         _messageController.add({'type': 'channel_error', 'payload': payload});
       }
 
       if (decodedMessage['opcode'] == 59 &&
-          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+          (decodedMessage['cmd'] == 1)) {
         final payload = decodedMessage['payload'];
         _messageController.add({'type': 'group_members', 'payload': payload});
       }
 
       if (decodedMessage['opcode'] == 162 &&
-          (decodedMessage['cmd'] == 0x100 || decodedMessage['cmd'] == 256)) {
+          (decodedMessage['cmd'] == 1)) {
         final payload = decodedMessage['payload'];
         try {
           final complaintData = ComplaintData.fromJson(payload);
